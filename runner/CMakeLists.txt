@@ -3,12 +3,12 @@ cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 #TODO get from some global config
 set (PROJECT_VERSION "0.8.0")
 
-project(RNBOJackRunner
+project(RNBOOSCQueryRunner
 	VERSION ${PROJECT_VERSION}
 	LANGUAGES CXX
 )
 set(CMAKE_CXX_STANDARD 17)
-set(PROJECT_APP "rnbojack")
+set(PROJECT_APP "rnbooscquery")
 add_definitions(-DRNBO_USE_FLOAT32)
 
 if(NOT CMAKE_BUILD_TYPE)
