@@ -1,0 +1,39 @@
+#!/usr/bin/env ruby
+
+require 'json'
+require 'tmpdir'
+require 'fileutils'
+
+FILE_PATH = File.expand_path(ARGV[0])
+LIB_NAME = ARGV[1]
+CONFIG_FILE = ARGV[2] || File.join(Dir.home, ".config", "rnbo", "runner.json")
+
+#get the rnbo config file
+raise "config file #{CONFIG_FILE} does not exist" unless File.exist?(CONFIG_FILE)
+config = JSON.parse(File.read(CONFIG_FILE))
+
+#get the rnbo c++ source directory
+rnbo_cpp_dir = config['rnbo_cpp_dir']
+raise "no rnbo_cpp_dir in config" unless rnbo_cpp_dir
+rnbo_cpp_dir = File.expand_path(rnbo_cpp_dir)
+raise "#{rnbo_cpp_dir} is not a valid directory" unless Dir.exist?(rnbo_cpp_dir)
+
+#get the shared object build directory (with the CMakeLists.txt), default to the directory containing this file
+so_build_dir = config['so_build_dir'] || File.expand_path(__dir__)
+so_build_dir = File.expand_path(so_build_dir)
+raise "cannot find CMakeLists.txt in #{so_build_dir}" unless File.exist?(File.join(so_build_dir, "CMakeLists.txt"))
+
+#get the the output directory, make it if it doesn't exist
+compile_cache_dir = config['compile_cache_dir']
+raise "no compile_cache_dir in config" unless compile_cache_dir
+compile_cache_dir = File.expand_path(compile_cache_dir)
+FileUtils.mkdir_p(compile_cache_dir)
+
+#compile in a temp directory, then move the shared object to the compile_cache_dir
+Dir.mktmpdir do |dir|
+  Dir.chdir(dir) do
+    raise "cmake failed" unless system("cmake -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{rnbo_cpp_dir} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}")
+    raise "make failed" unless system("make")
+    FileUtils.mv(Dir['*.{so,dll,dylib}'], compile_cache_dir)
+  end
+end
