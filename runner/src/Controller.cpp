@@ -21,7 +21,7 @@ namespace {
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
-	static const std::string build_program("rnbo-compile-so");
+	static std::string build_program("rnbo-compile-so");
 }
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
@@ -53,6 +53,11 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		}, this);
 		mNodes.push_back(c);
 	}
+	{
+		mResponseNode = r.create_string("resp");
+		mResponseNode.set_description("command response");
+		mResponseNode.set_access(opp::access_mode::Get);
+	}
 
 	auto j = r.create_child("jack");
 	mNodes.push_back(j);
@@ -82,10 +87,13 @@ Controller::~Controller() {
 	mCommandThread.join();
 }
 
-void Controller::loadLibrary(const std::string& path) {
+void Controller::loadLibrary(const std::string& path, std::string cmdId) {
 	mAudioActive.set_value(mProcessAudio->setActive(true));
 	if (!mProcessAudio->isActive()) {
 		cerr << "audio is not active, cannot created instance(s)" << endl;
+		if (cmdId.size()) {
+			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "audio not active");
+		}
 		return;
 	}
 	//make sure that no other instances can be created while this is active
@@ -107,6 +115,13 @@ void Controller::loadLibrary(const std::string& path) {
 		instance->start();
 		mInstances.emplace_back(instance);
 	}
+	if (cmdId.size()) {
+		reportCommandResult(cmdId, {
+			{"code", static_cast<unsigned int>(CompileLoadStatus::Loaded)},
+			{"message", "loaded"},
+			{"progress", 100}
+		});
+	}
 }
 
 void Controller::handleActive(bool active) {
@@ -116,7 +131,10 @@ void Controller::handleActive(bool active) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		clearInstances(guard);
 	}
-	mAudioActive.set_value(mProcessAudio->setActive(active));
+	if (mProcessAudio->setActive(active) != active) {
+		cerr << "couldn't set active" << endl;
+		//XXX deffer to setting not active
+	}
 }
 
 void Controller::handleCommand(const opp::value& data) {
@@ -134,6 +152,11 @@ void Controller::processCommands() {
 	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir);
 	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir);
 	fs::create_directories(sourceCache);
+
+	//setup user defined location of the build program, if they've set it
+	std::string configBuildExe = config::get<std::string>(config::key::SOBuildExe);
+	if (configBuildExe.size())
+		build_program = config::make_path(configBuildExe);
 
 	//TODO get from payload
 	std::string fileName = "rnbogenerated.cpp";
@@ -153,33 +176,33 @@ void Controller::processCommands() {
 		}
 
 		auto cmdObj = RNBO::Json::parse(cmdStr);;
-		if (!cmdObj.contains("method")) {
+		if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
 			cerr << "invalid cmd json" << cmdStr << endl;
 			continue;
 		}
+		std::string id = cmdObj["id"];
 		std::string method = cmdObj["method"];
 		if (method == "compile") {
-			if (!cmdObj.contains("params")) {
-				cerr << "cannot find params" << endl;
-				continue;
-			}
 			RNBO::Json params = cmdObj["params"];
-			if (!params.contains("code")) {
-				cerr << "cannot find code" << endl;
+			if (!cmdObj.contains("params") || !params.contains("code")) {
+				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
 				continue;
 			}
-
+			std::string code = params["code"];
 			fs::path generated = fs::absolute(sourceCache / fileName);
 			std::fstream fs;
 			fs.open(generated.u8string(), std::fstream::out | std::fstream::trunc);
 			if (!fs.is_open()) {
-				cerr << "failed to open file " << generated << endl;
+				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.u8string());
 				continue;
 			}
-			std::string code = params["code"];
 			fs << code;
 			fs.close();
-			cout << "got new codegen" << endl;
+			reportCommandResult(id, {
+				{"code", static_cast<unsigned int>(CompileLoadStatus::Received)},
+				{"message", "received"},
+				{"progress", 10}
+			});
 
 			//clear out instances in prep
 			{
@@ -195,15 +218,46 @@ void Controller::processCommands() {
 			std::string buildCmd = build_program + " \"" + generated.u8string() + "\" \"" + libName + "\" \"" + fs::absolute(config::file_path()).u8string() + "\"";
 			auto status = std::system(buildCmd.c_str());
 			if (status != 0) {
-				cerr << "build failed with status " << status << endl;
+				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
 			} else if (fs::exists(libPath)) {
-				loadLibrary(libPath.u8string());
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
+					{"message", "compiled"},
+					{"progress", 90}
+				});
+				loadLibrary(libPath.u8string(), id);
 			} else {
-				cerr << "couldn't find compiled library at " << libPath << endl;
+				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
 			}
 		} else {
 			cerr << "unknown method " << method << endl;
 			continue;
 		}
 	}
+}
+
+void Controller::reportCommandResult(std::string id, RNBO::Json res) {
+	reportCommandStatus(id, { {"result", res} });
+}
+
+
+void Controller::reportCommandError(std::string id, unsigned int code, std::string message) {
+	reportCommandStatus(id, {
+			{ "error",
+			{
+				{ "code", code },
+				{ "message", message }
+			}
+			}
+	});
+}
+
+#include <iostream>
+
+void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
+	obj["jsonrpc"] = "2.0";
+	obj["id"] = id;
+	std::string status = obj.dump();
+	std::cout << "report status " << status << std::endl;
+	mResponseNode.set_value(status);
 }

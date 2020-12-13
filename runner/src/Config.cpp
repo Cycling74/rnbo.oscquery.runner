@@ -28,6 +28,7 @@ namespace {
 	const RNBO::Json config_default = {
 		{config::key::CompileCacheDir, default_so_cache.u8string()},
 		{config::key::SourceCacheDir, default_src_cache.u8string()},
+		{config::key::SOBuildExe, std::string()},
 		{config::key::SOBuildDir, default_src_cache.u8string()},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},

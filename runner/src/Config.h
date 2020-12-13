@@ -5,6 +5,7 @@ namespace config {
 	namespace key {
 		const static std::string SourceCacheDir = "source_cache_dir"; //where do we generated source we get
 		const static std::string CompileCacheDir = "compile_cache_dir"; //where do we store compiled shared objects
+		const static std::string SOBuildExe = "so_build_exe"; //optional path to the executable used for building shared objects, if empty, just uses PATH
 		const static std::string SOBuildDir = "so_build_dir"; //the directory that contains the CMakeLists.txt for building shared objects
 		const static std::string RnboCPPDir = "rnbo_cpp_dir"; //the directory that contains the RNBO c++ source files
 
