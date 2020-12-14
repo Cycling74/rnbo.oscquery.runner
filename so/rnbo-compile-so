@@ -32,7 +32,8 @@ FileUtils.mkdir_p(compile_cache_dir)
 #compile in a temp directory, then move the shared object to the compile_cache_dir
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
-    raise "cmake failed" unless system("cmake -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{rnbo_cpp_dir} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}")
+    cmd = "cmake -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{rnbo_cpp_dir} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}"
+    raise "#{cmd} failed" unless system(cmd)
     raise "make failed" unless system("make")
     FileUtils.mv(Dir['*.{so,dll,dylib}'], compile_cache_dir)
   end
