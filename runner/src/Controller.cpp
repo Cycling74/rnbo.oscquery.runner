@@ -11,6 +11,8 @@
 #include "JackAudio.h"
 #include "PatcherFactory.h"
 
+#define WORKAROUND_OSSIA_REMOVE_BUG
+
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -100,16 +102,18 @@ void Controller::loadLibrary(const std::string& path, std::string cmdId) {
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 	auto factory = PatcherFactory::CreateFactory(path);
 	opp::node instNode;
+	std::string instIndex;
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		clearInstances(guard);
-		instNode = mInstancesNode.create_child("0");
+		instIndex = std::to_string(mInstances.size());
+		instNode = mInstancesNode.create_child(instIndex);
 	}
 	auto builder = [instNode, this](std::function<void(opp::node)> f) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		f(instNode);
 	};
-	auto instance = new Instance(factory, "rnbo0", builder);
+	auto instance = new Instance(factory, "rnbo" + instIndex, builder);
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		instance->start();
@@ -139,13 +143,20 @@ void Controller::handleActive(bool active) {
 
 void Controller::handleCommand(const opp::value& data) {
 	std::lock_guard<std::mutex> guard(mCommandQueueMutex);
-	mCommandQueueCondition.notify_one();
 	mCommandQueue.push(data.to_string());
+	mCommandQueueCondition.notify_one();
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
+	//NOTE there is a bug in ossia, remove_children and remove_child screws up the tree elsewhere, so for now we're simply stopping the other instances
+#ifdef WORKAROUND_OSSIA_REMOVE_BUG
+	for (auto& i: mInstances) {
+		i->close();
+	}
+#else
 	mInstancesNode.remove_children();
 	mInstances.clear();
+#endif
 }
 
 void Controller::processCommands() {
@@ -252,12 +263,9 @@ void Controller::reportCommandError(std::string id, unsigned int code, std::stri
 	});
 }
 
-#include <iostream>
-
 void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 	obj["jsonrpc"] = "2.0";
 	obj["id"] = id;
 	std::string status = obj.dump();
-	std::cout << "report status " << status << std::endl;
 	mResponseNode.set_value(status);
 }

@@ -19,6 +19,8 @@ class Instance {
 
 		void start();
 		void stop();
+		//really just a workaround for now
+		void close();
 	private:
 		struct ValueCallbackHelper;
 		std::vector<opp::node> mNodes;
@@ -28,4 +30,6 @@ class Instance {
 		std::shared_ptr<RNBO::CoreObject> mCore;
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 		std::map<RNBO::ParameterIndex, opp::node> mIndexToNode;
+
+		opp::node mActiveNode;
 };
