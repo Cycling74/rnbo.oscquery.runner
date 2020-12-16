@@ -26,8 +26,7 @@ This currently runs on Linux and Mac, Windows is TBD.
     -DCMAKE_BUILD_TYPE=Debug -DOSSIA_CPP=ON -DOSSIA_CPP_ONLY=ON -DOSSIA_DATAFLOW=OFF -DOSSIA_EDITOR=OFF -DOSSIA_GFX=OFF -DOSSIA_PCH=OFF -DOSSIA_PROTOCOL_ARTNET=OFF -DOSSIA_PROTOCOL_AUDIO=OFF -DOSSIA_PROTOCOL_MIDI=OFF -DOSSIA_PROTOCOL_WIIMOTE=OFF -DOSSIA_PROTOCOL_JOYSTICK=OFF
     ```
 * `ruby` 2.0+ to run the compile script
-  * the `rnbo-compile-so` script should be in your path
-  * the `CMakeLists.txt` file from `./so/` either be in the directory pointed to by the build variable `RNBO_SO_BUILD_DIR` or in a directory pointed to by the config file `${RNBO_CONFIG_DIR}/runner.json` with key `so_build_dir`.
+  * `cmake` should be in your `PATH`.
 
 ### Building
 
