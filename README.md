@@ -21,7 +21,7 @@ This currently runs on Linux and Mac, Windows is TBD.
   * We have a fork with some updates/fixes, those are in the `develop` branch.
   * Alex plans to make this work with conan so others don't have to configure or likely even compile this.
   * check out the develop branch and build with cmake.
-    Alex build with these options:
+    Alex built with these options:
     ```
     -DCMAKE_BUILD_TYPE=Debug -DOSSIA_CPP=ON -DOSSIA_CPP_ONLY=ON -DOSSIA_DATAFLOW=OFF -DOSSIA_EDITOR=OFF -DOSSIA_GFX=OFF -DOSSIA_PCH=OFF -DOSSIA_PROTOCOL_ARTNET=OFF -DOSSIA_PROTOCOL_AUDIO=OFF -DOSSIA_PROTOCOL_MIDI=OFF -DOSSIA_PROTOCOL_WIIMOTE=OFF -DOSSIA_PROTOCOL_JOYSTICK=OFF
     ```
