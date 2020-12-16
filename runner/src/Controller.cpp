@@ -125,6 +125,16 @@ void Controller::loadLibrary(const std::string& path, std::string cmdId) {
 	}
 }
 
+bool Controller::process() {
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		for (auto& i: mInstances)
+			i->processEvents();
+	}
+	//TODO allow for quitting?
+	return true;
+}
+
 void Controller::handleActive(bool active) {
 	//TODO move to another thread?
 	//clear out instances if we're deactivating

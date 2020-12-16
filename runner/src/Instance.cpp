@@ -71,6 +71,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 Instance::~Instance() {
 	stop();
 	mAudio.reset();
+	mEventHandler.reset();
 	mCore.reset();
 	mPatcherFactory.reset();
 }
@@ -81,5 +82,9 @@ void Instance::start() {
 
 void Instance::stop() {
 	mAudio->stop();
+}
+
+void Instance::processEvents() {
+	mEventHandler->processEvents();
 }
 

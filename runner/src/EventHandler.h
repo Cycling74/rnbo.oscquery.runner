@@ -12,6 +12,8 @@ class EventHandler : public RNBO::EventHandler {
 		virtual void handleParameterEvent(RNBO::ParameterEvent event) override;
 		virtual void handleMessageEvent(RNBO::MessageEvent event) override;
 
+		//evaluate any queued events, in the current thread
+		void processEvents();
 	private:
 		ParameterEventCallback mParameterCallback;
 };

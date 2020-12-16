@@ -19,6 +19,8 @@ class Controller {
 		void loadLibrary(const std::string& path, std::string cmdId = std::string());
 		void handleCommand(const opp::value& data);
 		void handleActive(bool active);
+		//returns true until we should quit
+		bool process();
 	private:
 		void clearInstances(std::lock_guard<std::mutex>&);
 		void processCommands();

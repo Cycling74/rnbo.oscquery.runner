@@ -3,6 +3,10 @@
 EventHandler::EventHandler(ParameterEventCallback paramCallback) : mParameterCallback(paramCallback) {
 }
 
+void EventHandler::processEvents() {
+	drainEvents();
+}
+
 void EventHandler::eventsAvailable() {
 	//TODO
 }

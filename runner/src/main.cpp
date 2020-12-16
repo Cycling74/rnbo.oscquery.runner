@@ -48,9 +48,8 @@ int main(int argc, const char * argv[]) {
 	Controller c("rnbo-" + host);
 	if (options["filename"].size())
 		c.loadLibrary(options["filename"]);
-	while (true) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	while (c.process()) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
-
 	return 0;
 }

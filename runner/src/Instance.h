@@ -19,6 +19,8 @@ class Instance {
 
 		void start();
 		void stop();
+		//process any events in the current thread
+		void processEvents();
 	private:
 		struct ValueCallbackHelper;
 		std::vector<opp::node> mNodes;
