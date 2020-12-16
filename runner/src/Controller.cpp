@@ -11,8 +11,6 @@
 #include "JackAudio.h"
 #include "PatcherFactory.h"
 
-#define WORKAROUND_OSSIA_REMOVE_BUG
-
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -39,8 +37,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			}) {
-		auto n = info.create_string(it.first);
-		n.set_access(opp::access_mode::Get);
+		auto n = info.create_string(it.first); n.set_access(opp::access_mode::Get);
 		n.set_value(it.second);
 		mNodes.push_back(n);
 	}
@@ -148,15 +145,8 @@ void Controller::handleCommand(const opp::value& data) {
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
-	//NOTE there is a bug in ossia, remove_children and remove_child screws up the tree elsewhere, so for now we're simply stopping the other instances
-#ifdef WORKAROUND_OSSIA_REMOVE_BUG
-	for (auto& i: mInstances) {
-		i->close();
-	}
-#else
 	mInstancesNode.remove_children();
 	mInstances.clear();
-#endif
 }
 
 void Controller::processCommands() {

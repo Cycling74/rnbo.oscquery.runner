@@ -19,8 +19,6 @@ class Instance {
 
 		void start();
 		void stop();
-		//really just a workaround for now
-		void close();
 	private:
 		struct ValueCallbackHelper;
 		std::vector<opp::node> mNodes;

@@ -34,7 +34,6 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual ~InstanceAudioJack();
 		virtual void start() override;
 		virtual void stop() override;
-		virtual void close() override;
 		virtual bool isActive() override;
 		void process(jack_nframes_t frames);
 	private:

@@ -225,10 +225,6 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 }
 
 InstanceAudioJack::~InstanceAudioJack() {
-	close();
-}
-
-void InstanceAudioJack::close() {
 	stop(); //stop locks
 	{
 		std::lock_guard<std::mutex> guard(mMutex);

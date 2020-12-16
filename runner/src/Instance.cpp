@@ -33,9 +33,6 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
 	builder([this](opp::node root) {
-		//indicate active, workaround for issue with ossia (for now)
-		mActiveNode = root.create_bool("active");
-
 		//setup parameters
 		auto params = root.create_child("params");
 		params.set_description("parameter get/set");
@@ -80,16 +77,9 @@ Instance::~Instance() {
 
 void Instance::start() {
 	mAudio->start();
-	mActiveNode.set_value(true);
 }
 
 void Instance::stop() {
 	mAudio->stop();
-	mActiveNode.set_value(false);
-}
-
-void Instance::close() {
-	mAudio->close();
-	mActiveNode.set_value(false);
 }
 
