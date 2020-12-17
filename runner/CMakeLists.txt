@@ -46,7 +46,15 @@ if (NOT OSSIA_LIB)
 endif()
 message(STATUS "OSSIA_LIB ${OSSIA_LIB}")
 
-set(RNBO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../src/cpp/ CACHE FILEPATH "Location of the RNBO C++ source code")
+find_path(
+	RNBO_DIR
+	NAMES "RNBO.cpp"
+	PATHS
+		${CMAKE_CURRENT_SOURCE_DIR}/../../../src/cpp/
+		~/local/src/rnbo/
+	NO_DEFAULT_PATH
+	DOC "Location of the RNBO C++ source code"
+)
 
 include_directories(
 	./3rdparty/
