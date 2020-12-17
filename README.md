@@ -17,6 +17,7 @@ This currently runs on Linux and Mac, Windows is TBD.
   * `apt-get install jackd`
   * `brew install jack`
   * you likely want `qjackctl` if you're running on you laptop/desktop.
+    * if you want MIDI on Mac OS, you'll want to set your *server prefix* in the *advanced* section of *qjackctl* to `jackd -Xcoremidi`
 * [libossia](https://github.com/cycling74/libossia)
   * We have a fork with some updates/fixes, those are in the `develop` branch.
   * Alex plans to make this work with conan so others don't have to configure or likely even compile this.
