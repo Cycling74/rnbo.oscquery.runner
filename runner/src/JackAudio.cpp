@@ -283,25 +283,31 @@ void InstanceAudioJack::connectToHardware() {
 	}
 
 	if (config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
-		//MIDI, usually the last port is the one we want
-		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical|JackPortIsOutput)) != NULL) {
+		//get port names, ignore 'through' ports
+		auto getPortNames = [](const char ** ports) -> std::vector<std::string> {
 			auto ptr = ports;
-			//get the last port
-			while (*ptr != nullptr && *(ptr + 1) != nullptr)
+			std::vector<std::string> names;
+			while (*ptr != nullptr) {
+				std::string name(*ptr);
+				std::string lower = name;
+				transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+				if (lower.find("through") == std::string::npos)
+					names.push_back(name);
 				ptr++;
-			if (*ptr)
-				jack_connect(mJackClient, *ptr, jack_port_name(mJackMidiIn));
+			}
 			jack_free(ports);
-		}
+			return names;
+		};
 
-		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical|JackPortIsInput)) != NULL) {
-			auto ptr = ports;
-			//get the last port
-			while (*ptr != nullptr && *(ptr + 1) != nullptr)
-				ptr++;
-			if (*ptr)
-				jack_connect(mJackClient, jack_port_name(mJackMidiOut), *ptr);
-			jack_free(ports);
+		//connect to all of the midi ports except 'through' ports
+		std::vector<std::string> names;
+		if ((names = getPortNames(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical|JackPortIsOutput))).size() != 0) {
+			for (auto n: names)
+				jack_connect(mJackClient, n.c_str(), jack_port_name(mJackMidiIn));
+		}
+		if ((names = getPortNames(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical|JackPortIsInput))).size() != 0) {
+			for (auto n: names)
+				jack_connect(mJackClient, jack_port_name(mJackMidiOut), n.c_str());
 		}
 	}
 }
