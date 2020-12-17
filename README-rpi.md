@@ -60,6 +60,23 @@
   cp runner-rpi.json ~/.config/rnbo/runner.json
   ```
 
+# Install the service file
+
+
+  ```shell
+  cd ~/local/src/RNBOOSCQueryRunner/
+  sudo -s
+  cp rnbo.service /lib/systemd/system/rnbo.service
+  systemctl daemon-reload
+  systemctl enable rnbo.service
+  reboot
+  ```
+
+  see the status of the service:
+  ```
+  journalctl -u rnbo
+  ```
+
 # Backup
 
 * find the device:
@@ -74,7 +91,7 @@
     ```
 * backup with dd (**BE CAREFUL**):
   ```shell
-  sudo dd if=/dev/disk5 of=2020-12-02-raspios-buster-armhf-setup.dmg
+  sudo dd if=/dev/disk5 of=2020-12-02-raspios-buster-armhf-setup.dmg bs=1024k status=progress
   ```
 * shrink, on linux:
   * shrink with: [PiShrink](https://github.com/Drewsif/PiShrink)
