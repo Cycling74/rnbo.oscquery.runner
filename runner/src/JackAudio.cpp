@@ -285,17 +285,19 @@ void InstanceAudioJack::connectToHardware() {
 	if (config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
 		//get port names, ignore 'through' ports
 		auto getPortNames = [](const char ** ports) -> std::vector<std::string> {
-			auto ptr = ports;
 			std::vector<std::string> names;
-			while (*ptr != nullptr) {
-				std::string name(*ptr);
-				std::string lower = name;
-				transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-				if (lower.find("through") == std::string::npos)
-					names.push_back(name);
-				ptr++;
+			if (ports) {
+				auto ptr = ports;
+				while (*ptr != nullptr) {
+					std::string name(*ptr);
+					std::string lower = name;
+					transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+					if (lower.find("through") == std::string::npos)
+						names.push_back(name);
+					ptr++;
+				}
+				jack_free(ports);
 			}
-			jack_free(ports);
 			return names;
 		};
 
