@@ -1,0 +1,14 @@
+[Unit]
+  Description=RNBO Service
+  After=sound.target
+
+[Service]
+  Type=idle
+  ExecStart=/home/pi/local/src/RNBOOSCQueryRunner/runner/build/bin/rnbooscquery
+  KillSignal=SIGINT
+  User=pi
+  LimitRTPRIO=infinity
+  LimitMEMLOCK=infinity
+
+[Install]
+  WantedBy=multi-user.target
