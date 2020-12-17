@@ -77,6 +77,12 @@
   journalctl -u rnbo
   ```
 
+# Disable the screen reader audio prompt at startup
+
+```shell
+sudo rm -f /etc/xdg/autostart/piwiz.desktop
+```
+
 # Backup
 
 * find the device:
@@ -99,3 +105,7 @@
 # More reading
 
 * [linux audio rpi notes](https://wiki.linuxaudio.org/wiki/raspberrypi)
+  disable cpu scaling
+  ```shell
+  for cpu in /sys/devices/system/cpu/cpu[0-9]*; do echo -n performance | sudo tee $cpu/cpufreq/scaling_governor; done
+  ```
