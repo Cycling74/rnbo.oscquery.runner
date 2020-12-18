@@ -16,12 +16,11 @@
   ```shell
   sudo -s
   apt-get update && apt-get upgrade -y
-  apt-get -y --no-install-recommends install jackd1 libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-dev ruby
+  apt-get -y --no-install-recommends install jackd2 libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-dev ruby
   ```
-  * *NOTE:* might want to try out `jackd2`, if so, install `a2jmidid` for alsa midi bridging.
 * Configure realtime
   ```shell
-  sudo dpkg-reconfigure jackd1
+  sudo dpkg-reconfigure jackd2
   ```
 * build and install the latest [cmake](https://cmake.org/install/)
 * install conan
@@ -67,6 +66,8 @@
   cd ~/local/src/RNBOOSCQueryRunner/
   sudo -s
   cp rnbo.service /lib/systemd/system/rnbo.service
+  chown root:root /lib/systemd/system/rnbo.service
+  chmod 644 /lib/systemd/system/rnbo.service
   systemctl daemon-reload
   systemctl enable rnbo.service
   reboot
