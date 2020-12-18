@@ -1,14 +1,20 @@
 [Unit]
   Description=RNBO Service
-  After=sound.target
+  After=multi-user.target
+  StartLimitIntervalSec=500
+  StartLimitBurst=5
 
 [Service]
   Type=idle
   ExecStart=/home/pi/local/src/RNBOOSCQueryRunner/runner/build/bin/rnbooscquery
   KillSignal=SIGINT
   User=pi
+  Group=audio
   LimitRTPRIO=infinity
   LimitMEMLOCK=infinity
+  Environment="JACK_NO_AUDIO_RESERVATION=1"
+  Restart=on-failure
+  RestartSec=5s
 
 [Install]
   WantedBy=multi-user.target
