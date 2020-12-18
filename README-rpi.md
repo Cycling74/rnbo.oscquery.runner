@@ -16,7 +16,11 @@
   ```shell
   sudo -s
   apt-get update && apt-get upgrade -y
-  apt-get -y --no-install-recommends install jackd2 libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-dev ruby
+  apt-get -y --no-install-recommends install jackd2 libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev ruby
+  ```
+* uninstall pulse audio
+  ```shell
+  sudo apt-get remove pulseaudio && sudo apt-get -y autoremove
   ```
 * Configure realtime
   ```shell
@@ -110,3 +114,8 @@ sudo rm -f /etc/xdg/autostart/piwiz.desktop
   ```shell
   for cpu in /sys/devices/system/cpu/cpu[0-9]*; do echo -n performance | sudo tee $cpu/cpufreq/scaling_governor; done
   ```
+
+* https://ma.ttias.be/auto-restart-crashed-service-systemd/
+* [jack systemd service](https://bbs.archlinux.org/viewtopic.php?id=165545)
+* [jack 2 systemd service](https://raspberrypi.stackexchange.com/questions/112195/jack-audio-server-can-start-on-cli-but-not-as-a-systemd-service)
+* [headless rpi setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)

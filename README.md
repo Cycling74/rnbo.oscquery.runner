@@ -61,3 +61,8 @@ modifications:
   * `id` is a uuid.
   * method calls may have multiple responces indicating progress.
 
+
+## Notes/Links
+
+* [libossia thread safety](https://github.com/ossia/libossia/issues/656)
+* [osc.js](https://github.com/colinbdclark/osc.js)
