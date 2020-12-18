@@ -282,18 +282,39 @@ void InstanceAudioJack::connectToHardware() {
 		}
 	}
 
+
 	if (config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
+		char* aliases[2];
+		aliases[0] = new char[jack_port_name_size()];
+		aliases[1] = new char[jack_port_name_size()];
+
 		//get port names, ignore 'through' ports
-		auto getPortNames = [](const char ** ports) -> std::vector<std::string> {
+		auto getPortNames = [this, &aliases](const char ** ports) -> std::vector<std::string> {
 			std::vector<std::string> names;
 			if (ports) {
 				auto ptr = ports;
 				while (*ptr != nullptr) {
 					std::string name(*ptr);
-					std::string lower = name;
-					transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-					if (lower.find("through") == std::string::npos)
-						names.push_back(name);
+					auto port = jack_port_by_name(mJackClient, *ptr);
+					if (port) {
+						std::string lower = name;
+						transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+						bool through = lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
+						//lookup through in aliases
+						if (!through) {
+							auto count = jack_port_get_aliases(port, aliases);
+							for (auto i = 0; i < count && !through; i++) {
+								lower = std::string(aliases[i]);
+								transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+								through |= (lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos);
+							}
+						}
+
+						if (!through)
+							names.push_back(name);
+					} else {
+						std::cerr << "can't get port by name " << name << std::endl;
+					}
 					ptr++;
 				}
 				jack_free(ports);
@@ -311,6 +332,9 @@ void InstanceAudioJack::connectToHardware() {
 			for (auto n: names)
 				jack_connect(mJackClient, jack_port_name(mJackMidiOut), n.c_str());
 		}
+
+		delete [] aliases[0];
+		delete [] aliases[1];
 	}
 }
 
