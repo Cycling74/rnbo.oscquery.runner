@@ -60,4 +60,8 @@ class InstanceAudioJack : public InstanceAudio {
 		RNBO::MidiEventList mMIDIInList;
 		std::mutex mMutex;
 		bool mRunning = false;
+
+		//transport sync info
+		jack_position_t mTransportPosLast;
+		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
 };

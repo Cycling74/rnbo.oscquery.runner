@@ -147,6 +147,9 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 		throw new std::runtime_error("couldn't create jack client");
 	jack_set_process_callback(mJackClient, process_jack, this);
 
+	//zero out transport position
+	std::memset(&mTransportPosLast, 0, sizeof(jack_position_t));
+
 	builder([this](opp::node root) {
 		//setup jack
 		auto jack = root.create_child("jack");
@@ -342,6 +345,45 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 	//get the current time
 	auto nowms = mCore->getCurrentTime();
 	//TODO sync to jack's time?
+
+	//query the jack transport
+	{
+		jack_position_t jackPos;
+		auto state = jack_transport_query(mJackClient, &jackPos);
+
+		if (state != mTransportStateLast) {
+			RNBO::TransportEvent event(nowms, state == jack_transport_state_t::JackTransportRolling ? RNBO::TransportState::RUNNING : RNBO::TransportState::STOPPED);
+			mCore->scheduleEvent(event);
+		}
+		//if bbt is valid, check details
+		if (jackPos.valid & JackPositionBBT) {
+			auto lastValid = mTransportPosLast.valid & JackPositionBBT;
+
+			//TODO check bbt_offset valid and compute
+
+			//tempo
+			if (!lastValid || mTransportPosLast.beats_per_minute != jackPos.beats_per_minute) {
+				mCore->scheduleEvent(RNBO::TempoEvent(nowms, jackPos.beats_per_minute));
+			}
+
+			//time sig
+			if (!lastValid || mTransportPosLast.beats_per_bar != jackPos.beats_per_bar || mTransportPosLast.beat_type != jackPos.beat_type) {
+				mCore->scheduleEvent(RNBO::TimeSignatureEvent(nowms, static_cast<int>(std::ceil(jackPos.beats_per_bar)), static_cast<int>(std::ceil(jackPos.beat_type))));
+			}
+
+			//beat time
+			if (!lastValid || mTransportPosLast.beat != jackPos.beat || mTransportPosLast.bar != jackPos.bar || mTransportPosLast.tick != jackPos.tick) {
+				if (jackPos.ticks_per_beat > 0) { //should always be true, but just in case
+					//beat and bar start a 1
+					double beatTime = static_cast<double>(jackPos.beat - 1) + static_cast<double>(jackPos.bar - 1) * jackPos.beats_per_bar + static_cast<double>(jackPos.tick) / jackPos.ticks_per_beat;
+					mCore->scheduleEvent(RNBO::BeatTimeEvent(nowms, beatTime));
+				}
+			}
+		}
+
+		mTransportPosLast = jackPos;
+		mTransportStateLast = state;
+	}
 
 	//get the buffers
 	for (auto i = 0; i < mSampleBufferPtrIn.size(); i++)
