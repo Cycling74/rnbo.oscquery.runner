@@ -375,10 +375,10 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 			if (!lastValid || mTransportPosLast.beat != jackPos.beat || mTransportPosLast.bar != jackPos.bar || mTransportPosLast.tick != jackPos.tick) {
 				if (jackPos.ticks_per_beat > 0.0 && jackPos.beat_type > 0.0) { //should always be true, but just in case
 					//beat and bar start a 1
-					double beatTime = static_cast<double>(jackPos.beat - 1) * jackPos.ticks_per_beat * 4.0 / jackPos.beat_type;
-					beatTime +=  static_cast<double>(jackPos.bar - 1) * jackPos.ticks_per_beat * jackPos.beats_per_bar * 4.0 / jackPos.beat_type;
-					beatTime += static_cast<double>(jackPos.tick);
-					mCore->scheduleEvent(RNBO::BeatTimeEvent(nowms, beatTime / jackPos.ticks_per_beat));
+					double beatTime = static_cast<double>(jackPos.beat - 1) * 4.0 / jackPos.beat_type;
+					beatTime +=  static_cast<double>(jackPos.bar - 1)  * jackPos.beats_per_bar * 4.0 / jackPos.beat_type;
+					beatTime += static_cast<double>(jackPos.tick) / jackPos.ticks_per_beat;
+					mCore->scheduleEvent(RNBO::BeatTimeEvent(nowms, beatTime));
 				}
 			}
 		}
