@@ -10,6 +10,11 @@
 #include "ProcessAudio.h"
 #include "Defines.h"
 
+namespace moodycamel {
+template<typename T, size_t MAX_BLOCK_SIZE>
+class ReaderWriterQueue;
+}
+
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
@@ -35,9 +40,13 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void start() override;
 		virtual void stop() override;
 		virtual bool isActive() override;
+		virtual void poll() override;
 		void process(jack_nframes_t frames);
+		//callback that gets called with jack adds or removes client ports
+		void jackPortRegistration(jack_port_id_t id, int reg);
 	private:
 		void connectToHardware();
+		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
 		std::vector<opp::node> mNodes;
 
@@ -60,6 +69,13 @@ class InstanceAudioJack : public InstanceAudio {
 		RNBO::MidiEventList mMIDIInList;
 		std::mutex mMutex;
 		bool mRunning = false;
+
+		//command queue eventuall if we have more than just ports
+		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+
+		//working buffer for port getting port aliases
+		char * mJackPortAliases[2];
+		std::mutex mPortMutex;
 
 		//transport sync info
 		jack_position_t mTransportPosLast;

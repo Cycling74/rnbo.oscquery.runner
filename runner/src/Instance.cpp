@@ -1,6 +1,7 @@
 #include <memory>
 #include <iostream>
 #include <functional>
+
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
@@ -86,5 +87,6 @@ void Instance::stop() {
 
 void Instance::processEvents() {
 	mEventHandler->processEvents();
+	mAudio->poll();
 }
 

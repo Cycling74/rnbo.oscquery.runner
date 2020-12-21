@@ -61,6 +61,7 @@ include_directories(
 	${RNBO_DIR}
 	"${RNBO_DIR}/common"
 	"${RNBO_DIR}/src"
+	"${RNBO_DIR}/src/3rdparty"
 	#TODO remove alex specific paths
 	"/usr/local/include"
 )

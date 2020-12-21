@@ -1,6 +1,7 @@
 #include "JackAudio.h"
 #include "Config.h"
 #include <jack/midiport.h>
+#include <readerwriterqueue/readerwriterqueue.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -11,9 +12,13 @@ namespace fs = std::filesystem;
 static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), "RNBO SampleValue must be the same size as jack_default_audio_sample_t");
 
 namespace {
-	static int process_jack(jack_nframes_t nframes, void *arg) {
+	static int processJack(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
 		return 0;
+	}
+
+	static void jackPortRegistration(jack_port_id_t id, int reg, void *arg) {
+		reinterpret_cast<InstanceAudioJack *>(arg)->jackPortRegistration(id, reg);
 	}
 
 	std::mutex mJackDRCMutex;
@@ -145,7 +150,14 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
 		throw new std::runtime_error("couldn't create jack client");
-	jack_set_process_callback(mJackClient, process_jack, this);
+	jack_set_process_callback(mJackClient, processJack, this);
+
+	//setup command queue
+	mPortQueue = std::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
+
+	//init aliases
+	mJackPortAliases[0] = new char[jack_port_name_size()];
+	mJackPortAliases[1] = new char[jack_port_name_size()];
 
 	//zero out transport position
 	std::memset(&mTransportPosLast, 0, sizeof(jack_position_t));
@@ -237,12 +249,17 @@ InstanceAudioJack::~InstanceAudioJack() {
 		}
 		//TODO unregister ports?
 	}
+	delete [] mJackPortAliases[0];
+	delete [] mJackPortAliases[1];
 }
 
 void InstanceAudioJack::start() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	//protect against double activate or deactivate
 	if (!mRunning) {
+		if (jack_set_port_registration_callback(mJackClient, ::jackPortRegistration, this) != 0) {
+			std::cerr << "failed to jack_set_port_registration_callback" << std::endl;
+		}
 		jack_activate(mJackClient);
 		//only connects what the config indicates
 		connectToHardware();
@@ -260,6 +277,14 @@ void InstanceAudioJack::stop() {
 
 bool InstanceAudioJack::isActive() {
 	return mRunning;
+}
+
+void InstanceAudioJack::poll() {
+	jack_port_id_t id;
+	//process port registrations
+	while (mPortQueue->try_dequeue(id)) {
+		connectToMidiIf(jack_port_by_id(mJackClient, id));
+	}
 }
 
 void InstanceAudioJack::connectToHardware() {
@@ -287,57 +312,41 @@ void InstanceAudioJack::connectToHardware() {
 
 
 	if (config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
-		char* aliases[2];
-		aliases[0] = new char[jack_port_name_size()];
-		aliases[1] = new char[jack_port_name_size()];
-
-		//get port names, ignore 'through' ports
-		auto getPortNames = [this, &aliases](const char ** ports) -> std::vector<std::string> {
-			std::vector<std::string> names;
-			if (ports) {
-				auto ptr = ports;
-				while (*ptr != nullptr) {
-					std::string name(*ptr);
-					auto port = jack_port_by_name(mJackClient, *ptr);
-					if (port) {
-						std::string lower = name;
-						transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-						bool through = lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
-						//lookup through in aliases
-						if (!through) {
-							auto count = jack_port_get_aliases(port, aliases);
-							for (auto i = 0; i < count && !through; i++) {
-								lower = std::string(aliases[i]);
-								transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-								through |= (lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos);
-							}
-						}
-
-						if (!through)
-							names.push_back(name);
-					} else {
-						std::cerr << "can't get port by name " << name << std::endl;
-					}
-					ptr++;
-				}
-				jack_free(ports);
+		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
+			for (auto ptr = ports; *ptr != nullptr; ptr++) {
+				connectToMidiIf(jack_port_by_name(mJackClient, *ptr));
 			}
-			return names;
+			jack_free(ports);
+		}
+	}
+}
+
+void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
+	std::lock_guard<std::mutex> guard(mPortMutex);
+	//if we can get the port, it isn't ours and it is a midi port
+	if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
+		//ignore through and virtual
+		auto is_through = [](const char * name) -> bool {
+			std::string lower(name);
+			transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+			return lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
 		};
-
-		//connect to all of the midi ports except 'through' ports
-		std::vector<std::string> names;
-		if ((names = getPortNames(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical|JackPortIsOutput))).size() != 0) {
-			for (auto n: names)
-				jack_connect(mJackClient, n.c_str(), jack_port_name(mJackMidiIn));
+		auto name = jack_port_name(port);
+		//ditch if the port is a through or is already connected
+		if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name))
+			return;
+		//check aliases, ditch if it is a virtual or through
+		auto count = jack_port_get_aliases(port, mJackPortAliases);
+		for (auto i = 0; i < count; i++) {
+			if (is_through(mJackPortAliases[i]))
+				return;
 		}
-		if ((names = getPortNames(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical|JackPortIsInput))).size() != 0) {
-			for (auto n: names)
-				jack_connect(mJackClient, jack_port_name(mJackMidiOut), n.c_str());
+		auto flags = jack_port_flags(port);
+		if (flags & JackPortFlags::JackPortIsInput) {
+			jack_connect(mJackClient, jack_port_name(mJackMidiOut), name);
+		} else if (flags & JackPortFlags::JackPortIsOutput) {
+			jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
 		}
-
-		delete [] aliases[0];
-		delete [] aliases[1];
 	}
 }
 
@@ -421,5 +430,13 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 			jack_midi_event_write(midi_buf, frame, e.getData(), e.getLength());
 		}
 		mMIDIOutList.clear();
+	}
+}
+
+void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
+	//auto connect to midi
+	//we only care about new registrations (non zero) as jack will auto disconnect unreg
+	if (mPortQueue && reg != 0 && config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
+		mPortQueue->enqueue(id);
 	}
 }
