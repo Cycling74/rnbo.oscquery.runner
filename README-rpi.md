@@ -107,6 +107,12 @@ sudo rm -f /etc/xdg/autostart/piwiz.desktop
 * shrink, on linux:
   * shrink with: [PiShrink](https://github.com/Drewsif/PiShrink)
 
+# TODO
+
+* Github action that builds the runner.
+* dpkg or apt based installation.
+
+
 # More reading
 
 * [linux audio rpi notes](https://wiki.linuxaudio.org/wiki/raspberrypi)
@@ -119,3 +125,4 @@ sudo rm -f /etc/xdg/autostart/piwiz.desktop
 * [jack systemd service](https://bbs.archlinux.org/viewtopic.php?id=165545)
 * [jack 2 systemd service](https://raspberrypi.stackexchange.com/questions/112195/jack-audio-server-can-start-on-cli-but-not-as-a-systemd-service)
 * [headless rpi setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
+* [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
