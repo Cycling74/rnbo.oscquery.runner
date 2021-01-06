@@ -8,8 +8,10 @@
 #include <condition_variable>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
+
 #include "Instance.h"
 #include "ProcessAudio.h"
+#include "Queue.h"
 
 //An object which controls the whole show
 class Controller {
@@ -48,7 +50,7 @@ class Controller {
 
 		std::atomic<bool> mProcessCommands;
 		std::thread mCommandThread;
-		std::mutex mCommandQueueMutex;
-		std::queue<std::string> mCommandQueue;
+
+		Queue<std::string> mCommandQueue;
 		std::condition_variable mCommandQueueCondition;
 };

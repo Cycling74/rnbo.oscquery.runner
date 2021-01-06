@@ -22,6 +22,7 @@ namespace {
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 	static std::string build_program("rnbo-compile-so");
+	static const std::chrono::milliseconds command_wait_timeout(10);
 }
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
@@ -89,7 +90,6 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 
 Controller::~Controller() {
 	mProcessCommands.store(false);
-	mCommandQueueCondition.notify_one();
 	mCommandThread.join();
 }
 
@@ -159,9 +159,7 @@ void Controller::handleActive(bool active) {
 }
 
 void Controller::handleCommand(const opp::value& data) {
-	std::lock_guard<std::mutex> guard(mCommandQueueMutex);
 	mCommandQueue.push(data.to_string());
-	mCommandQueueCondition.notify_one();
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
@@ -184,18 +182,10 @@ void Controller::processCommands() {
 
 	//wait for commands, then process them
 	while (mProcessCommands.load()) {
-		std::string cmdStr;
-		//lock pop a command if there is one
-		{
-			std::unique_lock<std::mutex> guard(mCommandQueueMutex);
-			if (mCommandQueue.empty()) {
-				mCommandQueueCondition.wait(guard);
-				continue;
-			}
-			cmdStr = mCommandQueue.front();
-			mCommandQueue.pop();
-		}
-
+		auto cmd = mCommandQueue.popTimeout(command_wait_timeout);
+		if (!cmd.has_value())
+			continue;
+		std::string cmdStr = cmd.value();
 		auto cmdObj = RNBO::Json::parse(cmdStr);;
 		if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
 			cerr << "invalid cmd json" << cmdStr << endl;
