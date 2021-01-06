@@ -43,6 +43,13 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	}
 
 	{
+		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
+		//might not be enough to indicate disk space
+		mDiskSpaceNode = info.create_string("disk_bytes_available");
+		updateDiskSpace();
+	}
+
+	{
 		auto c = r.create_string("cmd");
 		c.set_description("command handler");
 		c.set_access(opp::access_mode::Set);
@@ -131,6 +138,9 @@ bool Controller::process() {
 		for (auto& i: mInstances)
 			i->processEvents();
 	}
+	if (mDiskSpacePollNext <= std::chrono::system_clock::now())
+		updateDiskSpace();
+
 	//TODO allow for quitting?
 	return true;
 }
@@ -268,4 +278,15 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 	obj["id"] = id;
 	std::string status = obj.dump();
 	mResponseNode.set_value(status);
+}
+
+void Controller::updateDiskSpace() {
+		//could also look at sample dir?
+		fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir)));
+		auto available = compileCacheSpace.available;
+		if (mDiskSpaceLast != available) {
+			mDiskSpaceLast = available;
+			mDiskSpaceNode.set_value(std::to_string(mDiskSpaceLast));
+		}
+		mDiskSpacePollNext = std::chrono::system_clock::now() + mDiskSpacePollPeriod;
 }

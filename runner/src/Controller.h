@@ -27,11 +27,19 @@ class Controller {
 		void reportCommandResult(std::string id, RNBO::Json res);
 		void reportCommandError(std::string id, unsigned int code, std::string message);
 		void reportCommandStatus(std::string id, RNBO::Json obj);
+
+		void updateDiskSpace();
+
 		opp::oscquery_server mServer;
 		opp::node mInstancesNode;
 		opp::node mResponseNode;
 		std::vector<opp::node> mNodes;
 		std::vector<std::unique_ptr<Instance>> mInstances;
+
+		opp::node mDiskSpaceNode;
+		std::uintmax_t mDiskSpaceLast = 0;
+		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
+		std::chrono::time_point<std::chrono::system_clock> mDiskSpacePollNext;
 
 		std::unique_ptr<ProcessAudio> mProcessAudio;
 		opp::node mAudioActive;
