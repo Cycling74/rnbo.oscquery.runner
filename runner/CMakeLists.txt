@@ -34,7 +34,7 @@ conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
-#find_library(boost INTERFACE IMPORTED)
+find_library(SNDFILE_LIB "sndfile" REQUIRED)
 
 # TODO conan ossia
 #TODO remove alex specific path
@@ -95,4 +95,4 @@ add_executable(${PROJECT_APP}
 	src/PatcherFactory.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
-target_link_libraries(${PROJECT_APP} ${CONAN_LIBS} ${JACK_LIB} ${OSSIA_LIB} ${PLATFORM_LIBS})
+target_link_libraries(${PROJECT_APP} ${CONAN_LIBS} ${JACK_LIB} ${SNDFILE_LIB} ${OSSIA_LIB} ${PLATFORM_LIBS})
