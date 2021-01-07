@@ -32,9 +32,15 @@ conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 	BASIC_SETUP
 	BUILD missing
 )
+
+if(CMAKE_SYSTEM_NAME STREQUAL Linux)
+	set(ConanSettings compiler.libcxx=libstdc++11)
+endif()
+
 conan_cmake_run(REQUIRES base64/0.4.0
 	BASIC_SETUP
 	BUILD missing
+	SETTINGS ${ConanSettings}
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
@@ -68,6 +74,7 @@ include_directories(
 	"${RNBO_DIR}/src/3rdparty"
 	#TODO remove alex specific paths
 	"/usr/local/include"
+	${CONAN_INCLUDES}
 )
 
 add_definitions(-DRNBO_VERSION="${CMAKE_PROJECT_VERSION}")
