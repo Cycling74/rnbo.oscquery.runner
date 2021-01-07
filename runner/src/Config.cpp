@@ -18,6 +18,7 @@ namespace {
 	static fs::path default_so_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "so";
 	static fs::path default_so_build_dir = config::make_path(RNBO_SO_BUILD_DIR);
 	static fs::path default_src_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "src";
+	static fs::path default_datafile_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "datafiles";
 
 	template<typename T>
 		T with_mutex(std::function<T()> f) {
@@ -30,6 +31,7 @@ namespace {
 		{config::key::SourceCacheDir, default_src_cache.u8string()},
 		{config::key::SOBuildExe, std::string()},
 		{config::key::SOBuildDir, default_src_cache.u8string()},
+		{config::key::DataFileDir, default_datafile_dir.u8string()},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},
 		{config::key::HostNameOverride, std::string()},

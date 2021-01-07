@@ -8,6 +8,7 @@ namespace config {
 		const static std::string SOBuildExe = "so_build_exe"; //optional path to the executable used for building shared objects, if empty, just uses PATH
 		const static std::string SOBuildDir = "so_build_dir"; //the directory that contains the CMakeLists.txt for building shared objects
 		const static std::string RnboCPPDir = "rnbo_cpp_dir"; //the directory that contains the RNBO c++ source files
+		const static std::string DataFileDir = "datafile_dir"; //the directory where data (audio) files can be read from or written to
 
 		const static std::string InstanceAutoConnectAudio = "instance_auto_connect_audio"; //if applicable (Jack), should an instance be automatically connected to audio
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi

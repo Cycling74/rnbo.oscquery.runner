@@ -7,5 +7,6 @@
     "rnbo_cpp_dir": "~/dev/max.maxcore/src/cpp",
     "so_build_dir": "~/dev/max.maxcore/examples/RNBOOSCQueryRunner/so/",
     "so_build_exe": "~/dev/max.maxcore/examples/RNBOOSCQueryRunner/so/rnbo-compile-so",
-    "source_cache_dir": "~/.local/share/rnbo/cache/src/"
+    "source_cache_dir": "~/.local/share/rnbo/cache/src/",
+    "datafile_dir": "~/Documents/rnbo/datafiles/"
 }

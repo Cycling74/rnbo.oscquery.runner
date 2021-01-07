@@ -7,5 +7,6 @@
     "rnbo_cpp_dir": "~/local/src/rnbo/",
     "so_build_dir": "~/local/src/RNBOOSCQueryRunner/so/",
     "so_build_exe": "~/local/src/RNBOOSCQueryRunner/so/rnbo-compile-so",
-    "source_cache_dir": "~/.local/share/rnbo/cache/src/"
+    "source_cache_dir": "~/.local/share/rnbo/cache/src/",
+    "datafile_dir": "~/Documents/rnbo/datafiles/"
 }
