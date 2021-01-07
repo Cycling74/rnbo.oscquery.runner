@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <thread>
+#include <atomic>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
 
