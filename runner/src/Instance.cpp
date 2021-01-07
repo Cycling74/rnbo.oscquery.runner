@@ -1,7 +1,10 @@
 #include <memory>
 #include <iostream>
 #include <functional>
+#include <filesystem>
+#include <sndfile.hh>
 
+#include "Config.h"
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
@@ -10,6 +13,8 @@ using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
 using RNBO::ParameterType;
 using RNBO::ParameterValue;
+
+namespace fs = std::filesystem;
 
 namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
@@ -78,15 +83,16 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 		auto dataRefs = root.create_child("data_refs");
 		for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
-			std::string name(mCore->getExternalDataId(index));
+			auto id = mCore->getExternalDataId(index);
+			std::string name(id);
 			auto d = dataRefs.create_string(name);
-			auto h = std::make_shared<ValueCallbackHelper>([this, index](const opp::value& val) {
+			auto h = std::make_shared<ValueCallbackHelper>([this, id](const opp::value& val) {
 					if (val.is_string())
-						mDataRefCommandQueue.push(DataRefCommand(val.to_string(), index));
+						mDataRefCommandQueue.push(DataRefCommand(val.to_string(), id));
 			});
 			d.set_value_callback(valueCallbackTrampoline, h.get());
 			mValueCallbackHelpers.push_back(h);
-			mNodes.push_back(d);
+			mDataRefNodes[id] = d;
 		}
 	});
 	mDataRefThread = std::thread(&Instance::processDataRefCommands, this);
@@ -111,11 +117,45 @@ void Instance::stop() {
 }
 
 void Instance::processDataRefCommands() {
+	fs::path dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+	fs::create_directories(dataFileDir);
+
 	while (mDataRefProcessCommands.load()) {
-		auto cmd = mDataRefCommandQueue.popTimeout(command_wait_timeout);
-		if (!cmd.has_value())
+		auto cmdOpt = mDataRefCommandQueue.popTimeout(command_wait_timeout);
+		if (!cmdOpt.has_value())
 			continue;
-		//TODO
+		auto cmd = cmdOpt.value();
+		mCore->releaseExternalData(cmd.id);
+		mDataRefs.erase(cmd.id);
+
+		if (!cmd.fileName.empty()) {
+			auto filePath = dataFileDir / fs::path(cmd.fileName);
+			if (!fs::exists(filePath)) {
+				std::cerr << "no file at " << filePath << std::endl;
+				//TODO clear node value?
+				continue;
+			}
+			SndfileHandle sndfile(filePath.u8string());
+			if (!sndfile) {
+				std::cerr << "couldn't open as sound file " << filePath << std::endl;
+				//TODO clear node value?
+				continue;
+			}
+
+			//actually read in audio and set the data
+			auto data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
+			auto framesRead = sndfile.readf(&data->front(), sndfile.frames());
+
+			//TODO store file name so we don't double load file?
+			mDataRefs[cmd.id] = data;
+
+			//set the dataref data
+			RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
+			mCore->setExternalData(cmd.id, reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
+					//hold onto data shared_ptr until rnbo stops using it
+					data.reset();
+			});
+		}
 	}
 }
 

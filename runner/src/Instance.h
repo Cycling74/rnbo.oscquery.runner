@@ -30,8 +30,8 @@ class Instance {
 		class ValueCallbackHelper;
 		struct DataRefCommand {
 			std::string fileName;
-			RNBO::DataRefIndex index;
-			DataRefCommand(std::string inFileName, RNBO::DataRefIndex inIndex) : fileName(inFileName), index(inIndex) {}
+			RNBO::ExternalDataId id;
+			DataRefCommand(std::string inFileName, RNBO::ExternalDataId inId) : fileName(inFileName), id(inId) {}
 		};
 		void processDataRefCommands();
 		static void valueCallbackTrampoline(void* context, const opp::value& val);
@@ -48,8 +48,11 @@ class Instance {
 
 		opp::node mActiveNode;
 
+		//queue for loading or unloading data refs
 		Queue<DataRefCommand> mDataRefCommandQueue;
-		std::unordered_map<RNBO::DataRefIndex, std::vector<float>> mDataRefs;
+		//only accessed in the data ref thread
+		std::unordered_map<RNBO::ExternalDataId, std::shared_ptr<std::vector<float>>> mDataRefs;
+		std::unordered_map<RNBO::ExternalDataId, opp::node> mDataRefNodes;
 		std::thread mDataRefThread;
 		std::atomic<bool> mDataRefProcessCommands;
 };
