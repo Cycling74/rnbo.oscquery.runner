@@ -100,7 +100,9 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	auto datarefs = conf["datarefs"];
 	if (datarefs.is_object()) {
 		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
-			mDataRefCommandQueue.push(DataRefCommand(it.value(), it.key().c_str()));
+			std::string value = it.value();
+			if (value.size() > 0)
+				mDataRefCommandQueue.push(DataRefCommand(value, it.key().c_str()));
 		}
 	}
 	mDataRefThread = std::thread(&Instance::processDataRefCommands, this);
