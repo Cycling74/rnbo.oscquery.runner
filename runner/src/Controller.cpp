@@ -94,7 +94,7 @@ Controller::~Controller() {
 	mCommandThread.join();
 }
 
-void Controller::loadLibrary(const std::string& path, std::string cmdId) {
+void Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf) {
 	mAudioActive.set_value(mProcessAudio->setActive(true));
 	if (!mProcessAudio->isActive()) {
 		cerr << "audio is not active, cannot created instance(s)" << endl;
@@ -118,7 +118,7 @@ void Controller::loadLibrary(const std::string& path, std::string cmdId) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		f(instNode);
 	};
-	auto instance = new Instance(factory, "rnbo" + instIndex, builder);
+	auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf);
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		instance->start();
@@ -240,7 +240,7 @@ void Controller::processCommands() {
 						{"message", "compiled"},
 						{"progress", 90}
 					});
-					loadLibrary(libPath.u8string(), id);
+					loadLibrary(libPath.u8string(), id, params["config"]);
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
 				}

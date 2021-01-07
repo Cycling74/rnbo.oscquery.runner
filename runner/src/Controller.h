@@ -16,7 +16,7 @@ class Controller {
 	public:
 		Controller(std::string server_name = "rnbo");
 		~Controller();
-		void loadLibrary(const std::string& path, std::string cmdId = std::string());
+		void loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr);
 		void handleCommand(const opp::value& data);
 		void handleActive(bool active);
 		//returns true until we should quit

@@ -37,7 +37,7 @@ void Instance::valueCallbackTrampoline(void* context, const opp::value& val) {
 		helper->call(val);
 }
 
-Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
+Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
 	//RNBO is telling us we have a parameter update, tell ossia
 	auto paramCallback = [this](RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 		auto it = mIndexToNode.find(index);
@@ -95,6 +95,14 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			mDataRefNodes[id] = d;
 		}
 	});
+
+	//auto load data refs
+	auto datarefs = conf["datarefs"];
+	if (datarefs.is_object()) {
+		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+			mDataRefCommandQueue.push(DataRefCommand(it.value(), it.key().c_str()));
+		}
+	}
 	mDataRefThread = std::thread(&Instance::processDataRefCommands, this);
 }
 
@@ -125,7 +133,7 @@ void Instance::processDataRefCommands() {
 		if (!cmdOpt.has_value())
 			continue;
 		auto cmd = cmdOpt.value();
-		mCore->releaseExternalData(cmd.id);
+		mCore->releaseExternalData(cmd.id.c_str());
 		mDataRefs.erase(cmd.id);
 
 		if (!cmd.fileName.empty()) {
@@ -151,7 +159,7 @@ void Instance::processDataRefCommands() {
 
 			//set the dataref data
 			RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-			mCore->setExternalData(cmd.id, reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
+			mCore->setExternalData(cmd.id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
 					//hold onto data shared_ptr until rnbo stops using it
 					data.reset();
 			});
