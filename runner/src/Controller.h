@@ -3,9 +3,7 @@
 #include <vector>
 #include <mutex>
 #include <thread>
-#include <queue>
 #include <atomic>
-#include <condition_variable>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
 
@@ -52,5 +50,4 @@ class Controller {
 		std::thread mCommandThread;
 
 		Queue<std::string> mCommandQueue;
-		std::condition_variable mCommandQueueCondition;
 };
