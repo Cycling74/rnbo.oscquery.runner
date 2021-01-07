@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <utility>
 #include <chrono>
+#include <libbase64.h>
 
 #include "Controller.h"
 #include "Config.h"
@@ -170,79 +171,120 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 void Controller::processCommands() {
 	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir);
 	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir);
+	fs::path dataFileDir = config::get<fs::path>(config::key::DataFileDir);
 	fs::create_directories(sourceCache);
+	fs::create_directories(dataFileDir);
 
 	//setup user defined location of the build program, if they've set it
 	std::string configBuildExe = config::get<std::string>(config::key::SOBuildExe);
 	if (configBuildExe.size())
 		build_program = config::make_path(configBuildExe);
 
-	//TODO get from payload
-	std::string fileName = "rnbogenerated.cpp";
-
 	//wait for commands, then process them
 	while (mProcessCommands.load()) {
-		auto cmd = mCommandQueue.popTimeout(command_wait_timeout);
-		if (!cmd.has_value())
-			continue;
-		std::string cmdStr = cmd.value();
-		auto cmdObj = RNBO::Json::parse(cmdStr);;
-		if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
-			cerr << "invalid cmd json" << cmdStr << endl;
-			continue;
-		}
-		std::string id = cmdObj["id"];
-		std::string method = cmdObj["method"];
-		if (method == "compile") {
+		try {
+			auto cmd = mCommandQueue.popTimeout(command_wait_timeout);
+			if (!cmd.has_value())
+				continue;
+			std::string cmdStr = cmd.value();
+			auto cmdObj = RNBO::Json::parse(cmdStr);;
+			if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
+				cerr << "invalid cmd json" << cmdStr << endl;
+				continue;
+			}
+			std::string id = cmdObj["id"];
+			std::string method = cmdObj["method"];
 			RNBO::Json params = cmdObj["params"];
-			if (!cmdObj.contains("params") || !params.contains("code")) {
-				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
-				continue;
-			}
-			std::string code = params["code"];
-			fs::path generated = fs::absolute(sourceCache / fileName);
-			std::fstream fs;
-			fs.open(generated.u8string(), std::fstream::out | std::fstream::trunc);
-			if (!fs.is_open()) {
-				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.u8string());
-				continue;
-			}
-			fs << code;
-			fs.close();
-			reportCommandResult(id, {
-				{"code", static_cast<unsigned int>(CompileLoadStatus::Received)},
-				{"message", "received"},
-				{"progress", 10}
-			});
+			if (method == "compile") {
+				//TODO get from payload
+				std::string fileName = "rnbogenerated.cpp";
 
-			//clear out instances in prep
-			{
-				std::lock_guard<std::mutex> guard(mBuildMutex);
-				clearInstances(guard);
-			}
-
-			//create library name, based on time so we don't have to unload existing
-			std::string libName = "RNBORunnerSO" + std::to_string(std::chrono::seconds(std::time(NULL)).count());
-
-			fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
-			//program path_to_generated.cpp libraryName pathToConfigFile
-			std::string buildCmd = build_program + " \"" + generated.u8string() + "\" \"" + libName + "\" \"" + fs::absolute(config::file_path()).u8string() + "\"";
-			auto status = std::system(buildCmd.c_str());
-			if (status != 0) {
-				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
-			} else if (fs::exists(libPath)) {
+				if (!cmdObj.contains("params") || !params.contains("code")) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
+					continue;
+				}
+				std::string code = params["code"];
+				fs::path generated = fs::absolute(sourceCache / fileName);
+				std::fstream fs;
+				fs.open(generated.u8string(), std::fstream::out | std::fstream::trunc);
+				if (!fs.is_open()) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.u8string());
+					continue;
+				}
+				fs << code;
+				fs.close();
 				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
-					{"message", "compiled"},
-					{"progress", 90}
+					{"code", static_cast<unsigned int>(CompileLoadStatus::Received)},
+					{"message", "received"},
+					{"progress", 10}
 				});
-				loadLibrary(libPath.u8string(), id);
+
+				//clear out instances in prep
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+					clearInstances(guard);
+				}
+
+				//create library name, based on time so we don't have to unload existing
+				std::string libName = "RNBORunnerSO" + std::to_string(std::chrono::seconds(std::time(NULL)).count());
+
+				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
+				//program path_to_generated.cpp libraryName pathToConfigFile
+				std::string buildCmd = build_program + " \"" + generated.u8string() + "\" \"" + libName + "\" \"" + fs::absolute(config::file_path()).u8string() + "\"";
+				auto status = std::system(buildCmd.c_str());
+				if (status != 0) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
+				} else if (fs::exists(libPath)) {
+					reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
+						{"message", "compiled"},
+						{"progress", 90}
+					});
+					loadLibrary(libPath.u8string(), id);
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
+				}
+			} else if (method == "write_datafile") {
+				if (!cmdObj.contains("params") || !params.contains("data") || !params.contains("filename")) {
+					reportCommandError(id, static_cast<unsigned int>(DataFileWriteError::InvalidRequestObject), "request object invalid");
+					continue;
+				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(DataFileWriteStatus::Received)},
+					{"message", "received"},
+					{"progress", 1}
+				});
+
+				std::string fileName = params["filename"];
+				fs::path filePath = dataFileDir / fs::path(fileName);
+				std::fstream fs;
+				fs.open(filePath.u8string(), std::fstream::out | std::fstream::trunc | std::fstream::binary);
+				if (!fs.is_open()) {
+					reportCommandError(id, static_cast<unsigned int>(DataFileWriteError::WriteFailed), "failed to open file for write: " + filePath.u8string());
+					continue;
+				}
+
+				std::string data = params["data"];
+				std::vector<char> out(data.size()); //out will be smaller than the in data
+				size_t read = 0;
+				if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
+					reportCommandError(id, static_cast<unsigned int>(DataFileWriteError::DecodeFailed), "failed to decode data");
+					continue;
+				}
+				fs.write(&out.front(), sizeof(char) * read);
+				fs.close();
+
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(DataFileWriteStatus::Written)},
+					{"message", "written"},
+					{"progress", 100}
+				});
 			} else {
-				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
+				cerr << "unknown method " << method << endl;
+				continue;
 			}
-		} else {
-			cerr << "unknown method " << method << endl;
-			continue;
+		} catch (std::exception& e) {
+			cerr << "exception processing command" << e.what() << endl;
 		}
 	}
 }

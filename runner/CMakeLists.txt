@@ -32,6 +32,10 @@ conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 	BASIC_SETUP
 	BUILD missing
 )
+conan_cmake_run(REQUIRES base64/0.4.0
+	BASIC_SETUP
+	BUILD missing
+)
 
 find_library(JACK_LIB "jack" REQUIRED)
 find_library(SNDFILE_LIB "sndfile" REQUIRED)

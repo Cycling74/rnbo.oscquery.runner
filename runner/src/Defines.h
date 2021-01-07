@@ -24,3 +24,15 @@ enum class CompileLoadError : unsigned int {
 	InvalidRequestObject = 4,
 	AudioNotActive = 5,
 };
+
+enum class DataFileWriteStatus : unsigned int {
+	Received = 0,
+	Written = 1,
+};
+
+enum class DataFileWriteError : unsigned int {
+	Unknown = 0,
+	WriteFailed = 1,
+	DecodeFailed = 2,
+	InvalidRequestObject = 3,
+};
