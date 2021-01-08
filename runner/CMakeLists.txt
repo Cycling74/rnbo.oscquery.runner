@@ -38,9 +38,7 @@ conan_cmake_run(
 	REQUIRES
 	CONANFILE 3rdparty/ossia/conanfile.py
 	BASIC_SETUP
-	CMAKE_TARGETS
 	BUILD missing
-	IMPORTS "lib, *.dylib* -> ./bin"
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL Linux)
