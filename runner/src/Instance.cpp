@@ -64,13 +64,12 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			p.set_max(info.max);
 			p.set_bounding(opp::bounding_mode::Clip);
 
-			//set the callback, using our helper
-			auto h = std::make_shared<ValueCallbackHelper>([this, index](const opp::value& val) {
-					if (val.is_float())
-						mCore->setParameterValue(index, val.to_float());
-			});
-			p.set_value_callback(ValueCallbackHelper::trampoline, h.get());
-			mValueCallbackHelpers.push_back(h);
+			ValueCallbackHelper::setCallback(
+				p, mValueCallbackHelpers,
+				[this, index](const opp::value& val) {
+				if (val.is_float())
+					mCore->setParameterValue(index, val.to_float());
+				});
 			mIndexToNode[index] = p;
 			mNodes.push_back(p);
 		}
@@ -81,12 +80,12 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			auto id = mCore->getExternalDataId(index);
 			std::string name(id);
 			auto d = dataRefs.create_string(name);
-			auto h = std::make_shared<ValueCallbackHelper>([this, id](const opp::value& val) {
-					if (val.is_string())
-						mDataRefCommandQueue.push(DataRefCommand(val.to_string(), id));
-			});
-			d.set_value_callback(ValueCallbackHelper::trampoline, h.get());
-			mValueCallbackHelpers.push_back(h);
+			ValueCallbackHelper::setCallback(
+				d, mValueCallbackHelpers,
+					[this, id](const opp::value& val) {
+						if (val.is_string())
+							mDataRefCommandQueue.push(DataRefCommand(val.to_string(), id));
+				});
 			mDataRefNodes[id] = d;
 		}
 
@@ -102,14 +101,14 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 		auto load = presets.create_string("load");
 		load.set_access(opp::access_mode::Set);
-		auto h = std::make_shared<ValueCallbackHelper>([this](const opp::value& val) {
-			//TODO do we want to move this to another thread?
-			if (val.is_string()) {
-				loadPreset(val.to_string());
-			}
-		});
-		load.set_value_callback(ValueCallbackHelper::trampoline, h.get());
-		mValueCallbackHelpers.push_back(h);
+		ValueCallbackHelper::setCallback(
+			load, mValueCallbackHelpers,
+			[this](const opp::value& val) {
+				//TODO do we want to move this to another thread?
+				if (val.is_string()) {
+					loadPreset(val.to_string());
+				}
+			});
 
 		mNodes.push_back(presets);
 		mNodes.push_back(entries);
