@@ -8,6 +8,7 @@
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
+#include "ValueCallbackHelper.h"
 
 using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
@@ -18,23 +19,6 @@ namespace fs = std::filesystem;
 
 namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
-}
-
-//helper for c-style callback from ossia, so that we can use std func with captures.
-class Instance::ValueCallbackHelper {
-	public:
-		ValueCallbackHelper(std::function<void(const opp::value& val)> func) : mFunc(func) { }
-		void call(const opp::value& val) {
-			mFunc(val);
-		}
-	private:
-		std::function<void(const opp::value& val)> mFunc;
-};
-
-void Instance::valueCallbackTrampoline(void* context, const opp::value& val) {
-	Instance::ValueCallbackHelper * helper = reinterpret_cast<Instance::ValueCallbackHelper *>(context);
-	if (helper)
-		helper->call(val);
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
@@ -85,7 +69,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					if (val.is_float())
 						mCore->setParameterValue(index, val.to_float());
 			});
-			p.set_value_callback(valueCallbackTrampoline, h.get());
+			p.set_value_callback(ValueCallbackHelper::trampoline, h.get());
 			mValueCallbackHelpers.push_back(h);
 			mIndexToNode[index] = p;
 			mNodes.push_back(p);
@@ -101,7 +85,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					if (val.is_string())
 						mDataRefCommandQueue.push(DataRefCommand(val.to_string(), id));
 			});
-			d.set_value_callback(valueCallbackTrampoline, h.get());
+			d.set_value_callback(ValueCallbackHelper::trampoline, h.get());
 			mValueCallbackHelpers.push_back(h);
 			mDataRefNodes[id] = d;
 		}
@@ -124,7 +108,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				loadPreset(val.to_string());
 			}
 		});
-		load.set_value_callback(valueCallbackTrampoline, h.get());
+		load.set_value_callback(ValueCallbackHelper::trampoline, h.get());
 		mValueCallbackHelpers.push_back(h);
 
 		mNodes.push_back(presets);

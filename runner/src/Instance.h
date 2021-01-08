@@ -17,6 +17,7 @@
 #include "Queue.h"
 
 class PatcherFactory;
+class ValueCallbackHelper;
 
 class Instance {
 	public:
@@ -30,14 +31,12 @@ class Instance {
 
 		void loadPreset(std::string name);
 	private:
-		class ValueCallbackHelper;
 		struct DataRefCommand {
 			std::string fileName;
 			std::string id;
 			DataRefCommand(std::string inFileName, RNBO::ExternalDataId inId) : fileName(inFileName), id(inId) {}
 		};
 		void processDataRefCommands();
-		static void valueCallbackTrampoline(void* context, const opp::value& val);
 
 		std::vector<opp::node> mNodes;
 		std::unique_ptr<InstanceAudio> mAudio;

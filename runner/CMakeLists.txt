@@ -104,6 +104,7 @@ add_executable(${PROJECT_APP}
 	src/EventHandler.cpp
 	src/JackAudio.cpp
 	src/PatcherFactory.cpp
+	src/ValueCallbackHelper.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
 target_link_libraries(${PROJECT_APP} ${CONAN_LIBS} ${JACK_LIB} ${SNDFILE_LIB} ${OSSIA_LIB} ${PLATFORM_LIBS})
