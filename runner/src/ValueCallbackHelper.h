@@ -15,7 +15,7 @@ class ValueCallbackHelper {
 		//utility function to add callback to node and store it the callback object in the vector for lifetime control
 		static void setCallback(
 				opp::node& node,
-				std::vector<std::shared_ptr<ValueCallbackHelper>> storage,
+				std::vector<std::shared_ptr<ValueCallbackHelper>>& storage,
 				callback cb);
 
 		ValueCallbackHelper(std::function<void(const opp::value& val)> func);

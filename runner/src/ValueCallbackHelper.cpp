@@ -8,7 +8,7 @@ void ValueCallbackHelper::trampoline(void* context, const opp::value& val) {
 
 void ValueCallbackHelper::setCallback(
 		opp::node& node,
-		std::vector<std::shared_ptr<ValueCallbackHelper>> storage,
+		std::vector<std::shared_ptr<ValueCallbackHelper>>& storage,
 		callback cb) {
 		auto h = std::make_shared<ValueCallbackHelper>(cb);
 		node.set_value_callback(ValueCallbackHelper::trampoline, h.get());
