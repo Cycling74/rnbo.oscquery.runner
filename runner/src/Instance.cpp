@@ -49,6 +49,17 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
+	//parse out presets
+	auto presets = conf["presets"];
+	if (presets.is_object()) {
+		for (auto it = presets.begin(); it != presets.end(); ++it) {
+			auto presetJson = it.value();
+			RNBO::PresetPtr preset = std::make_shared<RNBO::Preset>();
+			RNBO::convertJSONObjToPreset(presetJson, *preset);
+			mPresets[it.key()] = std::move(preset);
+		}
+	}
+
 	builder([this](opp::node root) {
 		//setup parameters
 		auto params = root.create_child("params");
@@ -94,6 +105,31 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			mValueCallbackHelpers.push_back(h);
 			mDataRefNodes[id] = d;
 		}
+
+		//indicate the presets
+		auto presets = root.create_child("presets");
+		auto entries = presets.create_list("entries");
+		entries.set_access(opp::access_mode::Get);
+		std::vector<opp::value> names;
+		for (auto &kv : mPresets) {
+			names.push_back(opp::value(kv.first));
+		}
+		entries.set_value(opp::value(names));
+
+		auto load = presets.create_string("load");
+		load.set_access(opp::access_mode::Set);
+		auto h = std::make_shared<ValueCallbackHelper>([this](const opp::value& val) {
+			//TODO do we want to move this to another thread?
+			if (val.is_string()) {
+				loadPreset(val.to_string());
+			}
+		});
+		load.set_value_callback(valueCallbackTrampoline, h.get());
+		mValueCallbackHelpers.push_back(h);
+
+		mNodes.push_back(presets);
+		mNodes.push_back(entries);
+		mNodes.push_back(load);
 	});
 
 	//auto load data refs
@@ -174,3 +210,15 @@ void Instance::processEvents() {
 	mAudio->poll();
 }
 
+void Instance::loadPreset(std::string name) {
+	std::lock_guard<std::mutex> guard(mPresetMutex);
+	auto it = mPresets.find(name);
+	if (it == mPresets.end()) {
+		std::cerr << "couldn't find preset with name " << name << std::endl;
+		return;
+	}
+	RNBO::UniquePresetPtr preset = std::make_unique<RNBO::Preset>();
+	auto shared = it->second;
+	RNBO::copyPreset(*shared, *preset);
+	mCore->setPreset(std::move(preset));
+}

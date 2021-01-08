@@ -6,6 +6,7 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+#include <mutex>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
 
@@ -27,6 +28,7 @@ class Instance {
 		//process any events in the current thread
 		void processEvents();
 
+		void loadPreset(std::string name);
 	private:
 		class ValueCallbackHelper;
 		struct DataRefCommand {
@@ -56,4 +58,8 @@ class Instance {
 		std::unordered_map<std::string, opp::node> mDataRefNodes;
 		std::thread mDataRefThread;
 		std::atomic<bool> mDataRefProcessCommands;
+
+		//presets
+		std::unordered_map<std::string, RNBO::PresetPtr> mPresets;
+		std::mutex mPresetMutex;
 };
