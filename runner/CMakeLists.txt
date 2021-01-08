@@ -86,7 +86,7 @@ include_directories(
 	"${RNBO_DIR}/src/3rdparty"
 	#TODO remove alex specific paths
 	"/usr/local/include"
-	${CONAN_INCLUDES}
+	${CONAN_INCLUDE_DIRS}
 )
 
 add_definitions(-DRNBO_VERSION="${CMAKE_PROJECT_VERSION}")
