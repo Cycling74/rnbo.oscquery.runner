@@ -3,6 +3,7 @@
 #include <functional>
 #include <filesystem>
 #include <sndfile.hh>
+#include <readerwriterqueue/readerwriterqueue.h>
 
 #include "Config.h"
 #include "Instance.h"
@@ -32,6 +33,8 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
+
+	mPresetSavedQueue = std::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
 
 	//parse out presets
 	auto presets = conf["presets"];
@@ -91,15 +94,28 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 		//indicate the presets
 		auto presets = root.create_child("presets");
-		auto entries = presets.create_list("entries");
-		entries.set_access(opp::access_mode::Get);
-		std::vector<opp::value> names;
-		for (auto &kv : mPresets) {
-			names.push_back(opp::value(kv.first));
-		}
-		entries.set_value(opp::value(names));
+		mPresetEntires = presets.create_list("entries");
+		mPresetEntires.set_description("a list of presets that can be loaded");
+		mPresetEntires.set_access(opp::access_mode::Get);
+		updatePresetEntries();
+
+		//save preset, pass name
+		auto save = presets.create_string("save");
+		save.set_description("save the current settings as a preset with the given name");
+		save.set_access(opp::access_mode::Set);
+		ValueCallbackHelper::setCallback(
+			save, mValueCallbackHelpers,
+			[this](const opp::value& val) {
+				if (val.is_string()) {
+					std::string name = val.to_string();
+					mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
+							mPresetSavedQueue->try_enqueue(std::make_pair(name, preset));
+					});
+				}
+			});
 
 		auto load = presets.create_string("load");
+		load.set_description("load a preset with the given name");
 		load.set_access(opp::access_mode::Set);
 		ValueCallbackHelper::setCallback(
 			load, mValueCallbackHelpers,
@@ -111,7 +127,6 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			});
 
 		mNodes.push_back(presets);
-		mNodes.push_back(entries);
 		mNodes.push_back(load);
 	});
 
@@ -191,6 +206,17 @@ void Instance::processDataRefCommands() {
 void Instance::processEvents() {
 	mEventHandler->processEvents();
 	mAudio->poll();
+
+	//store any presets that we got
+	std::pair<std::string, RNBO::ConstPresetPtr> namePreset;
+	bool updated = false;
+	while (mPresetSavedQueue->try_dequeue(namePreset)) {
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		updated = true;
+		mPresets[namePreset.first] = namePreset.second;
+	}
+	if (updated)
+		updatePresetEntries();
 }
 
 void Instance::loadPreset(std::string name) {
@@ -204,4 +230,13 @@ void Instance::loadPreset(std::string name) {
 	auto shared = it->second;
 	RNBO::copyPreset(*shared, *preset);
 	mCore->setPreset(std::move(preset));
+}
+
+void Instance::updatePresetEntries() {
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		std::vector<opp::value> names;
+		for (auto &kv : mPresets) {
+			names.push_back(opp::value(kv.first));
+		}
+		mPresetEntires.set_value(opp::value(names));
 }

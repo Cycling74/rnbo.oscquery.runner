@@ -18,6 +18,10 @@
 
 class PatcherFactory;
 class ValueCallbackHelper;
+namespace moodycamel {
+template<typename T, size_t MAX_BLOCK_SIZE>
+class ReaderWriterQueue;
+}
 
 class Instance {
 	public:
@@ -37,6 +41,7 @@ class Instance {
 			DataRefCommand(std::string inFileName, RNBO::ExternalDataId inId) : fileName(inFileName), id(inId) {}
 		};
 		void processDataRefCommands();
+		void updatePresetEntries();
 
 		std::vector<opp::node> mNodes;
 		std::unique_ptr<InstanceAudio> mAudio;
@@ -59,6 +64,10 @@ class Instance {
 		std::atomic<bool> mDataRefProcessCommands;
 
 		//presets
-		std::unordered_map<std::string, RNBO::PresetPtr> mPresets;
+		opp::node mPresetEntires;
+		std::unordered_map<std::string, RNBO::ConstPresetPtr> mPresets;
 		std::mutex mPresetMutex;
+
+		//callback data from RNBO, a name and a ptr
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;
 };
