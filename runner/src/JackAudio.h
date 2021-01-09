@@ -70,7 +70,7 @@ class InstanceAudioJack : public InstanceAudio {
 		std::mutex mMutex;
 		bool mRunning = false;
 
-		//command queue eventuall if we have more than just ports
+		//command queue eventually if we have more than just ports
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
 
 		//working buffer for port getting port aliases
