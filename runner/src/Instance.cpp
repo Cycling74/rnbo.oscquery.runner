@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 
 namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
-	static const std::string kinitial_preset = "preset_initial";
+	static const std::string initial_preset_key = "preset_initial";
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
@@ -142,7 +142,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	}
 
 	//load the last preset, if it is in the config
-	auto presetLatest = conf[kinitial_preset];
+	auto presetLatest = conf[initial_preset_key];
 	if (presetLatest.is_string()) {
 		loadPreset(presetLatest);
 	}
@@ -238,7 +238,8 @@ RNBO::Json Instance::currentConfig() {
 		for (auto& kv: mPresets)
 			presets[kv.first] = RNBO::convertPresetToJSONObj(*kv.second);
 		//indicate the initial preset if we loaded this config again
-		config[kinitial_preset] = mPresetLatest;
+		if (!mPresetLatest.empty())
+			config[initial_preset_key] = mPresetLatest;
 	}
 	//copy datarefs
 	{
