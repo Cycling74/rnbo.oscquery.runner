@@ -1,5 +1,6 @@
 #include <chrono>
 #include <thread>
+#include <filesystem>
 #include <OptionParser.h>
 
 #include "Controller.h"
@@ -12,6 +13,8 @@
 using optparse::OptionParser;
 using std::cout;
 using std::endl;
+
+namespace fs = std::filesystem;
 
 int main(int argc, const char * argv[]) {
 	OptionParser parser = OptionParser().description("rnbo so runner");
@@ -43,6 +46,9 @@ int main(int argc, const char * argv[]) {
 		gethostname(hostname, _POSIX_HOST_NAME_MAX);
 		host = std::string(hostname);
 	}
+
+	//make sure our data directory exists, so we can write to it
+	fs::create_directories(config::get<fs::path>(config::key::DataFileDir));
 
 	//TODO figure out why the sidebar doesn't like colons in names.. would like this to be "rnbo:hostname"
 	Controller c("rnbo-" + host);
