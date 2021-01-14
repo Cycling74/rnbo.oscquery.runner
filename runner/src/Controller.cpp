@@ -275,6 +275,21 @@ void Controller::processCommands() {
 	if (configBuildExe.size())
 		build_program = config::make_path(configBuildExe);
 
+	//helper to validate and report as there are 2 different commands
+	auto validateDataFileCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, bool withData) -> bool {
+		//TODO assert that filename doesn't contain slashes so you can't specify files outside of the data dir?
+		if (!cmdObj.contains("params") || !params.contains("filename") || (withData && !params.contains("data"))) {
+			reportCommandError(id, static_cast<unsigned int>(DataFileCommandError::InvalidRequestObject), "request object invalid");
+			return false;
+		}
+		reportCommandResult(id, {
+			{"code", static_cast<unsigned int>(DataFileCommandStatus::Received)},
+			{"message", "received"},
+			{"progress", 1}
+		});
+		return true;
+	};
+
 	//wait for commands, then process them
 	while (mProcessCommands.load()) {
 		try {
@@ -339,23 +354,31 @@ void Controller::processCommands() {
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
 				}
-			} else if (method == "write_datafile") {
-				if (!cmdObj.contains("params") || !params.contains("data") || !params.contains("filename")) {
-					reportCommandError(id, static_cast<unsigned int>(DataFileWriteError::InvalidRequestObject), "request object invalid");
+			} else if (method == "delete_datafile") {
+				if (!validateDataFileCmd(id, cmdObj, params, false))
 					continue;
+				std::string fileName = params["filename"];
+				fs::path filePath = dataFileDir / fs::path(fileName);
+				std::error_code ec;
+				if (fs::remove(filePath, ec)) {
+					reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(DataFileCommandStatus::Completed)},
+						{"message", "deleted"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(DataFileCommandError::DeleteFailed), "delete failed with message " + ec.message());
 				}
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(DataFileWriteStatus::Received)},
-					{"message", "received"},
-					{"progress", 1}
-				});
+			} else if (method == "write_datafile") {
+				if (!validateDataFileCmd(id, cmdObj, params, true))
+					continue;
 
 				std::string fileName = params["filename"];
 				fs::path filePath = dataFileDir / fs::path(fileName);
 				std::fstream fs;
 				fs.open(filePath.u8string(), std::fstream::out | std::fstream::trunc | std::fstream::binary);
 				if (!fs.is_open()) {
-					reportCommandError(id, static_cast<unsigned int>(DataFileWriteError::WriteFailed), "failed to open file for write: " + filePath.u8string());
+					reportCommandError(id, static_cast<unsigned int>(DataFileCommandError::WriteFailed), "failed to open file for write: " + filePath.u8string());
 					continue;
 				}
 
@@ -363,14 +386,14 @@ void Controller::processCommands() {
 				std::vector<char> out(data.size()); //out will be smaller than the in data
 				size_t read = 0;
 				if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
-					reportCommandError(id, static_cast<unsigned int>(DataFileWriteError::DecodeFailed), "failed to decode data");
+					reportCommandError(id, static_cast<unsigned int>(DataFileCommandError::DecodeFailed), "failed to decode data");
 					continue;
 				}
 				fs.write(&out.front(), sizeof(char) * read);
 				fs.close();
 
 				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(DataFileWriteStatus::Written)},
+					{"code", static_cast<unsigned int>(DataFileCommandStatus::Completed)},
 					{"message", "written"},
 					{"progress", 100}
 				});
