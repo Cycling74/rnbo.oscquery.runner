@@ -32,6 +32,7 @@ namespace {
 		{config::key::SOBuildExe, std::string()},
 		{config::key::SOBuildDir, default_src_cache.u8string()},
 		{config::key::DataFileDir, default_datafile_dir.u8string()},
+		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},
 		{config::key::HostNameOverride, std::string()},

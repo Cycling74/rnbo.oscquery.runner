@@ -1,7 +1,7 @@
 {
     "compile_cache_dir": "~/.local/share/rnbo/cache/so/",
     "host_name_override": "",
-    "instance_auto_connect": true,
+    "instance_auto_start_last": true,
     "instance_auto_connect_audio": true,
     "instance_auto_connect_midi": true,
     "rnbo_cpp_dir": "~/dev/max.maxcore/src/cpp",

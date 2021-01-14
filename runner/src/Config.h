@@ -10,6 +10,7 @@ namespace config {
 		const static std::string RnboCPPDir = "rnbo_cpp_dir"; //the directory that contains the RNBO c++ source files
 		const static std::string DataFileDir = "datafile_dir"; //the directory where data (audio) files can be read from or written to
 
+		const static std::string InstanceAutoStartLast = "instance_auto_start_last"; //try to restart the last run instance (and its settings) on startup.
 		const static std::string InstanceAutoConnectAudio = "instance_auto_connect_audio"; //if applicable (Jack), should an instance be automatically connected to audio
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
 
