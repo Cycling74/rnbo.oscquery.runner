@@ -4,6 +4,8 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <filesystem>
+#include <optional>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
 
@@ -16,7 +18,11 @@ class Controller {
 	public:
 		Controller(std::string server_name = "rnbo");
 		~Controller();
-		void loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr);
+
+		//return true on success
+		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr);
+		bool loadLast();
+
 		void handleCommand(const opp::value& data);
 		void handleActive(bool active);
 		//returns true until we should quit
@@ -29,12 +35,17 @@ class Controller {
 		void reportCommandStatus(std::string id, RNBO::Json obj);
 
 		void updateDiskSpace();
+		void saveLast();
+		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
+		void queueSave(bool s = true);
 
 		opp::oscquery_server mServer;
 		opp::node mInstancesNode;
 		opp::node mResponseNode;
 		std::vector<opp::node> mNodes;
-		std::vector<std::unique_ptr<Instance>> mInstances;
+
+		//instance and path to SO
+		std::vector<std::pair<std::unique_ptr<Instance>, std::filesystem::path>> mInstances;
 
 		opp::node mDiskSpaceNode;
 		std::uintmax_t mDiskSpaceLast = 0;
@@ -50,4 +61,9 @@ class Controller {
 		std::thread mCommandThread;
 
 		Queue<std::string> mCommandQueue;
+
+		std::mutex mSaveMutex;
+		bool mSave = false;
+		//a timeout for when to save, debouncing
+		std::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
 };

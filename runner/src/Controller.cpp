@@ -1,6 +1,5 @@
 #include <iostream>
 #include <fstream>
-#include <filesystem>
 #include <cstdlib>
 #include <utility>
 #include <chrono>
@@ -15,15 +14,30 @@
 using std::cout;
 using std::cerr;
 using std::endl;
+using std::chrono::system_clock;
 
 namespace fs = std::filesystem;
+
 
 namespace {
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 	static std::string build_program("rnbo-compile-so");
+
 	static const std::chrono::milliseconds command_wait_timeout(10);
+	static const std::chrono::milliseconds save_debounce_timeout(500);
+
+	static const std::string last_file_name = "last.json";
+
+	static const std::string last_instances_key = "instances";
+	static const std::string last_so_key = "so_path";
+	static const std::string last_config_key = "config";
+
+
+	fs::path lastFilePath() {
+			return config::get<fs::path>(config::key::SaveDir) / last_file_name;
+	}
 }
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
@@ -94,14 +108,16 @@ Controller::~Controller() {
 	mCommandThread.join();
 }
 
-void Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf) {
+bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf) {
+	//TODO make sure that the version numbers match in the name of the library
+
 	mAudioActive.set_value(mProcessAudio->setActive(true));
 	if (!mProcessAudio->isActive()) {
 		cerr << "audio is not active, cannot created instance(s)" << endl;
 		if (cmdId.size()) {
 			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "audio not active");
 		}
-		return;
+		return false;
 	}
 	//make sure that no other instances can be created while this is active
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
@@ -121,8 +137,12 @@ void Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 	auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf);
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
+		//queue a save whenenever the configuration changes
+		instance->registerConfigChangeCallback([this] {
+				queueSave(true);
+		});
 		instance->start();
-		mInstances.emplace_back(instance);
+		mInstances.emplace_back(std::make_pair(instance, path));
 	}
 	if (cmdId.size()) {
 		reportCommandResult(cmdId, {
@@ -131,16 +151,91 @@ void Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			{"progress", 100}
 		});
 	}
+	queueSave(true);
+	return true;
+}
+
+bool Controller::loadLast() {
+	try {
+		//try to start the last
+		auto lastFile = lastFilePath();
+		if (!fs::exists(lastFile))
+			return false;
+		RNBO::Json c;
+		{
+			std::ifstream i(lastFile.u8string());
+			i >> c;
+			i.close();
+		}
+
+		if (!c[last_instances_key].is_array()) {
+			cerr << "malformed last data" << endl;
+			return false;
+		}
+
+		//load instances
+		for (auto i: c[last_instances_key]) {
+			std::string so = i[last_so_key];
+			if (!loadLibrary(so, std::string(), i[last_config_key])) {
+				cerr << "failed to load so " << so << endl;
+				return false;
+			}
+		}
+		//load last only happens in the main thread, we don't need to save last again
+		queueSave(false);
+	} catch (std::exception& e) {
+		cerr << "exception " << e.what() << " trying to load last setup" << endl;
+	}
+	return false;
+}
+
+void Controller::saveLast() {
+	RNBO::Json instances = RNBO::Json::array();
+	RNBO::Json last = RNBO::Json::object();
+	{
+		std::lock_guard<std::mutex> iguard(mInstanceMutex);
+		for (auto& i: mInstances) {
+			RNBO::Json data = RNBO::Json::object();
+			data[last_so_key] = i.second;
+			data[last_config_key] = i.first->currentConfig();
+			instances.push_back(data);
+		}
+	}
+	last[last_instances_key] = instances;
+	auto lastFile = lastFilePath();
+	std::ofstream o(lastFile.u8string());
+	o << std::setw(4) << last << std::endl;
+}
+
+void Controller::queueSave(bool s) {
+	std::lock_guard<std::mutex> guard(mSaveMutex);
+	mSave = s;
 }
 
 bool Controller::process() {
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		for (auto& i: mInstances)
-			i->processEvents();
+			i.first->processEvents();
 	}
-	if (mDiskSpacePollNext <= std::chrono::system_clock::now())
+	if (mDiskSpacePollNext <= system_clock::now())
 		updateDiskSpace();
+
+	bool save = false;
+	{
+		//see if we got the save flag set, debounce
+		std::lock_guard<std::mutex> guard(mSaveMutex);
+		if (mSave) {
+			mSave = false;
+			mSaveNext = system_clock::now() + save_debounce_timeout;
+		} else if (mSaveNext.has_value() && mSaveNext.value() < system_clock::now()) {
+			save = true;
+			mSaveNext.reset();
+		}
+	}
+	if (save) {
+		saveLast();
+	}
 
 	//TODO allow for quitting?
 	return true;
@@ -320,5 +415,5 @@ void Controller::updateDiskSpace() {
 			mDiskSpaceLast = available;
 			mDiskSpaceNode.set_value(std::to_string(mDiskSpaceLast));
 		}
-		mDiskSpacePollNext = std::chrono::system_clock::now() + mDiskSpacePollPeriod;
+		mDiskSpacePollNext = system_clock::now() + mDiskSpacePollPeriod;
 }
