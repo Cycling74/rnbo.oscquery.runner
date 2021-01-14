@@ -7,6 +7,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <functional>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
 
@@ -34,7 +35,19 @@ class Instance {
 		void processEvents();
 
 		void loadPreset(std::string name);
+
+		// get the current configuration for this instance:
+		//  last loaded preset
+		//  sample mapping
+		RNBO::Json currentConfig();
+		//register a function to be called when configuration values change
+		//this will be called in the same thread as `processEvents`
+		void registerConfigChangeCallback(std::function<void()> cb);
 	private:
+		std::function<void()> mConfigChangeCallback = nullptr;
+		std::mutex mConfigChangedMutex;
+		bool mConfigChanged = false;
+
 		struct DataRefCommand {
 			std::string fileName;
 			std::string id;
@@ -42,6 +55,10 @@ class Instance {
 		};
 		void processDataRefCommands();
 		void updatePresetEntries();
+		//called from various threads
+		void queueConfigChangeSignal();
+		//only called at startup or in the processDataRefCommands thread
+		bool loadDataRef(const std::string& id, const std::string& fileName);
 
 		std::vector<opp::node> mNodes;
 		std::unique_ptr<InstanceAudio> mAudio;
@@ -63,10 +80,15 @@ class Instance {
 		std::thread mDataRefThread;
 		std::atomic<bool> mDataRefProcessCommands;
 
+		//map of dataref name to file name
+		std::mutex mDataRefFileNameMutex;
+		std::unordered_map<std::string, std::string> mDataRefFileNameMap;
+
 		//presets
 		opp::node mPresetEntires;
 		std::unordered_map<std::string, RNBO::ConstPresetPtr> mPresets;
 		std::mutex mPresetMutex;
+		std::string mPresetLatest; //the most recently loaded preset
 
 		//callback data from RNBO, a name and a ptr
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;

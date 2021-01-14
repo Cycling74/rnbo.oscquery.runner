@@ -20,6 +20,7 @@ namespace fs = std::filesystem;
 
 namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
+	static const std::string kinitial_preset = "preset_initial";
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
@@ -136,9 +137,18 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
 			std::string value = it.value();
 			if (value.size() > 0)
-				mDataRefCommandQueue.push(DataRefCommand(value, it.key().c_str()));
+				loadDataRef(it.key(), value);
 		}
 	}
+
+	//load the last preset, if it is in the config
+	auto presetLatest = conf[kinitial_preset];
+	if (presetLatest.is_string()) {
+		loadPreset(presetLatest);
+	}
+
+	//incase we changed it
+	mConfigChanged = false;
 	mDataRefThread = std::thread(&Instance::processDataRefCommands, this);
 }
 
@@ -160,46 +170,18 @@ void Instance::stop() {
 	mAudio->stop();
 }
 
-void Instance::processDataRefCommands() {
-	fs::path dataFileDir = config::get<fs::path>(config::key::DataFileDir);
-	fs::create_directories(dataFileDir);
+void Instance::registerConfigChangeCallback(std::function<void()> cb) {
+	mConfigChangeCallback = cb;
+}
 
+void Instance::processDataRefCommands() {
 	while (mDataRefProcessCommands.load()) {
 		auto cmdOpt = mDataRefCommandQueue.popTimeout(command_wait_timeout);
 		if (!cmdOpt.has_value())
 			continue;
 		auto cmd = cmdOpt.value();
-		mCore->releaseExternalData(cmd.id.c_str());
-		mDataRefs.erase(cmd.id);
-
-		if (!cmd.fileName.empty()) {
-			auto filePath = dataFileDir / fs::path(cmd.fileName);
-			if (!fs::exists(filePath)) {
-				std::cerr << "no file at " << filePath << std::endl;
-				//TODO clear node value?
-				continue;
-			}
-			SndfileHandle sndfile(filePath.u8string());
-			if (!sndfile) {
-				std::cerr << "couldn't open as sound file " << filePath << std::endl;
-				//TODO clear node value?
-				continue;
-			}
-
-			//actually read in audio and set the data
-			auto data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
-			auto framesRead = sndfile.readf(&data->front(), sndfile.frames());
-
-			//TODO store file name so we don't double load file?
-			mDataRefs[cmd.id] = data;
-
-			//set the dataref data
-			RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-			mCore->setExternalData(cmd.id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
-					//hold onto data shared_ptr until rnbo stops using it
-					data.reset();
-			});
-		}
+		if (loadDataRef(cmd.id, cmd.fileName))
+			queueConfigChangeSignal();
 	}
 }
 
@@ -214,9 +196,21 @@ void Instance::processEvents() {
 		std::lock_guard<std::mutex> guard(mPresetMutex);
 		updated = true;
 		mPresets[namePreset.first] = namePreset.second;
+		mPresetLatest = namePreset.first;
 	}
 	if (updated)
 		updatePresetEntries();
+
+	//see if we should signal a change
+	auto changed = false;
+	{
+		std::lock_guard<std::mutex> guard(mConfigChangedMutex);
+		changed = mConfigChanged;
+		mConfigChanged = false;
+	}
+	if (changed && mConfigChangeCallback != nullptr) {
+		mConfigChangeCallback();
+	}
 }
 
 void Instance::loadPreset(std::string name) {
@@ -230,13 +224,83 @@ void Instance::loadPreset(std::string name) {
 	auto shared = it->second;
 	RNBO::copyPreset(*shared, *preset);
 	mCore->setPreset(std::move(preset));
+	mPresetLatest = name;
+	queueConfigChangeSignal();
 }
 
+RNBO::Json Instance::currentConfig() {
+	RNBO::Json config = RNBO::Json::object();
+	RNBO::Json presets = RNBO::Json::object();
+	RNBO::Json datarefs = RNBO::Json::object();
+	//copy presets
+	{
+		std::lock_guard<std::mutex> pguard(mPresetMutex);
+		for (auto& kv: mPresets)
+			presets[kv.first] = RNBO::convertPresetToJSONObj(*kv.second);
+		//indicate the initial preset if we loaded this config again
+		config[kinitial_preset] = mPresetLatest;
+	}
+	//copy datarefs
+	{
+		std::lock_guard<std::mutex> bguard(mDataRefFileNameMutex);
+		for (auto& kv: mDataRefFileNameMap)
+			datarefs[kv.first] = kv.second;
+	}
+	config["presets"] = presets;
+	config["datarefs"] = datarefs;
+	return config;
+}
 void Instance::updatePresetEntries() {
-		std::lock_guard<std::mutex> guard(mPresetMutex);
-		std::vector<opp::value> names;
-		for (auto &kv : mPresets) {
-			names.push_back(opp::value(kv.first));
-		}
-		mPresetEntires.set_value(opp::value(names));
+	std::lock_guard<std::mutex> guard(mPresetMutex);
+	std::vector<opp::value> names;
+	for (auto &kv : mPresets) {
+		names.push_back(opp::value(kv.first));
+	}
+	mPresetEntires.set_value(opp::value(names));
+}
+
+void Instance::queueConfigChangeSignal() {
+	std::lock_guard<std::mutex> guard(mConfigChangedMutex);
+	mConfigChanged = true;
+}
+
+bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
+	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+	mCore->releaseExternalData(id.c_str());
+	mDataRefs.erase(id);
+	if (fileName.empty())
+		return true;
+	auto filePath = dataFileDir / fs::path(fileName);
+	if (!fs::exists(filePath)) {
+		std::cerr << "no file at " << filePath << std::endl;
+		//TODO clear node value?
+		return false;
+	}
+	SndfileHandle sndfile(filePath.u8string());
+	if (!sndfile) {
+		std::cerr << "couldn't open as sound file " << filePath << std::endl;
+		//TODO clear node value?
+		return false;
+	}
+
+	//actually read in audio and set the data
+	auto data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
+	auto framesRead = sndfile.readf(&data->front(), sndfile.frames());
+
+	//TODO check mDataRefFileNameMap so we don't double load?
+	mDataRefs[id] = data;
+
+	//store the mapping so we can persist
+	{
+		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
+		mDataRefFileNameMap[id] = fileName;
+	}
+
+	//set the dataref data
+	RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
+	mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
+			//hold onto data shared_ptr until rnbo stops using it
+			data.reset();
+	});
+	return true;
 }
