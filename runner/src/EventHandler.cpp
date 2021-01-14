@@ -1,6 +1,6 @@
 #include "EventHandler.h"
 
-EventHandler::EventHandler(ParameterEventCallback paramCallback) : mParameterCallback(paramCallback) {
+EventHandler::EventHandler(ParameterEventCallback paramCallback, MessageEventEventCallback msgCallback) : mParameterCallback(paramCallback), mMessageCallback(msgCallback) {
 }
 
 void EventHandler::processEvents() {
@@ -22,5 +22,7 @@ void EventHandler::handleParameterEvent(RNBO::ParameterEvent event) {
 }
 
 void EventHandler::handleMessageEvent(RNBO::MessageEvent event) {
-	//TODO
+	if (mMessageCallback) {
+		mMessageCallback(event);
+	}
 }

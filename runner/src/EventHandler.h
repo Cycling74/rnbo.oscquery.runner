@@ -4,8 +4,9 @@
 class EventHandler : public RNBO::EventHandler {
 	public:
 		typedef std::function<void(const RNBO::ParameterIndex, const RNBO::ParameterValue)> ParameterEventCallback;
+		typedef std::function<void(RNBO::MessageEvent)> MessageEventEventCallback;
 
-		EventHandler(ParameterEventCallback paramCallback);
+		EventHandler(ParameterEventCallback paramCallback, MessageEventEventCallback msgCallback);
 
 		virtual void eventsAvailable() override;
 		virtual void handlePresetEvent(RNBO::PresetEvent event) override;
@@ -16,4 +17,5 @@ class EventHandler : public RNBO::EventHandler {
 		void processEvents();
 	private:
 		ParameterEventCallback mParameterCallback;
+		MessageEventEventCallback mMessageCallback;
 };
