@@ -12,6 +12,7 @@
 
 using optparse::OptionParser;
 using std::cout;
+using std::cerr;
 using std::endl;
 
 namespace fs = std::filesystem;
@@ -47,13 +48,18 @@ int main(int argc, const char * argv[]) {
 		host = std::string(hostname);
 	}
 
-	//make sure our data directory exists, so we can write to it
-	fs::create_directories(config::get<fs::path>(config::key::DataFileDir));
+	//make sure these directories exists, so we can write to them
+	for (auto key: {config::key::DataFileDir, config::key::SaveDir, config::key::SourceCacheDir, config::key::CompileCacheDir}) {
+		fs::create_directories(config::get<fs::path>(key));
+	}
 
 	//TODO figure out why the sidebar doesn't like colons in names.. would like this to be "rnbo:hostname"
 	Controller c("rnbo-" + host);
-	if (options["filename"].size())
+	if (options["filename"].size()) {
 		c.loadLibrary(options["filename"]);
+	} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
+		c.loadLast();
+	}
 	while (c.process()) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
 	}
