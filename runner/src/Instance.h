@@ -89,6 +89,7 @@ class Instance {
 		std::unordered_map<std::string, RNBO::ConstPresetPtr> mPresets;
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
+		std::string mPresetInitial; //the user indicated initial preset
 
 		//callback data from RNBO, a name and a ptr
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;

@@ -21,6 +21,7 @@ namespace fs = std::filesystem;
 namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
 	static const std::string initial_preset_key = "preset_initial";
+	static const std::string last_preset_key = "preset_last";
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
@@ -48,10 +49,17 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
+	//grab the initial preset and store it, so we can use it as a tree value
+	{
+		auto presetInit = conf[initial_preset_key];
+		if (presetInit.is_string())
+			mPresetInitial = presetInit;
+	}
+
 	builder([this](opp::node root) {
 		//setup parameters
 		auto params = root.create_child("params");
-		params.set_description("parameter get/set");
+		params.set_description("Parameter get/set");
 		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
 			ParameterInfo info;
 			mCore->getParameterInfo(index, &info);
@@ -96,13 +104,13 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		//indicate the presets
 		auto presets = root.create_child("presets");
 		mPresetEntires = presets.create_list("entries");
-		mPresetEntires.set_description("a list of presets that can be loaded");
+		mPresetEntires.set_description("A list of presets that can be loaded");
 		mPresetEntires.set_access(opp::access_mode::Get);
 		updatePresetEntries();
 
 		//save preset, pass name
 		auto save = presets.create_string("save");
-		save.set_description("save the current settings as a preset with the given name");
+		save.set_description("Save the current settings as a preset with the given name");
 		save.set_access(opp::access_mode::Set);
 		ValueCallbackHelper::setCallback(
 			save, mValueCallbackHelpers,
@@ -116,7 +124,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			});
 
 		auto load = presets.create_string("load");
-		load.set_description("load a preset with the given name");
+		load.set_description("Load a preset with the given name");
 		load.set_access(opp::access_mode::Set);
 		ValueCallbackHelper::setCallback(
 			load, mValueCallbackHelpers,
@@ -127,8 +135,25 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				}
 			});
 
+		auto init = presets.create_string("initial");
+		init.set_description("Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the loaded preset instead");
+		if (!mPresetInitial.empty())
+			init.set_value(mPresetInitial);
+		ValueCallbackHelper::setCallback(
+			init, mValueCallbackHelpers,
+			[this](const opp::value& val) {
+				if (val.is_string()) {
+					std::lock_guard<std::mutex> guard(mPresetMutex);
+					//TODO validate?
+					mPresetInitial = val.to_string();
+					queueConfigChangeSignal();
+				}
+			});
+
 		mNodes.push_back(presets);
 		mNodes.push_back(load);
+		mNodes.push_back(init);
+		mNodes.push_back(save);
 	});
 
 	//auto load data refs
@@ -141,10 +166,11 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
-	//load the last preset, if it is in the config
-	auto presetLatest = conf[initial_preset_key];
-	if (presetLatest.is_string()) {
-		loadPreset(presetLatest);
+	//load the initial or last preset, if in the config
+	if (!mPresetInitial.empty()) {
+		loadPreset(mPresetInitial);
+	} else if (conf[last_preset_key].is_string()) {
+		loadPreset(conf[last_preset_key]);
 	}
 
 	//incase we changed it
@@ -237,9 +263,11 @@ RNBO::Json Instance::currentConfig() {
 		std::lock_guard<std::mutex> pguard(mPresetMutex);
 		for (auto& kv: mPresets)
 			presets[kv.first] = RNBO::convertPresetToJSONObj(*kv.second);
-		//indicate the initial preset if we loaded this config again
+		//indicate the initial and latest preset if we loaded this config again
+		if (!mPresetInitial.empty())
+			config[initial_preset_key] = mPresetInitial;
 		if (!mPresetLatest.empty())
-			config[initial_preset_key] = mPresetLatest;
+			config[last_preset_key] = mPresetLatest;
 	}
 	//copy datarefs
 	{
