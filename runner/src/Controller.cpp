@@ -4,6 +4,7 @@
 #include <utility>
 #include <chrono>
 #include <libbase64.h>
+#include <iomanip>
 
 #include "Controller.h"
 #include "Config.h"
