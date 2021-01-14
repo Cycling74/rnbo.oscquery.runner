@@ -354,7 +354,7 @@ void Controller::processCommands() {
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
 				}
-			} else if (method == "delete_datafile") {
+			} else if (method == "datafile_delete") {
 				if (!validateDataFileCmd(id, cmdObj, params, false))
 					continue;
 				std::string fileName = params["filename"];
@@ -369,7 +369,7 @@ void Controller::processCommands() {
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(DataFileCommandError::DeleteFailed), "delete failed with message " + ec.message());
 				}
-			} else if (method == "write_datafile") {
+			} else if (method == "datafile_write") {
 				if (!validateDataFileCmd(id, cmdObj, params, true))
 					continue;
 
