@@ -60,6 +60,7 @@ class Instance {
 		//only called at startup or in the processDataRefCommands thread
 		bool loadDataRef(const std::string& id, const std::string& fileName);
 		void handleInportMessage(RNBO::MessageTag tag, const opp::value& value);
+		void handleOutportMessage(RNBO::MessageEvent e);
 
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;

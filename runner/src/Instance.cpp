@@ -15,6 +15,7 @@ using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
 using RNBO::ParameterType;
 using RNBO::ParameterValue;
+using RNBO::MessageEvent;
 
 namespace fs = std::filesystem;
 
@@ -33,7 +34,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			it->second.set_value(value);
 		}
 	};
-	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback));
+	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback, [this](RNBO::MessageEvent msg) { handleOutportMessage(msg); }));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
@@ -407,5 +408,36 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) 
 			}
 			mCore->sendMessage(tag, std::move(l));
 		}
+	}
+}
+
+void Instance::handleOutportMessage(RNBO::MessageEvent e) {
+	auto tag = std::string(mCore->resolveTag(e.getTag()));
+	auto it = mOutportNodes.find(tag);
+	if (it == mOutportNodes.end()) {
+		std::cerr << "couldn't find outport node with tag " << tag << std::endl;
+		return;
+	}
+	auto node = it->second;
+	switch(e.getType()) {
+		case MessageEvent::Type::Number:
+			node.set_value(e.getNumValue());
+			break;
+		case MessageEvent::Type::Bang:
+			node.set_value(opp::value::impulse {});
+			break;
+		case MessageEvent::Type::List:
+			{
+				std::vector<opp::value> values;
+				std::shared_ptr<const RNBO::list> elist = e.getListValue();
+				for (size_t i = 0; i < elist->length; i++)
+					values.push_back(opp::value(elist->operator[](i)));
+				node.set_value(values);
+			}
+			break;
+		case MessageEvent::Type::Invalid:
+		case MessageEvent::Type::Max_Type:
+		default:
+			return; //TODO warning message?
 	}
 }
