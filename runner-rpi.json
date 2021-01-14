@@ -1,5 +1,6 @@
 {
     "compile_cache_dir": "~/.local/share/rnbo/cache/so/",
+    "save_dir": "~/.local/share/rnbo/cache/saves/",
     "host_name_override": "",
     "instance_auto_start_last": true,
     "instance_auto_connect_audio": true,

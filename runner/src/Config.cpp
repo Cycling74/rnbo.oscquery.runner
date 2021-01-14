@@ -17,6 +17,7 @@ namespace {
 	static fs::path config_file_path = config::make_path(RNBO_CONFIG_DIR) / "runner.json";
 	static fs::path default_so_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "so";
 	static fs::path default_so_build_dir = config::make_path(RNBO_SO_BUILD_DIR);
+	static fs::path default_save_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "saves";
 	static fs::path default_src_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "src";
 	static fs::path default_datafile_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "datafiles";
 
@@ -29,6 +30,7 @@ namespace {
 	const RNBO::Json config_default = {
 		{config::key::CompileCacheDir, default_so_cache.u8string()},
 		{config::key::SourceCacheDir, default_src_cache.u8string()},
+		{config::key::SaveDir, default_save_dir.u8string()},
 		{config::key::SOBuildExe, std::string()},
 		{config::key::SOBuildDir, default_src_cache.u8string()},
 		{config::key::DataFileDir, default_datafile_dir.u8string()},
