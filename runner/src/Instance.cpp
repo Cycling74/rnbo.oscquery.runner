@@ -25,6 +25,7 @@ namespace {
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
+	std::vector<std::string> outportTags;
 	//RNBO is telling us we have a parameter update, tell ossia
 	auto paramCallback = [this](RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 		auto it = mIndexToNode.find(index);
@@ -56,7 +57,21 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			mPresetInitial = presetInit;
 	}
 
-	builder([this](opp::node root) {
+	//grab inports and outports
+	{
+		auto ports = conf["inports"];
+		if (ports.is_array()) {
+			for (auto i: ports)
+				mInportTags.push_back(i);
+		}
+		ports = conf["outports"];
+		if (ports.is_array()) {
+			for (auto i: ports)
+				outportTags.push_back(i);
+		}
+	}
+
+	builder([this, outportTags](opp::node root) {
 		//setup parameters
 		auto params = root.create_child("params");
 		params.set_description("Parameter get/set");
@@ -83,9 +98,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					mCore->setParameterValue(index, val.to_float());
 				});
 			mIndexToNode[index] = p;
-			mNodes.push_back(p);
 		}
-		mNodes.push_back(params);
 
 		auto dataRefs = root.create_child("data_refs");
 		for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
@@ -150,10 +163,30 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				}
 			});
 
-		mNodes.push_back(presets);
-		mNodes.push_back(load);
-		mNodes.push_back(init);
-		mNodes.push_back(save);
+		if (mInportTags.size() > 0 || outportTags.size() > 0) {
+			auto msgs = root.create_child("messages");
+			if (mInportTags.size()) {
+				auto n = msgs.create_child("in");
+				for (auto i: mInportTags) {
+					auto p = n.create_list(i);
+					p.set_access(opp::access_mode::Set);
+					auto tag = RNBO::TAG(i.c_str());
+					ValueCallbackHelper::setCallback(
+						p, mValueCallbackHelpers,
+						[this, tag](const opp::value& val) {
+							handleInportMessage(tag, val);
+						});
+				}
+			}
+			if (outportTags.size()) {
+				auto n = msgs.create_child("out");
+				for (auto i: outportTags) {
+					auto p = n.create_list(i);
+					p.set_access(opp::access_mode::Get);
+					mOutportNodes[i] = p;
+				}
+			}
+		}
 	});
 
 	//auto load data refs
@@ -256,6 +289,19 @@ void Instance::loadPreset(std::string name) {
 
 RNBO::Json Instance::currentConfig() {
 	RNBO::Json config = RNBO::Json::object();
+
+	//inports
+	RNBO::Json ports = RNBO::Json::array();
+	for (auto& p: mInportTags)
+		ports.push_back(p);
+	config["inports"] = ports;
+
+	//outports
+	for (auto& kv: mOutportNodes)
+		ports.push_back(kv.first);
+	ports = RNBO::Json::array();
+	config["outports"] = ports;
+
 	RNBO::Json presets = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();
 	//copy presets
@@ -332,4 +378,34 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 			data.reset();
 	});
 	return true;
+}
+
+void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) {
+	if (val.is_impulse()) {
+		mCore->sendMessage(tag);
+	} else if (val.is_float()) {
+		mCore->sendMessage(tag, static_cast<RNBO::number>(val.to_float()));
+	} else if (val.is_int()) {
+		mCore->sendMessage(tag, static_cast<RNBO::number>(val.to_int()));
+	} else if (val.is_list()) {
+		auto list = val.to_list();
+		//empty list, bang
+		if (list.size() == 0 || (list.size() == 1 && list[0].is_impulse())) {
+			mCore->sendMessage(tag);
+		} else {
+			//construct and send list
+			auto l = std::make_unique<RNBO::list>();
+			for (auto v: list) {
+				if (v.is_int())
+					l->push(static_cast<RNBO::number>(v.to_int()));
+				else if (v.is_float())
+					l->push(static_cast<RNBO::number>(v.to_float()));
+				else {
+					std::cerr << "only numeric values are allowed in lists, aborting message" << std::endl;
+					return;
+				}
+			}
+			mCore->sendMessage(tag, std::move(l));
+		}
+	}
 }

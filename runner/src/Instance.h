@@ -59,8 +59,8 @@ class Instance {
 		void queueConfigChangeSignal();
 		//only called at startup or in the processDataRefCommands thread
 		bool loadDataRef(const std::string& id, const std::string& fileName);
+		void handleInportMessage(RNBO::MessageTag tag, const opp::value& value);
 
-		std::vector<opp::node> mNodes;
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
 		std::shared_ptr<PatcherFactory> mPatcherFactory;
@@ -93,4 +93,8 @@ class Instance {
 
 		//callback data from RNBO, a name and a ptr
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;
+
+		//simply the names of imports and outports, for building up OSCQuery and seralization
+		std::vector<std::string> mInportTags;
+		std::unordered_map<std::string, opp::node> mOutportNodes;
 };
