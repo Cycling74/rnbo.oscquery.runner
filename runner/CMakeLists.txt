@@ -28,15 +28,12 @@ include(${CMAKE_BINARY_DIR}/conan.cmake)
 #	BASIC_SETUP
 #	BUILD missing
 #)
-
 conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 	BASIC_SETUP
 	BUILD missing
 )
 
-conan_cmake_run(
-	REQUIRES
-	CONANFILE 3rdparty/ossia/conanfile.py
+conan_cmake_run(REQUIRES libossia/1.2.1
 	BASIC_SETUP
 	BUILD missing
 )
@@ -54,16 +51,6 @@ conan_cmake_run(REQUIRES base64/0.4.0
 find_library(JACK_LIB "jack" REQUIRED)
 find_library(SNDFILE_LIB "sndfile" REQUIRED)
 
-# TODO conan ossia
-#TODO remove alex specific path
-#find_library(OSSIA_LIB "ossia"
-#	HINTS "~/local/src/libossia/build/src/"
-#)
-#if (NOT OSSIA_LIB)
-#	message(FATAL_ERROR "ossia not found")
-#endif()
-#message(STATUS "OSSIA_LIB ${OSSIA_LIB}")
-
 find_path(
 	RNBO_DIR
 	NAMES "RNBO.cpp"
@@ -73,8 +60,6 @@ find_path(
 	NO_DEFAULT_PATH
 	DOC "Location of the RNBO C++ source code"
 )
-
-message(FATAL_ERROR "INCLUDES ${CONAN_INCLUDE_DIRS} LIBS ${CONAN_LIBS}")
 
 include_directories(
 	./3rdparty/

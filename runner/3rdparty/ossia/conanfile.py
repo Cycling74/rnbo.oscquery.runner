@@ -5,14 +5,22 @@ class LibossiaConan(ConanFile):
     name = "libossia"
     version = "1.2.1"
     license = "Available under both LGPLv3 and CeCILL-C"
-    #author = "<Put your name here> <And your email here>"
     url = "https://opencollective.com/ossia"
     description = "A modern C++, cross-environment distributed object model for creative coding."
     topics = ("creative-coding", "osc", "open-sound-control", "ossia", "oscquery")
     settings = "os", "compiler", "build_type", "arch"
-    options = {}
-    default_options = {}
+    options = {"fPIC": [True, False], "shared": [True, False]}
+    default_options = {"fPIC": True, "shared": False}
+    exports_sources = ["CMakeLists.txt"]
     generators = "cmake"
+
+    def config_options(self):
+        if self.settings.os == "Windows":
+            del self.options.fPIC
+
+    def configure(self):
+        if self.options.shared:
+            del self.options.fPIC
 
     def source(self):
         self.run("git clone --branch master https://github.com/ossia/libossia.git")
@@ -42,13 +50,8 @@ class LibossiaConan(ConanFile):
     def package(self):
         cmake = self.configure_cmake()
         cmake.install()
-        #self.copy("*.h", dst="include", src="hello"
-        #self.copy("*ossia.lib", dst="lib", keep_path=False)
-        #self.copy("*.dll", dst="bin", keep_path=False)
-        #self.copy("*.so", dst="lib", keep_path=False)
-        #self.copy("*.dylib", dst="lib", keep_path=False)
-        #self.copy("*.a", dst="lib", keep_path=False)
 
     def package_info(self):
-        self.cpp_info.libs = ["ossia"]
+        print("CALLING package_info")
+        self.cpp_info.libs = tools.collect_libs(self)
         self.cpp_info.includedirs = ["include"]
