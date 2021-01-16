@@ -27,9 +27,15 @@
   sudo dpkg-reconfigure jackd2
   ```
 * build and install the latest [cmake](https://cmake.org/install/)
+* setup python3
+  ```shell
+  sudo -s
+  update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
+  update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
+  ```
 * install conan
   ```shell
-  pip install conan
+  pip3 install conan
   ```
 * make directories for local builds and config
   ```shell
