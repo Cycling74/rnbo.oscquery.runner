@@ -23,18 +23,30 @@ if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
 endif()
 
 include(${CMAKE_BINARY_DIR}/conan.cmake)
+conan_check(VERSION 1.29.0 REQUIRED)
 
-#conan_cmake_run(REQUIRES libsndfile/1.0.30
-#	BASIC_SETUP
-#	BUILD missing
-#)
+#add our public remote, has libossia
+if (NOT EXISTS ${CMAKE_BINARY_DIR}/conan_successful)
+    execute_process(
+			COMMAND conan remote add cycling-bintray https://api.bintray.com/conan/xnor/cycling74
+			# COMMAND_ECHO STDOUT
+			ERROR_QUIET # errors are okay: the entries might already exist
+    )
+
+    message(STATUS "")
+    message(STATUS "Bootstrapping conan.")
+    message(STATUS "")
+else()
+    file(REMOVE ${CMAKE_BINARY_DIR}/conan_successful)
+endif()
+
 conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 	BASIC_SETUP
 	CMAKE_TARGETS
 	BUILD missing
 )
 
-conan_cmake_run(REQUIRES libossia/1.2.1
+conan_cmake_run(REQUIRES libossia/1.2.1@xnor/testing
 	BASIC_SETUP
 	CMAKE_TARGETS
 	KEEP_RPATHS
@@ -57,6 +69,7 @@ conan_cmake_run(REQUIRES base64/0.4.0
 
 find_library(JACK_LIB "jack" REQUIRED)
 find_library(SNDFILE_LIB "sndfile" REQUIRED)
+find_path(SNDFILE_INCLUDE_DIR sndfile.hh REQUIRED)
 
 find_path(
 	RNBO_DIR
@@ -74,9 +87,8 @@ include_directories(
 	"${RNBO_DIR}/common"
 	"${RNBO_DIR}/src"
 	"${RNBO_DIR}/src/3rdparty"
-	#TODO remove alex specific paths
-	"/usr/local/include"
 	${CONAN_INCLUDE_DIRS}
+	${SNDFILE_INCLUDE_DIR}
 )
 
 add_definitions(-DRNBO_VERSION="${CMAKE_PROJECT_VERSION}")
