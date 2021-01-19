@@ -9,6 +9,7 @@ project(RNBOOSCQueryRunner
 )
 set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_APP "rnbooscquery")
+
 add_definitions(-DRNBO_USE_FLOAT32)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -122,6 +123,14 @@ add_executable(${PROJECT_APP}
 	${RNBO_DIR}/RNBO.cpp
 )
 target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
+
+# add rpath so we can run from the build directory
+if (APPLE)
+	add_custom_command(TARGET ${PROJECT_APP}
+		POST_BUILD COMMAND
+		${CMAKE_INSTALL_NAME_TOOL} -add_rpath "@executable_path/../lib"
+		$<TARGET_FILE:${PROJECT_APP}>)
+endif()
 
 install(TARGETS ${PROJECT_APP} DESTINATION bin)
 #TODO is there a better way for this?
