@@ -43,11 +43,14 @@ endif()
 
 conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 	BASIC_SETUP
+	CMAKE_TARGETS
 	BUILD missing
 )
 
 conan_cmake_run(REQUIRES libossia/1.2.1@xnor/testing
 	BASIC_SETUP
+	CMAKE_TARGETS
+	KEEP_RPATHS
 	BUILD missing
 	IMPORTS "bin, *.dll -> ./bin"
 	IMPORTS "lib, *.dylib* -> ./lib"
@@ -60,6 +63,7 @@ endif()
 
 conan_cmake_run(REQUIRES base64/0.4.0
 	BASIC_SETUP
+	CMAKE_TARGETS
 	BUILD missing
 	SETTINGS ${ConanSettings}
 )
@@ -118,7 +122,7 @@ add_executable(${PROJECT_APP}
 	src/ValueCallbackHelper.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
-target_link_libraries(${PROJECT_APP} ${CONAN_LIBS} ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
+target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
 
 # add rpath so we can run from the build directory
 if (APPLE)
