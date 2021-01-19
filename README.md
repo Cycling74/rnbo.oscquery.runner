@@ -13,19 +13,14 @@ This currently runs on Linux and Mac, Windows is TBD.
   * on mac you can just `brew install cmake`
 * `g++` or `clang++`
 * [conan](https://conan.io/downloads.html)
+* `libsndfile`
+  * `apt-get install  libsndfile1-dev`
+  * `brew install libsndfile`
 * `jackd`
-  * `apt-get install jackd`
+  * `apt-get install jackd2 libjack-jackd2-dev`
   * `brew install jack`
   * you likely want `qjackctl` if you're running on you laptop/desktop.
     * if you want MIDI on Mac OS, you'll want to set your *server prefix* in the *advanced* section of *qjackctl* to `jackd -Xcoremidi`
-* [libossia](https://github.com/cycling74/libossia)
-  * We have a fork with some updates/fixes, those are in the `develop` branch.
-  * Alex plans to make this work with conan so others don't have to configure or likely even compile this.
-  * check out the develop branch and build with cmake.
-    Alex built with these options:
-    ```
-    -DCMAKE_BUILD_TYPE=Debug -DOSSIA_CPP=ON -DOSSIA_CPP_ONLY=ON -DOSSIA_DATAFLOW=OFF -DOSSIA_EDITOR=OFF -DOSSIA_GFX=OFF -DOSSIA_PCH=OFF -DOSSIA_PROTOCOL_ARTNET=OFF -DOSSIA_PROTOCOL_AUDIO=OFF -DOSSIA_PROTOCOL_MIDI=OFF -DOSSIA_PROTOCOL_WIIMOTE=OFF -DOSSIA_PROTOCOL_JOYSTICK=OFF
-    ```
 * `ruby` 2.0+ to run the compile script
   * `cmake` should be in your `PATH`.
 
