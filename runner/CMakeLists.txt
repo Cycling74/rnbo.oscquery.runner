@@ -127,6 +127,7 @@ add_executable(${PROJECT_APP}
 	src/ValueCallbackHelper.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
+
 target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
 
 # add rpath so we can run from the build directory
@@ -144,3 +145,11 @@ install(FILES ${CMAKE_BINARY_DIR}/lib/libossia.dylib TYPE LIB)
 elseif (UNIX)
 install(FILES ${CMAKE_BINARY_DIR}/lib/libossia.so TYPE LIB)
 endif()
+
+#libraries
+FILE(GLOB INSTALL_LIBS ${CMAKE_BINARY_DIR}/lib/*)
+install(FILES ${INSTALL_LIBS} TYPE LIB)
+
+#so build stuff
+FILE(GLOB INSTALL_SO_SHARE ${CMAKE_CURRENT_SOURCE_DIR}/../so/*)
+install(FILES ${INSTALL_SO_SHARE} DESTINATION share/rnbo/so/)
