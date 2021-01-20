@@ -15,10 +15,13 @@ RUN DEBIAN_FRONTEND=noninteractive \
 RUN DEBIAN_FRONTEND=noninteractive \
 	apt-get -y install --reinstall ca-certificates
 RUN pip3 install conan
-RUN git clone --progress --verbose https://github.com/raspberrypi/tools.git --depth=1 pitools
+RUN cd /tmp/ \
+	&& wget https://github.com/Pro/raspi-toolchain/releases/latest/download/raspi-toolchain.tar.gz \
+	&& tar xfz raspi-toolchain.tar.gz --strip-components=1 -C /opt
 RUN mkdir -p local/src/ && cd local/src \
 	&& wget https://github.com/Kitware/CMake/releases/download/v3.19.3/cmake-3.19.3.tar.gz \
 	&& tar xf cmake-3.19.3.tar.gz && cd cmake-3.19.3 && ./bootstrap && make && make install
+COPY rpi-rootfs /rpi-rootfs
 
 ENV BUILD_FOLDER /build
 WORKDIR ${BUILD_FOLDER}
