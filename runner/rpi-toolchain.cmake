@@ -27,8 +27,8 @@
 
 
 set(RASPBERRY_VERSION 3)
-set(SYSROOT_PATH "/rootfs")
-SET(CMAKE_SYSROOT "/rootfs")
+set(SYSROOT_PATH "/rpi-rootfs")
+SET(CMAKE_SYSROOT "/rpi-rootfs")
 
 #if("$ENV{RASPBERRY_VERSION}" STREQUAL "")
 #	set(RASPBERRY_VERSION 1)

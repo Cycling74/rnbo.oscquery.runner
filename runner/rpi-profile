@@ -1,11 +1,8 @@
-toolchain=/sysroot/
 target_host=arm-linux-gnueabihf
 cc_compiler=gcc
 cxx_compiler=g++
 
 [env]
-CONAN_CMAKE_FIND_ROOT_PATH=$toolchain
-CONAN_CMAKE_SYSROOT=$toolchain
 CHOST=$target_host
 AR=$target_host-ar
 AS=$target_host-as
