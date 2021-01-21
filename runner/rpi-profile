@@ -1,8 +1,11 @@
+toolchain=/rpi-rootfs/
 target_host=arm-linux-gnueabihf
 cc_compiler=gcc
 cxx_compiler=g++
 
 [env]
+CONAN_CMAKE_FIND_ROOT_PATH=$toolchain  # Optional, for CMake to find things in that folder
+CONAN_CMAKE_SYSROOT=$toolchain  # Optional, if we want to define sysroot
 CHOST=$target_host
 AR=$target_host-ar
 AS=$target_host-as

@@ -22,6 +22,6 @@ RUN mkdir -p local/src/ && cd local/src \
 	&& wget https://github.com/Kitware/CMake/releases/download/v3.19.3/cmake-3.19.3.tar.gz \
 	&& tar xf cmake-3.19.3.tar.gz && cd cmake-3.19.3 && ./bootstrap && make && make install
 COPY rpi-rootfs /rpi-rootfs
+RUN mkdir -p ~/.conan/profiles
 
-ENV BUILD_FOLDER /build
-WORKDIR ${BUILD_FOLDER}
+CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build.sh"]
