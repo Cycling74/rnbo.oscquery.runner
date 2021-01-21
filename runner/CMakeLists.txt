@@ -150,7 +150,7 @@ endif()
 add_custom_command(
 	TARGET ${PROJECT_APP}
 	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E tar cvf ${CMAKE_CURRENT_BINARY_DIR}/rnbo-oscquery-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz --format=gnutar --
+	COMMAND ${CMAKE_COMMAND} -E tar cvf ${CMAKE_CURRENT_BINARY_DIR}/rnbo-oscquery-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz --format=gnutar --
 	bin lib share
 )
 
