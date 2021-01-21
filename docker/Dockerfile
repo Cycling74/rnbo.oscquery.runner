@@ -24,4 +24,4 @@ RUN mkdir -p local/src/ && cd local/src \
 COPY rpi-rootfs /rpi-rootfs
 RUN mkdir -p ~/.conan/profiles
 
-CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build.sh"]
+CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build-rpi.sh"]
