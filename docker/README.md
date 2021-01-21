@@ -6,15 +6,15 @@ rm rpi-rootfs/usr/lib/systemd/system/rnbo.service
 ```
 * build docker image:
 ```shell
-docker build -f Dockerfile -t xnor/rnbo-rpi-xpile .
+docker build -f Dockerfile -t rnbo.rpi-xpile:0.1 .
 ```
 
 cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONAN_CMAKE_FIND_ROOT_PATH=/rootfs/ CONAN_CMAKE_SYSROOT=/rootfs/ cmake -DRNBO_DIR=../cpp/ -DCMAKE_TOOLCHAIN_FILE=../rpi-toolchain.cmake ..
 
 
 ```shell
-docker run -it -v $(pwd):/build xnor/rnbo-rpi-xpile
-docker run -it -v $(pwd):/build xnor/rnbo-rpi-xpile /bin/bash
+docker run -it -v $(pwd):/build rnbo.rpi-xpile:0.1
+docker run -it -v $(pwd):/build rnbo.rpi-xpile:0.1 /bin/bash
 ```
 
 ```shell

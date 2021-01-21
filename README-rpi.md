@@ -16,7 +16,8 @@
   ```shell
   sudo -s
   apt-get update && apt-get upgrade -y
-  apt-get -y --no-install-recommends install jackd2 libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev ruby
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev
+  apt-get -y --no-install-recommends install jackd2 ruby python3-pip
   ```
 * uninstall pulse audio
   ```shell
