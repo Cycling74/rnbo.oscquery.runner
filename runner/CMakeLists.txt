@@ -155,6 +155,11 @@ add_custom_command(
 )
 
 ### INSTALL
+#make sure dirs exist
+install(DIRECTORY DESTINATION share)
+install(DIRECTORY DESTINATION src)
+install(DIRECTORY DESTINATION lib)
+install(DIRECTORY DESTINATION bin)
 
 install(TARGETS ${PROJECT_APP} DESTINATION bin)
 
@@ -163,5 +168,5 @@ FILE(GLOB INSTALL_LIBS ${CMAKE_BINARY_DIR}/lib/*)
 install(FILES ${INSTALL_LIBS} TYPE LIB)
 
 #shared, src
-install(DIRECTORY ${CMAKE_BINARY_DIR}/share/rnbo/ DESTINATION share/rnbo/)
-install(DIRECTORY ${CMAKE_BINARY_DIR}/src/rnbo/ DESTINATION src/rnbo/)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/share/rnbo DESTINATION share)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/src/rnbo DESTINATION src)
