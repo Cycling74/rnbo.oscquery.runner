@@ -81,8 +81,9 @@ find_path(
 	RNBO_DIR
 	NAMES "RNBO.cpp"
 	PATHS
-		${CMAKE_CURRENT_SOURCE_DIR}/../../../src/cpp/
+		${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
 		~/local/src/rnbo/
+		${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
 	NO_DEFAULT_PATH
 	DOC "Location of the RNBO C++ source code"
 )
@@ -117,7 +118,7 @@ else()
 endif()
 
 #bring over SO build files here so we can package
-FILE(GLOB SO_BUILD_FILES ${CMAKE_CURRENT_SOURCE_DIR}/../so/*)
+FILE(GLOB SO_BUILD_FILES ${CMAKE_CURRENT_SOURCE_DIR}/so/*)
 FILE(COPY ${SO_BUILD_FILES} DESTINATION share/rnbo/so/)
 
 #package rnbo c++ directory
