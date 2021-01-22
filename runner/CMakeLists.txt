@@ -122,7 +122,7 @@ FILE(COPY ${SO_BUILD_FILES} DESTINATION share/rnbo/so/)
 
 #package rnbo c++ directory
 FILE(GLOB RNBO_CPP_FILES ${RNBO_DIR}/*)
-FILE(COPY ${RNBO_CPP_FILES} DESTINATION share/rnbo/src)
+FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 
 add_executable(${PROJECT_APP}
 	src/main.cpp
@@ -150,8 +150,8 @@ endif()
 add_custom_command(
 	TARGET ${PROJECT_APP}
 	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E tar cvf ${CMAKE_CURRENT_BINARY_DIR}/rnbo-oscquery-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz --format=gnutar --
-	bin lib share
+	COMMAND ${CMAKE_COMMAND} -E tar czf ${CMAKE_CURRENT_BINARY_DIR}/rnbo-oscquery-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz --
+	bin lib share src
 )
 
 ### INSTALL
@@ -162,5 +162,6 @@ install(TARGETS ${PROJECT_APP} DESTINATION bin)
 FILE(GLOB INSTALL_LIBS ${CMAKE_BINARY_DIR}/lib/*)
 install(FILES ${INSTALL_LIBS} TYPE LIB)
 
-#shared
+#shared, src
 install(DIRECTORY ${CMAKE_BINARY_DIR}/share/rnbo/ DESTINATION share/rnbo/)
+install(DIRECTORY ${CMAKE_BINARY_DIR}/src/rnbo/ DESTINATION src/rnbo/)
