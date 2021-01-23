@@ -52,9 +52,7 @@ int main(int argc, const char * argv[]) {
 	for (auto key: {config::key::DataFileDir, config::key::SaveDir, config::key::SourceCacheDir, config::key::CompileCacheDir}) {
 		fs::create_directories(config::get<fs::path>(key));
 	}
-
-	//TODO figure out why the sidebar doesn't like colons in names.. would like this to be "rnbo:hostname"
-	Controller c("rnbo-" + host);
+	Controller c("rnbo:" + host);
 	if (options["filename"].size()) {
 		c.loadLibrary(options["filename"]);
 	} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
