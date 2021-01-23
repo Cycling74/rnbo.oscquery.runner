@@ -25,12 +25,12 @@ enum class CompileLoadError : unsigned int {
 	AudioNotActive = 5,
 };
 
-enum class DataFileCommandStatus : unsigned int {
+enum class FileCommandStatus : unsigned int {
 	Received = 0,
 	Completed = 1
 };
 
-enum class DataFileCommandError : unsigned int {
+enum class FileCommandError : unsigned int {
 	Unknown = 0,
 	WriteFailed = 1,
 	DecodeFailed = 2,
