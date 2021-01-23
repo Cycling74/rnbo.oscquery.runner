@@ -29,7 +29,6 @@ This currently runs on Linux and Mac, Windows is TBD.
 Build the runner:
 
 ```
-cd runner/
 mkdir build/
 cd build/
 cmake .. && make -j8
