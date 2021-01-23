@@ -60,7 +60,7 @@
   ```
 * build the runner (on pi)
   ```shell
-  cd ~/local/src/RNBOOSCQueryRunner/runner/ && mkdir build && cd build && cmake .. && make
+  cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make
   ```
 
 # Update the config and copy to the needed location:
