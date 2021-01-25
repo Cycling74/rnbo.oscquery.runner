@@ -16,7 +16,7 @@
   ```shell
   sudo -s
   apt-get update && apt-get upgrade -y
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev
   apt-get -y --no-install-recommends install jackd2 ruby python3-pip
   ```
 * uninstall pulse audio
@@ -116,6 +116,7 @@ sudo rm -f /etc/xdg/autostart/piwiz.desktop
 
 # TODO
 
+* Setup initial conan config for building on rpi.
 * Github action that builds the runner.
 * dpkg or apt based installation.
 
