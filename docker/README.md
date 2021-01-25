@@ -1,7 +1,7 @@
 ## To setup docker:
 * grab your rpi libraries etc
 ```shell
-rsync -vR --progress -rl --delete-after --safe-links ${RPI_HOST}:/"{lib,usr,opt/vc/lib}" rpi-rootfs
+rsync -vR --progress -rl --delete-after --safe-links pi@raspberrypi.local:/"{lib,usr,opt/vc/lib}" rpi-rootfs
 rm rpi-rootfs/usr/lib/systemd/system/rnbo.service
 ```
 * build docker image:
@@ -22,4 +22,10 @@ mkdir -p ~/.conan/profiles
 cd /build/examples/RNBOOSCQueryRunner/runner/
 mkdir build-rpi && cd build-rpi
 cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH cmake -DCMAKE_TOOLCHAIN_FILE=../rpi-toolchain.cmake -DCONAN_PROFILE=rpi .. && make
+```
+
+## share
+```shell
+docker tag rnbo.rpi-xpile:0.1 registry.digitalocean.com/c74-private/rnbo.rpi-xpile:0.1
+docker push registry.digitalocean.com/c74-private/rnbo.rpi-xpile:0.1
 ```
