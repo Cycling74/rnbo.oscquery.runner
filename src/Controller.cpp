@@ -229,7 +229,7 @@ bool Controller::process() {
 		if (mSave) {
 			mSave = false;
 			mSaveNext = system_clock::now() + save_debounce_timeout;
-		} else if (mSaveNext.has_value() && mSaveNext.value() < system_clock::now()) {
+		} else if (mSaveNext && mSaveNext.get() < system_clock::now()) {
 			save = true;
 			mSaveNext.reset();
 		}
@@ -297,9 +297,9 @@ void Controller::processCommands() {
 	while (mProcessCommands.load()) {
 		try {
 			auto cmd = mCommandQueue.popTimeout(command_wait_timeout);
-			if (!cmd.has_value())
+			if (!cmd)
 				continue;
-			std::string cmdStr = cmd.value();
+			std::string cmdStr = cmd.get();
 			auto cmdObj = RNBO::Json::parse(cmdStr);;
 			if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
 				cerr << "invalid cmd json" << cmdStr << endl;

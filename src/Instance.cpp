@@ -237,9 +237,9 @@ void Instance::registerConfigChangeCallback(std::function<void()> cb) {
 void Instance::processDataRefCommands() {
 	while (mDataRefProcessCommands.load()) {
 		auto cmdOpt = mDataRefCommandQueue.popTimeout(command_wait_timeout);
-		if (!cmdOpt.has_value())
+		if (!cmdOpt)
 			continue;
-		auto cmd = cmdOpt.value();
+		DataRefCommand cmd = cmdOpt.get();
 		if (loadDataRef(cmd.id, cmd.fileName))
 			queueConfigChangeSignal();
 	}
