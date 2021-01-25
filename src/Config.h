@@ -1,5 +1,5 @@
 #pragma once
-#include <filesystem>
+#include <boost/filesystem.hpp>
 
 namespace config {
 	namespace key {
@@ -18,8 +18,8 @@ namespace config {
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
 	}
 
-	void set_file_path(std::filesystem::path p);
-	std::filesystem::path file_path();
+	void set_file_path(boost::filesystem::path p);
+	boost::filesystem::path file_path();
 	void read_file();
 	void write_file();
 	void init(); //read and write
@@ -28,5 +28,5 @@ namespace config {
 	T get(const std::string& key);
 
 	//make's an absolute path with ~ replaced with $HOME appropriately
-	std::filesystem::path make_path(const std::string& p);
+	boost::filesystem::path make_path(const std::string& p);
 }

@@ -4,6 +4,7 @@
 #include <queue>
 #include <condition_variable>
 #include <chrono>
+#include <boost/optional.hpp>
 
 //a thread safe (not realtime safe) queue
 template <typename T>
@@ -29,25 +30,25 @@ class Queue {
 
 		//wait for an amount of time
 		template <typename Rep, typename Period>
-		std::optional<T> popTimeout(std::chrono::duration<Rep, Period> timeout) {
+		boost::optional<T> popTimeout(std::chrono::duration<Rep, Period> timeout) {
 			std::unique_lock<std::mutex> guard(mMutex);
 			if (mQueue.empty())
 				mCondition.wait_for(guard, timeout);
 			if (mQueue.empty())
-				return std::nullopt;
+				return boost::none;
 			T item = mQueue.front();
 			mQueue.pop();
-			return std::optional(item);
+			return {item};
 		}
 
 		//get data if it is available.
-		std::optional<T> tryPop() {
+		boost::optional<T> tryPop() {
 			std::lock_guard<std::mutex> guard(mMutex);
 			if (mQueue.empty())
-				return std::nullopt;
+				return boost::none;
 			T item = mQueue.front();
 			mQueue.pop();
-			return std::optional(item);
+			return {item};
 		}
 	private:
 		std::queue<T> mQueue;

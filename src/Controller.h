@@ -4,10 +4,11 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
-#include <filesystem>
 #include <optional>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/optional.hpp>
 
 #include "Instance.h"
 #include "ProcessAudio.h"
@@ -45,7 +46,7 @@ class Controller {
 		std::vector<opp::node> mNodes;
 
 		//instance and path to SO
-		std::vector<std::pair<std::unique_ptr<Instance>, std::filesystem::path>> mInstances;
+		std::vector<std::pair<std::unique_ptr<Instance>, boost::filesystem::path>> mInstances;
 
 		opp::node mDiskSpaceNode;
 		std::uintmax_t mDiskSpaceLast = 0;
@@ -65,5 +66,5 @@ class Controller {
 		std::mutex mSaveMutex;
 		bool mSave = false;
 		//a timeout for when to save, debouncing
-		std::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
+		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
 };

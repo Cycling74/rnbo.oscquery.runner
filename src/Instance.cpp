@@ -17,7 +17,7 @@ using RNBO::ParameterType;
 using RNBO::ParameterValue;
 using RNBO::MessageEvent;
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
 
 namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
@@ -38,7 +38,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
-	mPresetSavedQueue = std::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
+	mPresetSavedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
 
 	//parse out presets
 	auto presets = conf["presets"];
@@ -280,7 +280,7 @@ void Instance::loadPreset(std::string name) {
 		std::cerr << "couldn't find preset with name " << name << std::endl;
 		return;
 	}
-	RNBO::UniquePresetPtr preset = std::make_unique<RNBO::Preset>();
+	RNBO::UniquePresetPtr preset = RNBO::make_unique<RNBO::Preset>();
 	auto shared = it->second;
 	RNBO::copyPreset(*shared, *preset);
 	mCore->setPreset(std::move(preset));
@@ -352,7 +352,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 		//TODO clear node value?
 		return false;
 	}
-	SndfileHandle sndfile(filePath.u8string());
+	SndfileHandle sndfile(filePath.string());
 	if (!sndfile) {
 		std::cerr << "couldn't open as sound file " << filePath << std::endl;
 		//TODO clear node value?
@@ -395,7 +395,7 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) 
 			mCore->sendMessage(tag);
 		} else {
 			//construct and send list
-			auto l = std::make_unique<RNBO::list>();
+			auto l = RNBO::make_unique<RNBO::list>();
 			for (auto v: list) {
 				if (v.is_int())
 					l->push(static_cast<RNBO::number>(v.to_int()));

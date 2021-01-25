@@ -17,7 +17,7 @@ using std::cerr;
 using std::endl;
 using std::chrono::system_clock;
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
 
 
 namespace {
@@ -164,7 +164,7 @@ bool Controller::loadLast() {
 			return false;
 		RNBO::Json c;
 		{
-			std::ifstream i(lastFile.u8string());
+			std::ifstream i(lastFile.string());
 			i >> c;
 			i.close();
 		}
@@ -204,7 +204,7 @@ void Controller::saveLast() {
 	}
 	last[last_instances_key] = instances;
 	auto lastFile = lastFilePath();
-	std::ofstream o(lastFile.u8string());
+	std::ofstream o(lastFile.string());
 	o << std::setw(4) << last << std::endl;
 }
 
@@ -270,7 +270,7 @@ void Controller::processCommands() {
 	//setup user defined location of the build program, if they've set it
 	std::string configBuildExe = config::get<std::string>(config::key::SOBuildExe);
 	if (configBuildExe.size())
-		build_program = config::make_path(configBuildExe);
+		build_program = config::make_path(configBuildExe).string();
 
 	//helper to validate and report as there are 2 different commands
 	auto validateFileCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, bool withData) -> bool {
@@ -319,9 +319,9 @@ void Controller::processCommands() {
 				std::string code = params["code"];
 				fs::path generated = fs::absolute(sourceCache / fileName);
 				std::fstream fs;
-				fs.open(generated.u8string(), std::fstream::out | std::fstream::trunc);
+				fs.open(generated.string(), std::fstream::out | std::fstream::trunc);
 				if (!fs.is_open()) {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.u8string());
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.string());
 					continue;
 				}
 				fs << code;
@@ -343,7 +343,7 @@ void Controller::processCommands() {
 
 				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
 				//program path_to_generated.cpp libraryName pathToConfigFile
-				std::string buildCmd = build_program + " \"" + generated.u8string() + "\" \"" + libName + "\" \"" + fs::absolute(config::file_path()).u8string() + "\"";
+				std::string buildCmd = build_program + " \"" + generated.string() + "\" \"" + libName + "\" \"" + fs::absolute(config::file_path()).string() + "\"";
 				auto status = std::system(buildCmd.c_str());
 				if (status != 0) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
@@ -353,9 +353,9 @@ void Controller::processCommands() {
 						{"message", "compiled"},
 						{"progress", 90}
 					});
-					loadLibrary(libPath.u8string(), id, params["config"]);
+					loadLibrary(libPath.string(), id, params["config"]);
 				} else {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.u8string());
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.string());
 				}
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
@@ -366,7 +366,7 @@ void Controller::processCommands() {
 
 				std::string fileName = params["filename"];
 				fs::path filePath = dir / fs::path(fileName);
-				std::error_code ec;
+				boost::system::error_code ec;
 				if (fs::remove(filePath, ec)) {
 					reportCommandResult(id, {
 						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
@@ -387,9 +387,9 @@ void Controller::processCommands() {
 				std::string fileName = params["filename"];
 				fs::path filePath = dir / fs::path(fileName);
 				std::fstream fs;
-				fs.open(filePath.u8string(), std::fstream::out | std::fstream::trunc | std::fstream::binary);
+				fs.open(filePath.string(), std::fstream::out | std::fstream::trunc | std::fstream::binary);
 				if (!fs.is_open()) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.u8string());
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
 					continue;
 				}
 

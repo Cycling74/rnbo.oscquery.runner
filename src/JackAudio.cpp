@@ -6,7 +6,7 @@
 #include <fstream>
 #include <iostream>
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
 
 //we want the sample value to be the same size
 static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), "RNBO SampleValue must be the same size as jack_default_audio_sample_t");
@@ -27,7 +27,7 @@ namespace {
 	std::string getJackDRC() {
 		std::lock_guard<std::mutex> guard(mJackDRCMutex);
 		if (fs::exists(jackdrc_path)) {
-			std::ifstream i(jackdrc_path.u8string());
+			std::ifstream i(jackdrc_path.string());
 			std::string v;
 			if (std::getline(i, v)) {
 				return v;
@@ -43,7 +43,7 @@ namespace {
 	void writeJackDRC(std::string value) {
 		if (value.size()) {
 			std::lock_guard<std::mutex> guard(mJackDRCMutex);
-			std::ofstream o(jackdrc_path.u8string());
+			std::ofstream o(jackdrc_path.string());
 			o << value;
 			o.close(); //flush
 		}
@@ -62,7 +62,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 			//read info about alsa cards if it exists
 			fs::path alsa_cards("/proc/asound/cards");
 			if (fs::exists(alsa_cards)) {
-				std::ifstream i(alsa_cards.u8string());
+				std::ifstream i(alsa_cards.string());
 				std::string value;
 				std::string line;
 				while (std::getline(i, line)) {
@@ -153,7 +153,7 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 	jack_set_process_callback(mJackClient, processJack, this);
 
 	//setup command queue
-	mPortQueue = std::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
+	mPortQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
 
 	//init aliases
 	mJackPortAliases[0] = new char[jack_port_name_size()];

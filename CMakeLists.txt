@@ -7,7 +7,7 @@ project(RNBOOSCQueryRunner
 	VERSION ${PROJECT_VERSION}
 	LANGUAGES CXX
 )
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 11)
 set(PROJECT_APP "rnbooscquery")
 
 add_definitions(-DRNBO_USE_FLOAT32)
@@ -44,6 +44,13 @@ else()
 endif()
 
 conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
+	BASIC_SETUP
+	CMAKE_TARGETS
+	BUILD missing
+	PROFILE ${CONAN_PROFILE}
+)
+
+conan_cmake_run(REQUIRES boost/1.75.0
 	BASIC_SETUP
 	CMAKE_TARGETS
 	BUILD missing
@@ -111,7 +118,7 @@ if (UNIX)
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${CMAKE_PROJECT_VERSION}.dylib")
 	else() # for Linux, BSD, Solaris, Minix
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${CMAKE_PROJECT_VERSION}.so")
-		set(PLATFORM_LIBS "-ldl -latomic -lpthread -lstdc++fs")
+		set(PLATFORM_LIBS "-ldl -latomic -lpthread")
 	endif()
 else()
 	message(FATAL_ERROR "platform not supported (yet)")
@@ -137,7 +144,7 @@ add_executable(${PROJECT_APP}
 	${RNBO_DIR}/RNBO.cpp
 )
 
-target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
+target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse CONAN_PKG::boost ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
 
 # add rpath so we can run from the build directory
 if (APPLE)

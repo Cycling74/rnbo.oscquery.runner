@@ -15,7 +15,7 @@ using std::cout;
 using std::cerr;
 using std::endl;
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
 
 int main(int argc, const char * argv[]) {
 	OptionParser parser = OptionParser().description("rnbo so runner");

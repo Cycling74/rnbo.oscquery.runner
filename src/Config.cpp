@@ -6,12 +6,12 @@
 #include <fstream>
 #include <iomanip>
 
-namespace fs = std::filesystem;
+namespace fs = boost::filesystem;
 
 namespace {
 	static std::mutex mutex;
 	//XXX figure out for windows
-	const static std::string home_str = fs::absolute(fs::path(std::getenv("HOME"))).u8string();
+	const static std::string home_str = fs::absolute(fs::path(std::getenv("HOME"))).string();
 	const static std::regex tilde("~");
 
 	static fs::path config_file_path = config::make_path(RNBO_CONFIG_DIR) / "runner.json";
@@ -28,12 +28,12 @@ namespace {
 		}
 
 	const RNBO::Json config_default = {
-		{config::key::CompileCacheDir, default_so_cache.u8string()},
-		{config::key::SourceCacheDir, default_src_cache.u8string()},
-		{config::key::SaveDir, default_save_dir.u8string()},
+		{config::key::CompileCacheDir, default_so_cache.string()},
+		{config::key::SourceCacheDir, default_src_cache.string()},
+		{config::key::SaveDir, default_save_dir.string()},
 		{config::key::SOBuildExe, std::string()},
-		{config::key::SOBuildDir, default_src_cache.u8string()},
-		{config::key::DataFileDir, default_datafile_dir.u8string()},
+		{config::key::SOBuildDir, default_src_cache.string()},
+		{config::key::DataFileDir, default_datafile_dir.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},
@@ -63,7 +63,7 @@ namespace config {
 				config_json = config_default;
 				if (fs::exists(config_file_path)) {
 					RNBO::Json c;
-					std::ifstream i(config_file_path.u8string());
+					std::ifstream i(config_file_path.string());
 					i >> c;
 					config_json.merge_patch(c);
 				}
@@ -73,12 +73,12 @@ namespace config {
 		with_mutex<void>([](){
 				fs::path dir;
 				fs::create_directories((dir = config_file_path).remove_filename());
-				std::ofstream o(config_file_path.u8string());
+				std::ofstream o(config_file_path.string());
 				o << std::setw(4) << config_json << std::endl;
 		});
 	}
 	template<>
-	std::filesystem::path get<std::filesystem::path>(const std::string& key) {
+	boost::filesystem::path get<boost::filesystem::path>(const std::string& key) {
 		return make_path(get<std::string>(key));
 	}
 	template<typename T>
