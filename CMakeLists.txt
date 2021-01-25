@@ -50,13 +50,6 @@ conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
 	PROFILE ${CONAN_PROFILE}
 )
 
-conan_cmake_run(REQUIRES boost/1.75.0
-	BASIC_SETUP
-	CMAKE_TARGETS
-	BUILD missing
-	PROFILE ${CONAN_PROFILE}
-)
-
 conan_cmake_run(REQUIRES libossia/1.2.1@xnor/testing
 	BASIC_SETUP
 	CMAKE_TARGETS
@@ -84,6 +77,11 @@ find_library(JACK_LIB "jack" REQUIRED)
 find_library(SNDFILE_LIB "sndfile" REQUIRED)
 find_path(SNDFILE_INCLUDE_DIR sndfile.hh REQUIRED)
 
+find_package(Boost 1.67
+	REQUIRED COMPONENTS
+	filesystem
+)
+
 find_path(
 	RNBO_DIR
 	NAMES "RNBO.cpp"
@@ -103,6 +101,7 @@ include_directories(
 	"${RNBO_DIR}/src/3rdparty"
 	${CONAN_INCLUDE_DIRS}
 	${SNDFILE_INCLUDE_DIR}
+	${Boost_INCLUDE_DIRS}
 )
 
 add_definitions(-DRNBO_VERSION="${CMAKE_PROJECT_VERSION}")
@@ -144,7 +143,7 @@ add_executable(${PROJECT_APP}
 	${RNBO_DIR}/RNBO.cpp
 )
 
-target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse CONAN_PKG::boost ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
+target_link_libraries(${PROJECT_APP} CONAN_PKG::libossia CONAN_PKG::base64 CONAN_PKG::cpp-optparse Boost::filesystem ${JACK_LIB} ${SNDFILE_LIB} ${PLATFORM_LIBS})
 
 # add rpath so we can run from the build directory
 if (APPLE)
