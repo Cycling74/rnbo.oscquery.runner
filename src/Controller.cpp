@@ -268,9 +268,9 @@ void Controller::processCommands() {
 	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir);
 	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir);
 	//setup user defined location of the build program, if they've set it
-	std::string configBuildExe = config::get<std::string>(config::key::SOBuildExe);
-	if (configBuildExe.size())
-		build_program = config::make_path(configBuildExe).string();
+	auto configBuildExe = config::get<fs::path>(config::key::SOBuildExe);
+	if (!configBuildExe.empty() && fs::exists(configBuildExe))
+		build_program = configBuildExe.string();
 
 	//helper to validate and report as there are 2 different commands
 	auto validateFileCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, bool withData) -> bool {
@@ -343,7 +343,10 @@ void Controller::processCommands() {
 
 				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
 				//program path_to_generated.cpp libraryName pathToConfigFile
-				std::string buildCmd = build_program + " \"" + generated.string() + "\" \"" + libName + "\" \"" + fs::absolute(config::file_path()).string() + "\"";
+				std::string buildCmd = build_program;
+				for (auto a: { generated.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).string(), config::get<fs::path>(config::key::CompileCacheDir).string() }) {
+					buildCmd += (" \"" + a + "\"");
+				}
 				auto status = std::system(buildCmd.c_str());
 				if (status != 0) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));

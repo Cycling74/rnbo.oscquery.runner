@@ -3,14 +3,15 @@
 
 namespace config {
 	namespace key {
+		//operation config values, override defaults, usually looks relative to executable
+		const static std::string SOBuildExe = "so_build_exe"; //optional path to the executable used for building shared objects.
+		const static std::string RnboCPPDir = "rnbo_cpp_dir"; //the directory that contains the RNBO c++ source files
+
+		//user preference config values
 		const static std::string SourceCacheDir = "source_cache_dir"; //where do we generated source we get
 		const static std::string CompileCacheDir = "compile_cache_dir"; //where do we store compiled shared objects
-		const static std::string SaveDir = "save_dir"; //where do we persist saved data, for auto start on restart
-		const static std::string SOBuildExe = "so_build_exe"; //optional path to the executable used for building shared objects, if empty, just uses PATH
-		const static std::string SOBuildDir = "so_build_dir"; //the directory that contains the CMakeLists.txt for building shared objects
-		const static std::string RnboCPPDir = "rnbo_cpp_dir"; //the directory that contains the RNBO c++ source files
 		const static std::string DataFileDir = "datafile_dir"; //the directory where data (audio) files can be read from or written to
-
+		const static std::string SaveDir = "save_dir"; //where do we persist saved data, for auto start on restart
 		const static std::string InstanceAutoStartLast = "instance_auto_start_last"; //try to restart the last run instance (and its settings) on startup.
 		const static std::string InstanceAutoConnectAudio = "instance_auto_connect_audio"; //if applicable (Jack), should an instance be automatically connected to audio
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
@@ -21,7 +22,6 @@ namespace config {
 	void set_file_path(boost::filesystem::path p);
 	boost::filesystem::path file_path();
 	void read_file();
-	void write_file();
 	void init(); //find and read
 
 	template <typename T>

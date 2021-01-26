@@ -15,15 +15,15 @@ namespace {
 	const static std::string home_str = fs::absolute(fs::path(std::getenv("HOME"))).string();
 	const static std::regex tilde("~");
 
-	static fs::path config_file_path = config::make_path(RNBO_CONFIG_DIR) / "runner.json";
-	static fs::path default_so_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "so";
-	static fs::path default_so_build_dir = config::make_path(RNBO_SO_BUILD_DIR);
-	static fs::path default_save_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "saves";
-	static fs::path default_src_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "src";
-	static fs::path default_datafile_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "datafiles";
+	static fs::path default_so_cache = config::make_path("~/Documents/rnbo/cache/so");
+	static fs::path default_src_cache = config::make_path("~/Documents/rnbo/cache/src");
+	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
+	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
 
-	//the loaction of our executable
-	static fs::path exec_location;
+	//the base dir of our installation
+	static fs::path base_dir;
+	//the location of our found config file ,if there is one
+	static fs::path config_file_path;
 
 	template<typename T>
 		T with_mutex(std::function<T()> f) {
@@ -35,13 +35,10 @@ namespace {
 		{config::key::CompileCacheDir, default_so_cache.string()},
 		{config::key::SourceCacheDir, default_src_cache.string()},
 		{config::key::SaveDir, default_save_dir.string()},
-		{config::key::SOBuildExe, std::string()},
-		{config::key::SOBuildDir, default_src_cache.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},
-		{config::key::HostNameOverride, std::string()},
 	};
 
 	RNBO::Json config_json = config_default;
@@ -60,11 +57,13 @@ namespace config {
 	}
 
 	void init() {
-		exec_location = boost::dll::program_location();
+		// /foo/bar/bin/exename -> /foo/bar
+		base_dir = boost::dll::program_location().parent_path().parent_path();
+
 		//find the path
 		for (auto p: {
 				make_path("~/.config/rnbo/runner.json"),
-				exec_location.parent_path().parent_path() / "share" / "rnbo" / "runner.json"
+				base_dir / "share" / "rnbo" / "runner.json"
 				}) {
 			if (fs::exists(p)) {
 				config_file_path = p;
@@ -94,8 +93,17 @@ namespace config {
 		});
 	}
 	template<>
-	boost::filesystem::path get<boost::filesystem::path>(const std::string& key) {
-		return make_path(get<std::string>(key));
+	boost::filesystem::path get<boost::filesystem::path>(const std::string& k) {
+		std::string p = get<std::string>(k);
+		if (p.empty()) {
+			if (k == key::RnboCPPDir) {
+				return base_dir / "src" / "rnbo";
+			}
+			if (k == key::SOBuildExe) {
+				return base_dir / "share" / "rnbo" / "so" / "rnbo-compile-so";
+			}
+		}
+		return make_path(p);
 	}
 	template<typename T>
 	T get(const std::string& key) {
