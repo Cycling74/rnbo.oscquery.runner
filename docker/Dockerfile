@@ -1,10 +1,8 @@
+#Dockerfile for setting up environment for cross compiling for raspbian rpi
+
 #derived from https://bitbucket.org/mitchallen/pi-cross-compile/src/master/Dockerfile
 FROM debian:buster-slim
 MAINTAINER Alex Norman "xnor@cylcing74.com"
-
-# USAGE: docker run -it -v ~/raspberry/hello:/build mitchallen/pi-cross-compile
-
-#LABEL com.mitchallen.pi-cross-compile="{\"Description\":\"Cross Compile for Raspberry Pi\",\"Usage\":\"docker run -it -v ~/myprojects/mybuild:/build mitchallen/pi-cross-compile\",\"Version\":\"0.1.0\"}"
 
 RUN apt-get update && apt-get upgrade -y
 RUN DEBIAN_FRONTEND=noninteractive \

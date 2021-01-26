@@ -1,3 +1,6 @@
+# Toolchain file for cross compiling RNBOOSCQueryRunner for raspi in Docker container
+
+
 ############################################################################
 # toolchain-raspberry.cmake
 # Copyright (C) 2014  Belledonne Communications, Grenoble France
