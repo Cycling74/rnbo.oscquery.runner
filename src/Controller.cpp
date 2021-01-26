@@ -309,8 +309,10 @@ void Controller::processCommands() {
 			std::string method = cmdObj["method"];
 			RNBO::Json params = cmdObj["params"];
 			if (method == "compile") {
+				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+
 				//TODO get from payload
-				std::string fileName = "rnbogenerated.cpp";
+				std::string fileName = "rnbogenerated." + timeTag + ".cpp";
 
 				if (!cmdObj.contains("params") || !params.contains("code")) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
@@ -339,7 +341,7 @@ void Controller::processCommands() {
 				}
 
 				//create library name, based on time so we don't have to unload existing
-				std::string libName = "RNBORunnerSO" + std::to_string(std::chrono::seconds(std::time(NULL)).count());
+				std::string libName = "RNBORunnerSO" + timeTag;
 
 				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
 				//program path_to_generated.cpp libraryName pathToConfigFile
