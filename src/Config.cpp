@@ -5,6 +5,7 @@
 #include <mutex>
 #include <fstream>
 #include <iomanip>
+#include <boost/dll/runtime_symbol_info.hpp>
 
 namespace fs = boost::filesystem;
 
@@ -20,6 +21,9 @@ namespace {
 	static fs::path default_save_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "saves";
 	static fs::path default_src_cache = config::make_path(RNBO_CACHE_BASE_DIR) / "src";
 	static fs::path default_datafile_dir = config::make_path(RNBO_CACHE_BASE_DIR) / "datafiles";
+
+	//the loaction of our executable
+	static fs::path exec_location;
 
 	template<typename T>
 		T with_mutex(std::function<T()> f) {
@@ -54,10 +58,22 @@ namespace config {
 	fs::path file_path() {
 		return with_mutex<fs::path>([](){ return config_file_path; });
 	}
+
 	void init() {
+		exec_location = boost::dll::program_location();
+		//find the path
+		for (auto p: {
+				make_path("~/.config/rnbo/runner.json"),
+				exec_location.parent_path().parent_path() / "share" / "rnbo" / "runner.json"
+				}) {
+			if (fs::exists(p)) {
+				config_file_path = p;
+				break;
+			}
+		}
 		read_file();
-		write_file();
 	}
+
 	void read_file() {
 		with_mutex<void>([](){
 				config_json = config_default;

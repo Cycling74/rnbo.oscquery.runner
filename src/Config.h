@@ -22,7 +22,7 @@ namespace config {
 	boost::filesystem::path file_path();
 	void read_file();
 	void write_file();
-	void init(); //read and write
+	void init(); //find and read
 
 	template <typename T>
 	T get(const std::string& key);
