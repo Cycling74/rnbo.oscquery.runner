@@ -197,7 +197,7 @@ void Controller::saveLast() {
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
 		for (auto& i: mInstances) {
 			RNBO::Json data = RNBO::Json::object();
-			data[last_so_key] = i.second;
+			data[last_so_key] = i.second.string();
 			data[last_config_key] = i.first->currentConfig();
 			instances.push_back(data);
 		}
