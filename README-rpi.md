@@ -21,7 +21,7 @@
   ```
 * uninstall pulse audio
   ```shell
-  sudo apt-get remove pulseaudio && sudo apt-get -y autoremove
+  sudo apt-get remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp && sudo apt-get -y autoremove
   ```
 * Configure realtime
   ```shell
@@ -58,16 +58,10 @@
   ```shell
   ./deploy.rb pi@c74rpi.local
   ```
-* build the runner (on pi)
+* build and install the runner (on pi)
   ```shell
   cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make
-  ```
-
-# Update the config and copy to the needed location:
-  ```shell
-  cd ~/local/src/RNBOOSCQueryRunner/
-  vi runner-rpi.json
-  cp runner-rpi.json ~/.config/rnbo/runner.json
+  sudo make install && ldconfig
   ```
 
 # Install the service file
@@ -76,7 +70,7 @@
   ```shell
   cd ~/local/src/RNBOOSCQueryRunner/
   sudo -s
-  cp rnbo.service /lib/systemd/system/rnbo.service
+  cp config/rnbo.service /lib/systemd/system/rnbo.service
   chown root:root /lib/systemd/system/rnbo.service
   chmod 644 /lib/systemd/system/rnbo.service
   systemctl daemon-reload
@@ -119,6 +113,7 @@ sudo rm -f /etc/xdg/autostart/piwiz.desktop
 * Setup initial conan config for building on rpi.
 * Github action that builds the runner.
 * dpkg or apt based installation.
+* [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
 
 
 # More reading
