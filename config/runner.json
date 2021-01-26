@@ -1,0 +1,12 @@
+{
+    "host_name_override": "",
+
+    "compile_cache_dir": "~/Documents/rnbo/cache/so/",
+    "save_dir": "~/Documents/rnbo/cache/saves/",
+    "source_cache_dir": "~/Documents/rnbo/cache/src/",
+    "datafile_dir": "~/Documents/rnbo/datafiles/",
+
+    "instance_auto_start_last": true,
+    "instance_auto_connect_audio": true,
+    "instance_auto_connect_midi": true
+}

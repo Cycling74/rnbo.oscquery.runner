@@ -36,7 +36,8 @@ cmake .. && make -j8
 
 ### Configuration
 
-There is an example `runner-mac.json` config file in this directory. Update it as needed and put it here:
+There is an example `runner.json` config file in the config directory.
+If you want some customizations you can edit that and copy it here:
 `~/.config/rnbo/runner.json`
 
 ### Running
