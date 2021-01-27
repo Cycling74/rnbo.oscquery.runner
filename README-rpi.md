@@ -96,7 +96,11 @@
   sudo ldconfig
   ```
 
-  Install the service file if you haven't already.
+  Install the service file if you haven't already. If you have, then just restart the service:
+
+  ```shell
+  sudo service rnbo restart
+  ```
 
 # Backup
 
