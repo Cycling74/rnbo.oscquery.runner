@@ -27,7 +27,6 @@
   ```shell
   sudo dpkg-reconfigure jackd2
   ```
-* build and install the latest [cmake](https://cmake.org/install/)
 * setup python3
   ```shell
   sudo -s
@@ -40,15 +39,20 @@
   ```
 * make directories for local builds and config
   ```shell
+  mkdir -p .conan/profiles/
   mkdir -p ~/local/src/
-  mkdir -p ~/.config/rnbo/
   ```
-* download and build libossia
+* build and install the latest [cmake](https://cmake.org/install/)
+  * Alex did this in `~/local/src/`
+* Disable the screen reader audio prompt at startup
   ```shell
-  cd local/src/ && git clone -b develop https://github.com/cycling74/libossia
-  cd libossia && mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Debug -DOSSIA_CPP=ON -DOSSIA_CPP_ONLY=ON -DOSSIA_DATAFLOW=OFF -DOSSIA_EDITOR=OFF -DOSSIA_GFX=OFF -DOSSIA_PCH=OFF -DOSSIA_PROTOCOL_ARTNET=OFF -DOSSIA_PROTOCOL_AUDIO=OFF -DOSSIA_PROTOCOL_MIDI=OFF -DOSSIA_PROTOCOL_WIIMOTE=OFF -DOSSIA_PROTOCOL_JOYSTICK=OFF
-  make -j4 && sudo make install
+  sudo rm -f /etc/xdg/autostart/piwiz.desktop
   ```
+* send over conan default profile (from host pc)
+  ```shell
+  rsync config/conan-rpi-default pi@c74rpi.local:.conan/profiles/default
+  ```
+**NOTE** at this point you can save the SD image for future *fresh* images.
 
 # Copy and Build runner
 
@@ -66,7 +70,6 @@
 
 # Install the service file
 
-
   ```shell
   cd ~/local/src/RNBOOSCQueryRunner/
   sudo -s
@@ -83,12 +86,6 @@
   journalctl -u rnbo
   ```
 
-# Disable the screen reader audio prompt at startup
-
-```shell
-sudo rm -f /etc/xdg/autostart/piwiz.desktop
-```
-
 # Backup
 
 * find the device:
@@ -103,14 +100,14 @@ sudo rm -f /etc/xdg/autostart/piwiz.desktop
     ```
 * backup with dd (**BE CAREFUL**):
   ```shell
-  sudo dd if=/dev/disk5 of=2020-12-02-raspios-buster-armhf-setup.dmg bs=1024k status=progress
+  sudo dd if=/dev/disk5 of=2020-12-02-raspios-buster-armhf-setup.dmg bs=1024k
   ```
+  *note* if you're on linux you can add `status=progress` to see the progress
 * shrink, on linux:
   * shrink with: [PiShrink](https://github.com/Drewsif/PiShrink)
 
 # TODO
 
-* Setup initial conan config for building on rpi.
 * Github action that builds the runner.
 * dpkg or apt based installation.
 * [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
