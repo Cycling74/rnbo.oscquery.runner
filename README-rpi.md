@@ -70,10 +70,11 @@
 
 # Install the service file
 
+  from wherever `rnbo.service` is, either `cd ~/local/src/RNBOOSCQueryRunner/config/` or maybe its in your homedir.
+
   ```shell
-  cd ~/local/src/RNBOOSCQueryRunner/
   sudo -s
-  cp config/rnbo.service /lib/systemd/system/rnbo.service
+  cp rnbo.service /lib/systemd/system/rnbo.service
   chown root:root /lib/systemd/system/rnbo.service
   chmod 644 /lib/systemd/system/rnbo.service
   systemctl daemon-reload
@@ -85,6 +86,17 @@
   ```
   journalctl -u rnbo
   ```
+
+# Install a prebuilt binary
+
+  ```shell
+  scp examples/RNBOOSCQueryRunner/config/rnbo.service examples/RNBOOSCQueryRunner/build-rpi/rnbo-oscquery-*-Linux-armv7.tar.gz pi@c74rpi.local:
+  ssh pi@c74rpi.local
+  sudo tar xvf rnbo-oscquery-0.9.0-Linux-armv7.tar.gz -C /usr/local/
+  sudo ldconfig
+  ```
+
+  Install the service file if you haven't already.
 
 # Backup
 
