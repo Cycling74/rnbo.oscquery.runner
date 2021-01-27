@@ -6,7 +6,7 @@
 
 [Service]
   Type=idle
-  ExecStart=/home/pi/local/src/RNBOOSCQueryRunner/build/bin/rnbooscquery
+  ExecStart=/usr/local/bin/rnbooscquery
   KillSignal=SIGINT
   User=pi
   Group=audio
