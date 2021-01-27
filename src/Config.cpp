@@ -100,7 +100,7 @@ namespace config {
 				return base_dir / "src" / "rnbo";
 			}
 			if (k == key::SOBuildExe) {
-				return base_dir / "share" / "rnbo" / "so" / "rnbo-compile-so";
+				return base_dir / "bin" / "rnbo-compile-so";
 			}
 		}
 		return make_path(p);

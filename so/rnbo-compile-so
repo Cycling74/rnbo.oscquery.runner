@@ -13,7 +13,7 @@ OUTPUT_DIR = File.expand_path(ARGV[3])
 raise "#{RNBO_SRC_DIR} is not a valid directory" unless Dir.exist?(RNBO_SRC_DIR)
 raise "#{OUTPUT_DIR} is not a valid directory" unless Dir.exist?(OUTPUT_DIR)
 
-so_build_dir = File.expand_path(__dir__)
+so_build_dir = File.join(File.expand_path(__dir__), "../share/rnbo/so/")
 raise "cannot find CMakeLists.txt in #{so_build_dir}" unless File.exist?(File.join(so_build_dir, "CMakeLists.txt"))
 
 #compile in a temp directory, then move the shared object to the OUTPUT_DIR
