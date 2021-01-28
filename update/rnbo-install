@@ -8,11 +8,12 @@ require 'optparse'
 require 'fileutils'
 require 'tmpdir'
 
-is_mac = RUBY_PLATFORM != /darwin/
+is_mac = RUBY_PLATFORM =~ /darwin/
 options = {
   :use_sudo => !is_mac,
   :ld_config => !is_mac,
   :install_prefix => "/usr/local",
+  :restart_service => !is_mac
 }
 
 OptionParser.new do |opts|
@@ -27,6 +28,9 @@ OptionParser.new do |opts|
   opts.on("-l", "--ld-config [FLAG]", TrueClass, "Run ld_config after installation, default #{options[:ld_config]}") do |v|
     options[:ld_config] = v.nil? ? true : v
   end
+  opts.on("-r", "--restart-service [FLAG]", TrueClass, "Restart the rnbo service after installation, default #{options[:restart_service]}") do |v|
+    options[:restart_service] = v.nil? ? true : v
+  end
 end.parse!
 
 raise "you must provide a URI" unless ARGV.length == 1
@@ -40,7 +44,7 @@ fname = File.basename(uri.path)
 #download the file to a temp dir, run comand
 Dir.mktmpdir do |dir|
   file = File.join(dir, fname)
-  IO.copy_stream(URI.open(uri, 'rb'), file)
+  IO.copy_stream(uri.scheme == "file" ? File.open(uri.path, 'rb') : URI.open(uri.to_s, 'rb'), file)
   prefix = options[:install_prefix]
   cmd = (options[:use_sudo] ? ["sudo"] : []).concat(["tar", "xf", File.expand_path(file), "-C", prefix])
   raise "failed to extract #{fname} into #{prefix}" unless system(*cmd)
@@ -49,4 +53,9 @@ end
 if options[:ld_config]
   cmd = (options[:use_sudo] ? ["sudo"] : []).concat(["ldconfig"])
   raise "ldconfig failed" unless system(*cmd)
+end
+
+if options[:restart_service]
+  cmd = (options[:use_sudo] ? ["sudo"] : []).concat(["service" ,"rnbo", "restart"])
+  raise "service restart failed" unless system(*cmd)
 end
