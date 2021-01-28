@@ -1,0 +1,52 @@
+#!/usr/bin/env ruby
+
+#A script to download something and install it, use with care!
+
+require 'open-uri'
+require 'uri'
+require 'optparse'
+require 'fileutils'
+require 'tmpdir'
+
+is_mac = RUBY_PLATFORM != /darwin/
+options = {
+  :use_sudo => !is_mac,
+  :ld_config => !is_mac,
+  :install_prefix => "/usr/local",
+}
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: #{$0} [options]"
+
+  opts.on("-s", "--[no-]use-sudo [FLAG]", TrueClass, "Use sudo to install, default #{options[:use_sudo]}") do |v|
+    options[:use_sudo] = v.nil? ? true : v
+  end
+  opts.on("-p", "--install-prefix PREFIX", String, "The location to install, default #{options[:install_prefix]}") do |v|
+    options[:install_prefix] = v
+  end
+  opts.on("-l", "--ld-config [FLAG]", TrueClass, "Run ld_config after installation, default #{options[:ld_config]}") do |v|
+    options[:ld_config] = v.nil? ? true : v
+  end
+end.parse!
+
+raise "you must provide a URI" unless ARGV.length == 1
+uri = URI(ARGV[0])
+
+#make sure that the install prefix works
+FileUtils.mkdir_p options[:install_prefix]
+
+fname = File.basename(uri.path)
+
+#download the file to a temp dir, run comand
+Dir.mktmpdir do |dir|
+  file = File.join(dir, fname)
+  IO.copy_stream(URI.open(uri, 'rb'), file)
+  prefix = options[:install_prefix]
+  cmd = (options[:use_sudo] ? ["sudo"] : []).concat(["tar", "xf", File.expand_path(file), "-C", prefix])
+  raise "failed to extract #{fname} into #{prefix}" unless system(*cmd)
+end
+
+if options[:ld_config]
+  cmd = (options[:use_sudo] ? ["sudo"] : []).concat(["ldconfig"])
+  raise "ldconfig failed" unless system(*cmd)
+end
