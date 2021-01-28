@@ -134,6 +134,7 @@ if (UNIX)
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${CMAKE_PROJECT_VERSION}.dylib")
 	else() # for Linux, BSD, Solaris, Minix
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${CMAKE_PROJECT_VERSION}.so")
+		add_definitions(-DRNBO_SELF_UPDATE)
 		set(PLATFORM_LIBS "-ldl -latomic -lpthread")
 	endif()
 else()

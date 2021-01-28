@@ -37,3 +37,14 @@ enum class FileCommandError : unsigned int {
 	InvalidRequestObject = 3,
 	DeleteFailed = 4
 };
+
+enum class InstallProgramStatus : unsigned int {
+	Received = 0,
+	Completed = 1
+};
+
+enum class InstallProgramError : unsigned int {
+	Unknown = 0,
+	InvalidRequestObject = 1,
+	FileNotFound = 2,
+};
