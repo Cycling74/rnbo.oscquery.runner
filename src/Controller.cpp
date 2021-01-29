@@ -324,7 +324,7 @@ void Controller::processCommands() {
 				fs::path generated = fs::absolute(sourceCache / fileName);
 				std::fstream fs;
 				//allow for "append" to add to the end of an existing file
-				auto flags = std::fstream::out | ((params["append"] && params["append"].to_bool()) ? std::fstream::app : std::fstream::trunc);
+				auto flags = std::fstream::out | ((params["append"].is_boolean() && params["append"].get<bool>()) ? std::fstream::app : std::fstream::trunc);
 				fs.open(generated.string(), flags);
 				if (!fs.is_open()) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.string());
