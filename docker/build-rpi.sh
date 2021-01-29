@@ -6,4 +6,4 @@ cp ../config/conan-rpi-xcompile ~/.conan/profiles/rpi && \
 	cmake -DRNBO_DIR=/build/src/cpp/ \
 	-DCMAKE_TOOLCHAIN_FILE=../config/rpi-xpile-toolchain.cmake \
 	-DCONAN_PROFILE=rpi \
-	..  && make
+	..  && make && cpack
