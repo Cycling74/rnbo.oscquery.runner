@@ -323,9 +323,7 @@ void Controller::processCommands() {
 				std::string code = params["code"];
 				fs::path generated = fs::absolute(sourceCache / fileName);
 				std::fstream fs;
-				//allow for "append" to add to the end of an existing file
-				auto flags = std::fstream::out | ((params["append"].is_boolean() && params["append"].get<bool>()) ? std::fstream::app : std::fstream::trunc);
-				fs.open(generated.string(), flags);
+				fs.open(generated.string(), std::fstream::out | std::fstream::trunc);
 				if (!fs.is_open()) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.string());
 					continue;
@@ -396,7 +394,9 @@ void Controller::processCommands() {
 				std::string fileName = params["filename"];
 				fs::path filePath = dir / fs::path(fileName);
 				std::fstream fs;
-				fs.open(filePath.string(), std::fstream::out | std::fstream::trunc | std::fstream::binary);
+				//allow for "append" to add to the end of an existing file
+				bool append = params["append"].is_boolean() && params["append"].get<bool>();
+				fs.open(filePath.string(), std::fstream::out | std::fstream::binary | (append ? std::fstream::app : std::fstream::trunc));
 				if (!fs.is_open()) {
 					reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
 					continue;
