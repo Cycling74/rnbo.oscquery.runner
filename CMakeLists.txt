@@ -244,7 +244,6 @@ install(FILES
 	RENAME rnbo.service
 	DESTINATION lib/systemd/system/
 	COMPONENT local
-	EXCLUDE_FROM_ALL
 )
 
 install(FILES
