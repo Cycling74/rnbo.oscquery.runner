@@ -239,6 +239,22 @@ INSTALL(FILES
 install(DIRECTORY ${CMAKE_BINARY_DIR}/share/rnbo DESTINATION share)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/src/rnbo DESTINATION src)
 
+install(FILES
+	${CMAKE_CURRENT_SOURCE_DIR}/config/rnbo.service.local
+	RENAME rnbo.service
+	DESTINATION lib/systemd/system/
+	COMPONENT local
+	EXCLUDE_FROM_ALL
+)
+
+install(FILES
+	${CMAKE_CURRENT_SOURCE_DIR}/config/rnbo.service.usr
+	RENAME rnbo.service
+	DESTINATION lib/systemd/system/
+	COMPONENT usr
+	EXCLUDE_FROM_ALL
+)
+
 #setup deb build
 IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 INCLUDE(InstallRequiredSystemLibraries)
@@ -259,6 +275,13 @@ SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjac
 
 SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 SET(CPACK_DEBIAN_PACKAGE_SECTION "sound")
+
+#remove the local component from the deb as it references /usr/ not /usr/local/
+get_cmake_property(CPACK_COMPONENTS_ALL COMPONENTS)
+message(STATUS "components ${CPACK_COMPONENTS_ALL}")
+list(REMOVE_ITEM CPACK_COMPONENTS_ALL "local")
+SET(CPACK_DEB_COMPONENT_INSTALL ON)
+SET(CPACK_COMPONENTS_GROUPING "ALL_COMPONENTS_IN_ONE")
 
 INCLUDE(CPack)
 
