@@ -42,6 +42,8 @@ namespace {
 }
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
+	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
+	mServer.set_echo(true);
 	auto r = mServer.get_root_node().create_child("rnbo");
 	mNodes.push_back(r);
 
