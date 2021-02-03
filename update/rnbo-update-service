@@ -1,0 +1,48 @@
+#!/usr/bin/env ruby
+
+# This service runs as root and allows authorized users to specify a version of
+# the rnbo OSCQuery runner to install.
+
+require "dbus"
+
+URI_BASE = "com.cycling74.rnbo"
+RUNNER_PACKAGE_NAME = "rnbooscquery"
+
+def exec_cmds(cmds)
+	cmds.each do |cmd|
+		raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
+	end
+end
+
+class RNBOUpdater < DBus::Object
+  dbus_interface URI_BASE do
+    dbus_method :install_runner, "in version:s" do |version|
+			#assert version format
+			raise "#{version} not in allowed format" unless version =~ /\A\d[\d~\+-\.]*\z/
+			raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
+			exec_cmds([
+				%w{apt update},
+				%w{apt install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
+				%w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
+			])
+    end
+
+    dbus_method :update_system do
+			exec_cmds([
+				%w{apt update},
+				%w{apt -y upgrade}
+			])
+    end
+
+    #TODO signal when there are updates available?
+  end
+end
+
+bus = DBus::SystemBus.instance
+service = bus.request_service(URI_BASE)
+myobj = RNBOUpdater.new("/com/cycling74/rnbo")
+service.export(myobj)
+
+main = DBus::Main.new
+main << bus
+main.run
