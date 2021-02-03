@@ -68,7 +68,7 @@ conan_cmake_run(REQUIRES libossia/1.2.1@xnor/testing
 	IMPORTS "lib, *.so* -> ./lib"
 )
 
-if(CMAKE_SYSTEM_NAME STREQUAL Linux)
+if(LINUX)
 	set(ConanSettings compiler.libcxx=libstdc++11)
 endif()
 
@@ -83,6 +83,8 @@ conan_cmake_run(REQUIRES base64/0.4.0
 find_library(JACK_LIB "jack" REQUIRED)
 find_library(SNDFILE_LIB "sndfile" REQUIRED)
 find_path(SNDFILE_INCLUDE_DIR sndfile.hh REQUIRED)
+
+find_library(JACK_LIB "jack" REQUIRED)
 
 #allow for boost to be installed on system
 #if not, use conan
@@ -106,6 +108,14 @@ else()
 	set(BOOST_LIB CONAN_PKG::boost)
 endif()
 
+#find dbus headers if we're on linux
+if (LINUX)
+	find_path(DBUS_CPP_INCLUDE_DIR core/dbus/service.h)
+	if (DBUS_CPP_INCLUDE_DIR)
+		add_definitions(-DRNBO_USE_DBUS)
+	endif()
+endif()
+
 find_path(
 	RNBO_DIR
 	NAMES "RNBO.cpp"
@@ -126,6 +136,7 @@ include_directories(
 	${CONAN_INCLUDE_DIRS}
 	${SNDFILE_INCLUDE_DIR}
 	${BOOST_INCLUDE}
+	${DBUS_CPP_INCLUDE_DIR}
 )
 
 add_definitions(-DRNBO_VERSION="${CMAKE_PROJECT_VERSION}")
@@ -149,7 +160,6 @@ else()
 endif()
 
 SET(BUILD_SCRIPT_NAME "rnbo-compile-so")
-SET(UPDATE_SCRIPT_NAME "rnbo-install")
 
 #bring over SO build files here so we can package
 FILE(GLOB SO_BUILD_FILES ${CMAKE_CURRENT_SOURCE_DIR}/so/*)
@@ -157,7 +167,6 @@ list(FILTER SO_BUILD_FILES EXCLUDE REGEX ${BUILD_SCRIPT_NAME})
 FILE(COPY ${SO_BUILD_FILES} DESTINATION share/rnbo/so/)
 FILE(COPY
 	"${CMAKE_CURRENT_SOURCE_DIR}/so/${BUILD_SCRIPT_NAME}"
-	"${CMAKE_CURRENT_SOURCE_DIR}/update/${UPDATE_SCRIPT_NAME}"
 	DESTINATION bin/
 	FILE_PERMISSIONS
 		OWNER_EXECUTE OWNER_WRITE OWNER_READ
@@ -168,11 +177,6 @@ FILE(COPY
 #package rnbo c++ directory
 FILE(GLOB RNBO_CPP_FILES ${RNBO_DIR}/*)
 FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
-
-#do it again on linux for the package
-if (LINUX)
-
-endif()
 
 add_executable(${PROJECT_APP}
 	src/main.cpp
@@ -228,7 +232,6 @@ install(FILES ${INSTALL_LIBS} TYPE LIB)
 #build script
 INSTALL(FILES
 	${CMAKE_BINARY_DIR}/bin/${BUILD_SCRIPT_NAME}
-	${CMAKE_BINARY_DIR}/bin/${UPDATE_SCRIPT_NAME}
 	DESTINATION bin
 	PERMISSIONS
 		OWNER_EXECUTE OWNER_WRITE OWNER_READ
@@ -270,7 +273,7 @@ SET(CPACK_PACKAGE_VERSION_PATCH "${PATCH_VERSION}")
 SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
 SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${MAJOR_VERSION}.${MINOR_VERSION}.${CPACK_PACKAGE_VERSION_PATCH}")
 
-SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28)")
+SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28), libdbus-cpp5")
 
 SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 SET(CPACK_DEBIAN_PACKAGE_SECTION "sound")
