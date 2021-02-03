@@ -1,0 +1,13 @@
+[Unit]
+Description=rnbo update service
+
+[Service]
+User=root
+Type=dbus
+BusName=com.cycling74.rnbo
+ExecStart=/usr/bin/rnbo-update-service
+Restart=always
+KillSignal=SIGQUIT
+
+[Install]
+WantedBy=multi-user.target

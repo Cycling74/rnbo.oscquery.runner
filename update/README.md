@@ -5,4 +5,19 @@ It should run as root.
 
 There is an example DBus configuration file `rnbo-system.conf` in this directory.
 This should go in `/etc/dbus-1/system.d/`
-After installation or modification, you'll need to execute `systemctl reload dbus`.
+There is also a service file, `rnbo-update.service` that should go in `/lib/systemd/system/`
+
+Here is how I install it all:
+
+```shell
+sudo -s
+cp rnbo-update-service /usr/bin/ && \
+  cp rnbo-system.conf /etc/dbus-1/system.d/ && \
+  cp rnbo-update.service /lib/systemd/system/ && \
+  chown root:root /etc/dbus-1/system.d/rnbo-system.conf /lib/systemd/system/rnbo-update.service && \
+  chmod 644 /lib/systemd/system/rnbo-update.service  /lib/systemd/system/rnbo-update.service && \
+  systemctl reload dbus && \
+  systemctl daemon-reload && \
+  systemctl enable rnbo-update.service && \
+  service rnbo-update start
+```
