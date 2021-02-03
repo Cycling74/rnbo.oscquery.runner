@@ -21,3 +21,16 @@ cp rnbo-update-service /usr/bin/ && \
   systemctl enable rnbo-update.service && \
   service rnbo-update start
 ```
+
+## Testing
+
+The following command should indicate that there are a few methods registered:
+
+```shell
+dbus-send --system          \
+  --dest=com.cycling74.rnbo \
+  --type=method_call        \
+  --print-reply             \
+  /com/cycling74/rnbo       \
+  org.freedesktop.DBus.Introspectable.Introspect
+```
