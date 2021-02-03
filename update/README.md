@@ -3,6 +3,10 @@
 This is a DBus based service for Linux that lets us selectively install versions of the rnbo oscquery runner.
 It should run as root.
 
+## TODO
+
+allow for querying the number of packages that want updates, indicate if any are security updates.
+
 ## Dependencies
 
 ```shell
