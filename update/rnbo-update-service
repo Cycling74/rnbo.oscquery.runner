@@ -8,6 +8,9 @@ require "dbus"
 URI_BASE = "com.cycling74.rnbo"
 RUNNER_PACKAGE_NAME = "rnbooscquery"
 
+#https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
+VERSION_VALID_REGEX = /\A(?:\d+:)?\d[[:alnum:]\.\+-~]*?(?:-[[:alnum:]\+\.~]+)?\z/
+
 def exec_cmds(cmds)
 	cmds.each do |cmd|
 		raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
@@ -18,7 +21,7 @@ class RNBOUpdater < DBus::Object
   dbus_interface URI_BASE do
     dbus_method :install_runner, "in version:s" do |version|
 			#assert version format
-			raise "#{version} not in allowed format" unless version =~ /\A\d[\d~\+-\.]*\z/
+			raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
 			raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
 			exec_cmds([
 				%w{apt update},
