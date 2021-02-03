@@ -113,6 +113,7 @@ if (LINUX)
 	find_path(DBUS_CPP_INCLUDE_DIR core/dbus/service.h)
 	if (DBUS_CPP_INCLUDE_DIR)
 		add_definitions(-DRNBO_USE_DBUS)
+		include_directories(${DBUS_CPP_INCLUDE_DIR})
 	endif()
 endif()
 
@@ -136,7 +137,6 @@ include_directories(
 	${CONAN_INCLUDE_DIRS}
 	${SNDFILE_INCLUDE_DIR}
 	${BOOST_INCLUDE}
-	${DBUS_CPP_INCLUDE_DIR}
 )
 
 add_definitions(-DRNBO_VERSION="${CMAKE_PROJECT_VERSION}")
