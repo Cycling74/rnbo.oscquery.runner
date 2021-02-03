@@ -1,0 +1,31 @@
+{
+  "downloadConcurrency": 4,
+  "downloadSpeedLimit": 0,
+  "architectures": [],
+  "dependencyFollowSuggests": false,
+  "dependencyFollowRecommends": false,
+  "dependencyFollowAllVariants": false,
+  "dependencyFollowSource": false,
+  "dependencyVerboseResolve": false,
+  "gpgDisableSign": false,
+  "gpgDisableVerify": false,
+  "gpgProvider": "gpg",
+  "downloadSourcePackages": false,
+  "skipLegacyPool": true,
+  "ppaDistributorID": "ubuntu",
+  "ppaCodename": "",
+  "S3PublishEndpoints": {
+    "c74": {
+      "region": "nyc3",
+      "bucket": "c74-apt",
+      "endpoint": "nyc3.digitaloceanspaces.com",
+      "awsAccessKeyID": "<FILLME>",
+      "awsSecretAccessKey": "<FILLME>",
+      "acl": "public-read",
+      "plusWorkaround": false,
+      "disableMultiDel": false,
+      "forceSigV2": false,
+      "debug": false
+    }
+  }
+}
