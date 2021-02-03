@@ -1,5 +1,5 @@
 [Unit]
-  Description=RNBO Service
+  Description=RNBO OSCQuery Service
   After=multi-user.target
   StartLimitIntervalSec=500
   StartLimitBurst=5
@@ -18,3 +18,4 @@
 
 [Install]
   WantedBy=multi-user.target
+	Alias=rnbooscquery
