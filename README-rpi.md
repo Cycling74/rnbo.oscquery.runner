@@ -60,6 +60,15 @@
   ```shell
   sudo apt-key add apt-cycling74-pubkey.asc
   ```
+* add the cycling74 apt repo (from host pc)
+  ```shell
+  rsync config/cycling74.list pi@c74rpi.local:
+  ```
+  on rpi
+  ```shell
+  sudo mv cycling74.list /etc/apt/sources.list.d/
+  sudo apt update
+  ```
 
 **NOTE** at this point you can save the SD image for future *fresh* images.
 
