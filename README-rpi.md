@@ -16,7 +16,7 @@
   ```shell
   sudo -s
   apt-get update && apt-get upgrade -y
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev libdbus-cpp-dev
   apt-get -y --no-install-recommends install jackd2 ruby python3-pip
   ```
 * uninstall pulse audio
@@ -52,6 +52,15 @@
   ```shell
   rsync config/conan-rpi-default pi@c74rpi.local:.conan/profiles/default
   ```
+* add the cycling74 pgp pub key (from host pc)
+  ```shell
+  rsync config/apt-cycling74-pubkey.asc pi@c74rpi.local:
+  ```
+  on rpi
+  ```shell
+  sudo apt-key add apt-cycling74-pubkey.asc
+  ```
+
 **NOTE** at this point you can save the SD image for future *fresh* images.
 
 # Copy and Build runner
@@ -142,3 +151,48 @@
 * [jack 2 systemd service](https://raspberrypi.stackexchange.com/questions/112195/jack-audio-server-can-start-on-cli-but-not-as-a-systemd-service)
 * [headless rpi setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
 * [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
+
+
+
+# Package management
+
+## List installed version
+
+```shell
+apt-cache policy gzip
+```
+
+## How to hold a package and then install a specific version
+
+* mark it held:
+  ```shell
+  apt-mark hold gzip
+  ```
+* list held packages
+  ```shell
+  apt-mark showhold
+  ```
+* install a specific version while still held, allowing downgrades and upgrades.
+  ```shell
+  apt install -y --allow-change-held-packages --allow-downgrades gzip=1.10-2ubuntu1
+  ```
+* but it looks like you have to hold it again after
+  ```shell
+  apt-mark hold gzip
+  ```
+* unhold
+  ```shell
+  apt-mark unhold gzip
+  ```
+
+## Aptly
+
+[create gpg key](https://fedoraproject.org/wiki/Creating_GPG_Keys)
+
+A cycling74 pub/priv key are in 1password. The pub key is also in `config/apt-cycling74-pubkey.asc`
+
+```shell
+brew install aptly
+brew install gnupg
+```
+
