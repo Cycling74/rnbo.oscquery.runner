@@ -3,6 +3,14 @@
 This is a DBus based service for Linux that lets us selectively install versions of the rnbo oscquery runner.
 It should run as root.
 
+## Dependencies
+
+```shell
+sudo apt install ruby-dbus
+```
+
+## Installation
+
 There is an example DBus configuration file `rnbo-system.conf` in this directory.
 This should go in `/etc/dbus-1/system.d/`
 There is also a service file, `rnbo-update.service` that should go in `/lib/systemd/system/`
