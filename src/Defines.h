@@ -47,4 +47,5 @@ enum class InstallProgramError : unsigned int {
 	Unknown = 0,
 	InvalidRequestObject = 1,
 	FileNotFound = 2,
+	NotEnabled = 3,
 };

@@ -19,20 +19,6 @@ namespace {
 	static fs::path default_src_cache = config::make_path("~/Documents/rnbo/cache/src");
 	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
-	static fs::path default_programfile_dir = config::make_path("~/Documents/rnbo/programfiles/");
-
-	//sketchy self update enabled
-#if RNBO_SELF_UPDATE
-	static bool default_self_update_allowed = true;
-	static bool default_install_use_sudo = true;
-	static bool default_install_do_ldconfig = true;
-	static bool default_install_do_restart = true;
-#else
-	static bool default_self_update_allowed = false;
-	static bool default_install_use_sudo = false;
-	static bool default_install_do_ldconfig = false;
-	static bool default_install_do_restart = false;
-#endif
 
 	//the base dir of our installation
 	static fs::path base_dir;
@@ -50,17 +36,9 @@ namespace {
 		{config::key::SourceCacheDir, default_src_cache.string()},
 		{config::key::SaveDir, default_save_dir.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
-		{config::key::ProgramFileDir, default_programfile_dir.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},
-
-		//self update params
-		{config::key::SelfUpdateAllowed, false},
-		{config::key::InstallPrefix, "/usr/local/"},
-		{config::key::InstallUseSudo, default_install_use_sudo},
-		{config::key::InstallDoLDConfig, default_install_do_ldconfig},
-		{config::key::InstallDoRestart, default_install_do_restart}
 	};
 
 	RNBO::Json config_json = config_default;
@@ -123,9 +101,6 @@ namespace config {
 			}
 			if (k == key::SOBuildExe) {
 				return base_dir / "bin" / "rnbo-compile-so";
-			}
-			if (k == key::SelfUpdateExe) {
-				return base_dir / "bin" / "rnbo-install";
 			}
 		}
 		return make_path(p);

@@ -291,8 +291,6 @@ void Controller::processCommands() {
 	auto fileCmdDir = [this](std::string& id, std::string filetype) -> fs::path {
 		if (filetype == "datafile")
 			return config::get<fs::path>(config::key::DataFileDir);
-		if (filetype == "programfile")
-			return config::get<fs::path>(config::key::ProgramFileDir);
 		reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
 		return {};
 	};
@@ -420,45 +418,17 @@ void Controller::processCommands() {
 					{"progress", 100}
 				});
 			} else if (method == "install") {
-				//TODO this is sketchy, figure out a better way
-				if (!cmdObj.contains("params") || !params.contains("uri")) {
+#ifndef RNBO_USE_DBUS
+				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
+				continue;
+#else
+				if (!cmdObj.contains("params") || !params.contains("version")) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
 					continue;
 				}
-				std::string uri = params["uri"];
-				if (uri.find("file://") == 0) {
-					//only allow files in the programfile_dir
-					auto p = config::get<fs::path>(config::key::ProgramFileDir) / fs::path(uri).leaf();
-					if (!fs::exists(p)) {
-						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "file not found at path: " + p.string());
-						continue;
-					}
-					uri = "file://" + p.string();
-				}
-				//TODO assert no injection in uri
-				reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(InstallProgramStatus::Received)},
-						{"message", "received"},
-						{"progress", 10}
-						});
-				auto bstr = [](std::string k) -> std::string { return config::get<bool>(k) ? "true" : "false" ; };
-				std::string installCmd = config::get<fs::path>(config::key::SelfUpdateExe).string()
-					+ " --install-prefix " + config::get<std::string>(config::key::InstallPrefix)
-					+ " --use-sudo " + bstr(config::key::InstallUseSudo)
-					+ " --ld-config " + bstr(config::key::InstallDoLDConfig)
-					+ " --restart-service " + bstr(config::key::InstallDoRestart)
-					+ " " + uri
-				;
-				auto status = std::system(installCmd.c_str());
-				if (status != 0) {
-					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "install failed");
-				} else {
-					reportCommandResult(id, {
-							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
-							{"message", "installed"},
-							{"progress", 100}
-							});
-				}
+				std::string version = params["version"];
+				//TODO
+#endif
 			} else {
 				cerr << "unknown method " << method << endl;
 				continue;

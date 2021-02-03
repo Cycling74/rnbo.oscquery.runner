@@ -49,7 +49,7 @@ int main(int argc, const char * argv[]) {
 	}
 
 	//make sure these directories exists, so we can write to them
-	for (auto key: {config::key::DataFileDir, config::key::SaveDir, config::key::SourceCacheDir, config::key::CompileCacheDir, config::key::ProgramFileDir}) {
+	for (auto key: {config::key::DataFileDir, config::key::SaveDir, config::key::SourceCacheDir, config::key::CompileCacheDir}) {
 		fs::create_directories(config::get<fs::path>(key));
 	}
 	Controller c("rnbo:" + host);
