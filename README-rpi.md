@@ -88,36 +88,36 @@
 
 # Install the service file
 
-  from wherever `rnbo.service` is, either `cd ~/local/src/RNBOOSCQueryRunner/config/` or maybe its in your homedir.
+  from whereever `rnbooscquery.service` is, either `cd ~/local/src/RNBOOSCQueryRunner/config/` or maybe its in your homedir.
 
   ```shell
   sudo -s
-  cp rnbo.service /lib/systemd/system/rnbo.service
-  chown root:root /lib/systemd/system/rnbo.service
-  chmod 644 /lib/systemd/system/rnbo.service
+  cp rnbooscquery.service /lib/systemd/system/rnbooscquery.service
+  chown root:root /lib/systemd/system/rnbooscquery.service
+  chmod 644 /lib/systemd/system/rnbooscquery.service
   systemctl daemon-reload
-  systemctl enable rnbo.service
+  systemctl enable rnbooscquery.service
   reboot
   ```
 
   see the status of the service:
   ```
-  journalctl -u rnbo
+  journalctl -u rnbooscquery
   ```
 
 # Install a prebuilt binary
 
   ```shell
-  scp examples/RNBOOSCQueryRunner/config/rnbo.service examples/RNBOOSCQueryRunner/build-rpi/rnbo-oscquery-*-Linux-armv7.tar.gz pi@c74rpi.local:
+  scp examples/RNBOOSCQueryRunner/config/rnbooscquery.service examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery-*-Linux-armv7.tar.gz pi@c74rpi.local:
   ssh pi@c74rpi.local
-  sudo tar xvf rnbo-oscquery-0.9.0-Linux-armv7.tar.gz -C /usr/local/
+  sudo tar xvf rnbooscquery-0.9.0-Linux-armv7.tar.gz -C /usr/local/
   sudo ldconfig
   ```
 
   Install the service file if you haven't already. If you have, then just restart the service:
 
   ```shell
-  sudo service rnbo restart
+  sudo service rnbooscquery restart
   ```
 
 # Backup
