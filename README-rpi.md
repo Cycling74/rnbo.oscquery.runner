@@ -1,5 +1,7 @@
 # Raspberry Pi Setup
 
+## Normal use
+
 * [inital setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
   * I used `Raspberry Pi OS with desktop`.
   * The important detail is that you need to create a file `/boot/ssh` to enable ssh:
@@ -30,7 +32,7 @@
   reboot
   ```
 
-# Raspberry Pi Setup for development
+## Development
 
 * [inital setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
   * I used `Raspberry Pi OS with desktop`.
@@ -104,9 +106,7 @@
 
 **NOTE** at this point you can save the SD image for future *fresh* images.
 
-# Copy and Build runner
-
-**NOTE** this part will likely change to a dpkg based setup.
+### Copy and Build runner
 
 * copy runner to the pi (from your host PC):
   ```shell
@@ -115,12 +115,21 @@
 * build and install the runner (on pi)
   ```shell
   cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make
+  sudo dpkg -i *.deb
+  ```
+  * you could also do a standard make install, but then you'll need to setup the service file yourself.
+  ```shell
   sudo make install && ldconfig
   ```
 
-# Install the service file
+### Install the service file
 
-  from whereever `rnbooscquery.service` is, either `cd ~/local/src/RNBOOSCQueryRunner/config/` or maybe its in your homedir.
+  **NOTE**:
+  You should only need to do this the first time you install a dev version with
+  `make install`, or if the service file contents changes. If you install via a
+  `.deb` file (as detailed above), you shouldn't need to do this at all.
+
+  From whereever `rnbooscquery.service` is, either `cd ~/local/src/RNBOOSCQueryRunner/config/` or maybe its in your homedir.
 
   ```shell
   sudo -s
@@ -132,12 +141,17 @@
   reboot
   ```
 
-  see the status of the service:
+## Troubleshooting
+
+  To see the status of the service:
+
   ```
   journalctl -u rnbooscquery
   ```
 
-# Install a prebuilt binary
+## Install a prebuilt binary
+
+  You're probably better off just using the .deb install.
 
   ```shell
   scp examples/RNBOOSCQueryRunner/config/rnbooscquery.service examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery-*-Linux-armv7.tar.gz pi@c74rpi.local:
@@ -152,7 +166,7 @@
   sudo service rnbooscquery restart
   ```
 
-# Backup
+# Backup your SD card
 
 * find the device:
   * mac: `diskutil list`
@@ -172,61 +186,14 @@
 * shrink, on linux:
   * shrink with: [PiShrink](https://github.com/Drewsif/PiShrink)
 
-# TODO
-
-* Github action that builds the runner.
-* dpkg or apt based installation.
-* [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
-
-
-# More reading
-
-* [linux audio rpi notes](https://wiki.linuxaudio.org/wiki/raspberrypi)
-  disable cpu scaling
-  ```shell
-  for cpu in /sys/devices/system/cpu/cpu[0-9]*; do echo -n performance | sudo tee $cpu/cpufreq/scaling_governor; done
-  ```
-
-* https://ma.ttias.be/auto-restart-crashed-service-systemd/
-* [jack systemd service](https://bbs.archlinux.org/viewtopic.php?id=165545)
-* [jack 2 systemd service](https://raspberrypi.stackexchange.com/questions/112195/jack-audio-server-can-start-on-cli-but-not-as-a-systemd-service)
-* [headless rpi setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
-* [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
-
-
 
 # Package management
 
-## List installed version
-
-```shell
-apt-cache policy gzip
-```
-
-## How to hold a package and then install a specific version
-
-* mark it held:
-  ```shell
-  apt-mark hold gzip
-  ```
-* list held packages
-  ```shell
-  apt-mark showhold
-  ```
-* install a specific version while still held, allowing downgrades and upgrades.
-  ```shell
-  apt install -y --allow-change-held-packages --allow-downgrades gzip=1.10-2ubuntu1
-  ```
-* but it looks like you have to hold it again after
-  ```shell
-  apt-mark hold gzip
-  ```
-* unhold
-  ```shell
-  apt-mark unhold gzip
-  ```
-
 ## Aptly
+
+Aptly lets us manage a package repository and push it up to an s3 compatible
+location and then allow our users to get these packages with `apt-get`.
+
 
 [create gpg key](https://fedoraproject.org/wiki/Creating_GPG_Keys)
 
@@ -255,3 +222,54 @@ to overwrite a package
 aptly -force-replace repo add rnbo examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
 aptly -force-overwrite publish update buster s3:c74:
 ```
+
+## List installed version of package
+
+```shell
+apt-cache policy rnbooscquery
+```
+
+## How to hold a package and then install a specific version
+
+* mark it held:
+  ```shell
+  apt-mark hold rnbooscquery
+  ```
+* list held packages
+  ```shell
+  apt-mark showhold
+  ```
+* install a specific version while still held, allowing downgrades and upgrades.
+  ```shell
+  apt install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.10-2ubuntu1
+  ```
+* but it looks like you have to hold it again after
+  ```shell
+  apt-mark hold rnbooscquery
+  ```
+* unhold
+  ```shell
+  apt-mark unhold rnbooscquery
+  ```
+
+# TODO
+
+* Github action that builds the runner.
+* [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
+* Disable CPU scaling?
+
+
+# More reading
+
+* [linux audio rpi notes](https://wiki.linuxaudio.org/wiki/raspberrypi)
+  disable cpu scaling
+  ```shell
+  for cpu in /sys/devices/system/cpu/cpu[0-9]*; do echo -n performance | sudo tee $cpu/cpufreq/scaling_governor; done
+  ```
+* https://ma.ttias.be/auto-restart-crashed-service-systemd/
+* [jack systemd service](https://bbs.archlinux.org/viewtopic.php?id=165545)
+* [jack 2 systemd service](https://raspberrypi.stackexchange.com/questions/112195/jack-audio-server-can-start-on-cli-but-not-as-a-systemd-service)
+* [headless rpi setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
+* [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
+
+
