@@ -36,7 +36,7 @@ namespace {
 #ifdef __APPLE__
 		return "/usr/local/bin/jackd -Xcoremidi -dcoreaudio -r44100 -p256";
 #else
-		return "/usr/bin/jackd -Xalsarawmidi -dalsa -dhw:0 -r44100 -p256 -n2";
+		return "/usr/bin/jackd -dalsa -Xseq -dhw:0 -r44100 -p256 -n2";
 #endif
 	}
 
