@@ -27,7 +27,7 @@
   apt update
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt-get -y autoremove
-  apt -y install jackd2 rnbooscquery
+  apt -y install jackd2 rnbooscquery ccache
   dpkg-reconfigure jackd2
   reboot
   ```
@@ -50,7 +50,7 @@
   ```shell
   sudo -s
   apt-get update && apt-get upgrade -y
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev libdbus-cpp-dev
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev libdbus-cpp-dev ccache
   apt-get -y --no-install-recommends install jackd2 ruby python3-pip
   ```
 * uninstall pulse audio
@@ -257,14 +257,6 @@ apt-cache policy rnbooscquery
 * Github action that builds the runner.
 * [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
 * Disable CPU scaling?
-* [ccache](https://stackoverflow.com/questions/1815688/how-to-use-ccache-with-cmake)
-  ```cmake
-    find_program(CCACHE_PROGRAM ccache)
-    if(CCACHE_PROGRAM)
-        # Support Unix Makefiles and Ninja
-        set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
-    endif()
-  ```
 * Ubuntu + [kxstudio](https://kx.studio/Repositories:Extras) for newer jack etc?
 
 # More reading

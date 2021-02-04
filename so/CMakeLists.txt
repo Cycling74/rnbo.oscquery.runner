@@ -21,6 +21,12 @@ set(RNBO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../src/cpp/ CACHE FILEPATH "Locat
 set(LIBRARY_NAME_PREFIX "RNBOso" CACHE STRING "A string to use when constructing the library file name")
 set(RNBO_CLASS_FILE ${RNBO_DIR}/../../codegen/xam/test/test.cpp CACHE STRING "The RNBO generated class file to encapsulate in this library")
 
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+	# Support Unix Makefiles and Ninja
+	set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+endif()
+
 include_directories(
 	${RNBO_DIR}
 	"${RNBO_DIR}/common"
