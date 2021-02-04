@@ -265,6 +265,7 @@ apt-cache policy rnbooscquery
         set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
     endif()
   ```
+* Ubuntu + [kxstudio](https://kx.studio/Repositories:Extras) for newer jack etc?
 
 # More reading
 
