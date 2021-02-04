@@ -257,7 +257,14 @@ apt-cache policy rnbooscquery
 * Github action that builds the runner.
 * [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
 * Disable CPU scaling?
-
+* [ccache](https://stackoverflow.com/questions/1815688/how-to-use-ccache-with-cmake)
+  ```cmake
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+        # Support Unix Makefiles and Ninja
+        set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+    endif()
+  ```
 
 # More reading
 
