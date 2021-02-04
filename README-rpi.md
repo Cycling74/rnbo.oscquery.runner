@@ -4,6 +4,38 @@
   * I used `Raspberry Pi OS with desktop`.
   * The important detail is that you need to create a file `/boot/ssh` to enable ssh:
     * with the SD card mounted on mac: `touch /Volumes/boot/ssh`
+* Boot the Pi, connect via Ethernet to the host machine.
+* send over files that are needed for the repo:  (pw: `raspberry`)
+  ```shell
+  rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@raspberrypi.local:
+  ```
+* setup pi (pw: `raspberry`)
+  * disable screen reader
+  * setup our private apt repo
+  * uninstall pulse audio
+  * install jackd2 and rnbooscquery
+  * enable relatime
+    * reboot (easiest way to update your group security settings)
+  ```shell
+  ssh pi@raspberrypi.local
+  sudo -s
+  rm -f /etc/xdg/autostart/piwiz.desktop
+  apt-key add apt-cycling74-pubkey.asc
+  mv cycling74.list /etc/apt/sources.list.d/
+  apt update
+  apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
+  apt-get -y autoremove
+  apt -y install jackd2 rnbooscquery
+  dpkg-reconfigure jackd2
+  reboot
+  ```
+
+# Raspberry Pi Setup for development
+
+* [inital setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
+  * I used `Raspberry Pi OS with desktop`.
+  * The important detail is that you need to create a file `/boot/ssh` to enable ssh:
+    * with the SD card mounted on mac: `touch /Volumes/boot/ssh`
 * Boot the Pi, connect via Ethernet to the host machine: `ssh pi@raspberrypi.local` (pw: `raspberry`)
 * Set new password and hostname:
   * `sudo raspi-config`
@@ -205,3 +237,21 @@ brew install aptly
 brew install gnupg
 ```
 
+to create a package and upload it, from a mac, in the root of this repo.
+```shell
+./build-rpi.sh
+aptly -distribution=buster repo create rnbo
+aptly repo add rnbo examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly publish repo rnbo s3:c74:
+```
+
+to update the repo
+```shell
+aptly publish update buster s3:c74:
+```
+
+to overwrite a package
+```shell
+aptly -force-replace repo add rnbo examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly -force-overwrite publish update buster s3:c74:
+```
