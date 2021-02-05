@@ -17,10 +17,13 @@
   * uninstall pulse audio
   * install jackd2 and rnbooscquery
   * enable relatime
-    * reboot (easiest way to update your group security settings)
+  * update host name
+  * update password
+  * reboot (easiest way to update your group security settings)
   ```shell
   ssh pi@raspberrypi.local
   sudo -s
+  export NEW_HOST_NAME=xnor-rnbo-rpi
   rm -f /etc/xdg/autostart/piwiz.desktop
   apt-key add apt-cycling74-pubkey.asc
   mv cycling74.list /etc/apt/sources.list.d/
@@ -29,6 +32,9 @@
   apt-get -y autoremove
   apt -y install jackd2 rnbooscquery ccache
   dpkg-reconfigure jackd2
+  sed -i 's/127.0.1.1.*/127.0.1.1\t'"$NEW_HOST_NAME"'/g' /etc/hosts
+  hostnamectl set-hostname ${NEW_HOST_NAME}
+  echo "pi:c74rnbo" | chpasswd
   reboot
   ```
 
