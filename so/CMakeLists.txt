@@ -1,12 +1,6 @@
 cmake_minimum_required(VERSION 3.13 FATAL_ERROR)
 
-#TODO get from some global config
-set (PROJECT_VERSION "0.9.0")
-
-project(RNBOso
-	VERSION ${PROJECT_VERSION}
-	LANGUAGES CXX
-)
+project(RNBOso LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -33,9 +27,11 @@ include_directories(
 	"${RNBO_DIR}/src"
 )
 
+include("${RNBO_DIR}/version.cmake")
+
 add_library(RNBOso SHARED
 	${RNBO_CLASS_FILE}
 	#until we get a host logger exposed
 	ConsoleLogger.cpp
 )
-set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${PROJECT_VERSION}")
+set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${RNBO_VERSION}")
