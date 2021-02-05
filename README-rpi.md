@@ -28,8 +28,9 @@
   rm -f /etc/xdg/autostart/piwiz.desktop
   apt-key add apt-cycling74-pubkey.asc
   mv cycling74.list /etc/apt/sources.list.d/
-  apt update
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
+  apt update
+  apt upgrade
   apt-get -y autoremove
   apt -y install jackd2 rnbooscquery ccache cpufrequtils
   dpkg-reconfigure jackd2
@@ -42,74 +43,26 @@
 
 ## Development
 
-* [inital setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
-  * I used `Raspberry Pi OS with desktop`.
-  * The important detail is that you need to create a file `/boot/ssh` to enable ssh:
-    * with the SD card mounted on mac: `touch /Volumes/boot/ssh`
-* Boot the Pi, connect via Ethernet to the host machine: `ssh pi@raspberrypi.local` (pw: `raspberry`)
-* Set new password and hostname:
-  * `sudo raspi-config`
-    Change User Password: `c74rnbo`
-    Network Options > Hostname: `c74rpi`
-    Update
-* Reboot: `sudo reboot`
-* Log back into the Pi using new credentials: `ssh pi@c74rpi.local` (pw: `c74rnbo`)
-* Update, upgrade, install packages:
-  ```shell
-  sudo -s
-  apt-get update && apt-get upgrade -y
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev libdbus-cpp-dev ccache
-  apt-get -y --no-install-recommends install jackd2 ruby python3-pip
-  ```
-* uninstall pulse audio
-  ```shell
-  sudo apt-get remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp && sudo apt-get -y autoremove
-  ```
-* Configure realtime
-  ```shell
-  sudo dpkg-reconfigure jackd2
-  ```
+Do all the normal use stuff then:
+
+* Update, upgrade, install packages
 * setup python3
-  ```shell
-  sudo -s
-  update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
-  update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
-  ```
 * install conan
-  ```shell
-  pip3 install conan
-  ```
 * make directories for local builds and config
   ```shell
-  mkdir -p .conan/profiles/
+  sudo apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev libdbus-cpp-dev
+  sudo apt-get -y --no-install-recommends install ruby python3-pip
+  sudo update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
+  sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
+  pip3 install conan
+  mkdir -p ~/.conan/profiles/
   mkdir -p ~/local/src/
   ```
 * build and install the latest [cmake](https://cmake.org/install/)
   * Alex did this in `~/local/src/`
-* Disable the screen reader audio prompt at startup
-  ```shell
-  sudo rm -f /etc/xdg/autostart/piwiz.desktop
-  ```
 * send over conan default profile (from host pc)
   ```shell
   rsync config/conan-rpi-default pi@c74rpi.local:.conan/profiles/default
-  ```
-* add the cycling74 pgp pub key (from host pc)
-  ```shell
-  rsync config/apt-cycling74-pubkey.asc pi@c74rpi.local:
-  ```
-  on rpi
-  ```shell
-  sudo apt-key add apt-cycling74-pubkey.asc
-  ```
-* add the cycling74 apt repo (from host pc)
-  ```shell
-  rsync config/cycling74.list pi@c74rpi.local:
-  ```
-  on rpi
-  ```shell
-  sudo mv cycling74.list /etc/apt/sources.list.d/
-  sudo apt update
   ```
 
 **NOTE** at this point you can save the SD image for future *fresh* images.
@@ -118,10 +71,11 @@
 
 * copy runner to the pi (from your host PC):
   ```shell
-  ./deploy.rb pi@c74rpi.local
+  ./scripts/deploy.rb pi@c74rpi.local
   ```
 * build and install the runner (on pi)
   ```shell
+  ssh pi@c74rpi.local
   cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make
   sudo dpkg -i *.deb
   ```
