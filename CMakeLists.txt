@@ -136,6 +136,11 @@ include_directories(
 	${BOOST_INCLUDE}
 )
 
+find_program(CCACHE_PROGRAM ccache)
+if (CCACHE_PROGRAM)
+	set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
+endif()
+
 add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
 add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
