@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <regex>
 
 namespace fs = boost::filesystem;
 
@@ -12,6 +13,8 @@ namespace fs = boost::filesystem;
 static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), "RNBO SampleValue must be the same size as jack_default_audio_sample_t");
 
 namespace {
+	const static std::regex alsa_card_regex(R"X(\s*(\d+)\s*\[([^\[]+?)\s*\]:\s*([^;]+?)\s*;\s*([^;]+?)\s*;)X");
+
 	static int processJack(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
 		return 0;
@@ -63,15 +66,41 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 			fs::path alsa_cards("/proc/asound/cards");
 			if (fs::exists(alsa_cards)) {
 				std::ifstream i(alsa_cards.string());
+
+				//get all the lines, use semi instead of new line because regex doesn't support newline
 				std::string value;
 				std::string line;
 				while (std::getline(i, line)) {
-					value += (line + "\n");
+					value += (line + ";");
 				}
-				auto cards = mInfo.create_string("alsa_cards");
-				cards.set_value(value);
-				cards.set_access(opp::access_mode::Get);
-				mNodes.push_back(cards);
+				value += ";";
+
+				auto cards = mInfo.create_child("alsa_cards");
+				std::smatch m;
+				while (std::regex_search(value, m, alsa_card_regex)) {
+					//description
+					auto v = m[3].str() + "\n" + m[4].str();
+
+					//hw:NAME
+					{
+						auto n = std::string("hw:") + m[2].str();
+						mCardNames.push_back(n);
+						auto c = cards.create_string(n);
+						c.set_value(v);
+						c.set_access(opp::access_mode::Get);
+					}
+
+					//hw:Index
+					{
+						auto n = std::string("hw:") + m[1].str();
+						mCardNames.push_back(n);
+						auto c = cards.create_string(n);
+						c.set_value(v);
+						c.set_access(opp::access_mode::Get);
+					}
+
+					value = m.suffix().str();
+				}
 			}
 	});
 	createClient(false);

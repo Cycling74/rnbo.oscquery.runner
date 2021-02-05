@@ -30,6 +30,7 @@ class ProcessAudioJack : public ProcessAudio {
 		opp::node mJackDCommand;
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
+		std::vector<std::string> mCardNames;
 };
 
 //Processing and handling for a specific rnbo instance.
