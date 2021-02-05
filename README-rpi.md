@@ -15,10 +15,11 @@
   * disable screen reader
   * setup our private apt repo
   * uninstall pulse audio
-  * install jackd2 and rnbooscquery
+  * install some packages, including rnbooscquery
   * enable relatime
   * update host name
   * update password
+  * set the CPU to not scale
   * reboot (easiest way to update your group security settings)
   ```shell
   ssh pi@raspberrypi.local
@@ -30,11 +31,12 @@
   apt update
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt-get -y autoremove
-  apt -y install jackd2 rnbooscquery ccache
+  apt -y install jackd2 rnbooscquery ccache cpufrequtils
   dpkg-reconfigure jackd2
   sed -i 's/127.0.1.1.*/127.0.1.1\t'"$NEW_HOST_NAME"'/g' /etc/hosts
   hostnamectl set-hostname ${NEW_HOST_NAME}
   echo "pi:c74rnbo" | chpasswd
+  echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
   reboot
   ```
 
@@ -268,10 +270,6 @@ apt-cache policy rnbooscquery
 # More reading
 
 * [linux audio rpi notes](https://wiki.linuxaudio.org/wiki/raspberrypi)
-  disable cpu scaling
-  ```shell
-  for cpu in /sys/devices/system/cpu/cpu[0-9]*; do echo -n performance | sudo tee $cpu/cpufreq/scaling_governor; done
-  ```
 * https://ma.ttias.be/auto-restart-crashed-service-systemd/
 * [jack systemd service](https://bbs.archlinux.org/viewtopic.php?id=165545)
 * [jack 2 systemd service](https://raspberrypi.stackexchange.com/questions/112195/jack-audio-server-can-start-on-cli-but-not-as-a-systemd-service)
