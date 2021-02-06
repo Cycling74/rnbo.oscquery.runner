@@ -1,5 +1,7 @@
 #include "JackAudio.h"
 #include "Config.h"
+#include "ValueCallbackHelper.h"
+
 #include <jack/midiport.h>
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <filesystem>
@@ -26,41 +28,11 @@ namespace {
 
 	std::mutex mJackDRCMutex;
 	static const fs::path jackdrc_path = config::make_path("~/.jackdrc");
-
-	std::string getJackDRC() {
-		std::lock_guard<std::mutex> guard(mJackDRCMutex);
-		if (fs::exists(jackdrc_path)) {
-			std::ifstream i(jackdrc_path.string());
-			std::string v;
-			if (std::getline(i, v)) {
-				return v;
-			}
-		}
-#ifdef __APPLE__
-		return "/usr/local/bin/jackd -Xcoremidi -dcoreaudio -r44100 -p256";
-#else
-		return "/usr/bin/jackd -dalsa -Xseq -dhw:0 -r44100 -p256 -n2";
-#endif
-	}
-
-	void writeJackDRC(std::string value) {
-		if (value.size()) {
-			std::lock_guard<std::mutex> guard(mJackDRCMutex);
-			std::ofstream o(jackdrc_path.string());
-			o << value;
-			o.close(); //flush
-		}
-	}
 }
-
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr) {
 	mBuilder([this](opp::node root) {
 			mInfo = root.create_child("info");
-
-			mJackDCommand = mInfo.create_string("server_command");
-			mJackDCommand.set_description("the command used to start jackd");
-			mJackDCommand.set_value(getJackDRC());
 
 			//read info about alsa cards if it exists
 			fs::path alsa_cards("/proc/asound/cards");
@@ -102,6 +74,60 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 					value = m.suffix().str();
 				}
 			}
+
+			auto conf = root.create_child("config");
+			conf.set_description("Jack configuration parameters");
+#ifndef __APPLE__
+			auto card = conf.create_string("card");
+			card.set_description("ALSA device name");
+			card.set_value(mCardName);
+			std::vector<opp::value> accepted;
+			for (auto n: mCardNames) {
+				accepted.push_back(n);
+			}
+			card.set_accepted_values(accepted);
+			ValueCallbackHelper::setCallback(
+				card, mValueCallbackHelpers,
+				[this](const opp::value& val) {
+				if (val.is_string())
+					mCardName = val.to_string();
+				});
+
+			mNumPeriodsNode = conf.create_int("num_periods");
+			mNumPeriodsNode.set_description("Number of periods of playback latency");
+			mNumPeriodsNode.set_value(mNumPeriods);
+			mNumPeriodsNode.set_min(1.);
+			ValueCallbackHelper::setCallback(
+				mNumPeriodsNode, mValueCallbackHelpers,
+				[this](const opp::value& val) {
+				//TODO clamp?
+				if (val.is_int())
+					mNumPeriods = val.to_int();
+				});
+#endif
+			mPeriodFramesNode = conf.create_int("period_frames");
+			mPeriodFramesNode.set_description("Frames per period");
+			mPeriodFramesNode.set_value(mPeriodFrames);
+			mPeriodFramesNode.set_min(32.);
+			ValueCallbackHelper::setCallback(
+				mPeriodFramesNode, mValueCallbackHelpers,
+				[this](const opp::value& val) {
+				//TODO clamp?
+				if (val.is_int())
+					mPeriodFrames = val.to_int();
+				});
+
+			mSampleRateNode = conf.create_float("sample_rate");
+			mSampleRateNode.set_description("Sample rate");
+			mSampleRateNode.set_value(mSampleRate);
+			mSampleRateNode.set_min(44100.0 / 2);
+			ValueCallbackHelper::setCallback(
+				mSampleRateNode, mValueCallbackHelpers,
+				[this](const opp::value& val) {
+				//TODO clamp?
+				if (val.is_float())
+					mSampleRate = val.to_float();
+				});
 	});
 	createClient(false);
 }
@@ -136,7 +162,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		//if we start the server, we want to write the command too
 		if (startServer) {
 			options = JackOptions::JackNullOption;
-			writeJackDRC(mJackDCommand.get_value().to_string());
+			writeJackDRC();
 		}
 
 		jack_status_t status;
@@ -151,27 +177,32 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						mNodes.push_back(p);
 					}
 
-					{
-						double sr = jack_get_sample_rate(mJackClient);
-						auto p = mInfo.create_float("sample_rate");
-						p.set_description("The sample rate that jack is using");
-						p.set_access(opp::access_mode::Get);
-						p.set_value(sr);
-						mNodes.push_back(p);
+					double sr = jack_get_sample_rate(mJackClient);
+					jack_nframes_t bs = jack_get_buffer_size(mJackClient);
+					if (sr != mSampleRate) {
+						mSampleRateNode.set_value(static_cast<float>(sr));
 					}
-					{
-						jack_nframes_t bs = jack_get_buffer_size(mJackClient);
-						auto p = mInfo.create_int("buffer_size");
-						p.set_description("The buffer size that jack is using");
-						p.set_access(opp::access_mode::Get);
-						p.set_value(static_cast<int>(bs));
-						mNodes.push_back(p);
+					if (bs != mPeriodFrames) {
+						mPeriodFramesNode.set_value(static_cast<int>(bs));
 					}
 			});
 			//TODO build up i/o dynamically
 		}
 	}
 	return mJackClient != nullptr;
+}
+
+void ProcessAudioJack::writeJackDRC() {
+	std::lock_guard<std::mutex> guard(mJackDRCMutex);
+	std::ofstream o(jackdrc_path.string());
+	o << mCmdPrefix;
+#ifndef __APPLE__
+	o << " -device \"" << mCardName << "\"";
+	o << " -nperiods " << mNumPeriods;
+#endif
+	o << " -period " << mPeriodFrames;
+	o << " -rate " << mSampleRate;
+	o.close(); //flush
 }
 
 InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder) : mCore(core), mRunning(false) {

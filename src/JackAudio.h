@@ -1,6 +1,8 @@
 #pragma once
 
 #include <mutex>
+#include <memory>
+#include <vector>
 #include <ossia-cpp/ossia-cpp98.hpp>
 #include <jack/types.h>
 #include <jack/jack.h>
@@ -15,6 +17,8 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+class ValueCallbackHelper;
+
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
@@ -24,13 +28,28 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual bool setActive(bool active) override;
 	private:
 		bool createClient(bool startServer);
+		void writeJackDRC();
 		jack_client_t * mJackClient;
 		std::vector<opp::node> mNodes;
 		opp::node mInfo;
-		opp::node mJackDCommand;
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
 		std::vector<std::string> mCardNames;
+
+		double mSampleRate = 44100;
+		opp::node mSampleRateNode;
+		int mPeriodFrames = 256;
+		opp::node mPeriodFramesNode;
+#ifdef __APPLE__
+		std::string mCmdPrefix = "jackd -Xcoremidi -dcoreaudio";
+#else
+		std::string mCmdPrefix = "jackd -dalsa -Xseq";
+		int mNumPeriods = 2;
+		opp::node mNumPeriodsNode;
+		std::string mCardName = "hw:0";
+#endif
+
+		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 };
 
 //Processing and handling for a specific rnbo instance.
