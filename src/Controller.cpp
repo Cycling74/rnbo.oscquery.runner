@@ -116,7 +116,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 
 	mAudioActive.set_value(mProcessAudio->setActive(true));
 	if (!mProcessAudio->isActive()) {
-		cerr << "audio is not active, cannot created instance(s)" << endl;
+		cerr << "audio is not active, cannot create instance(s)" << endl;
 		if (cmdId.size()) {
 			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "audio not active");
 		}
