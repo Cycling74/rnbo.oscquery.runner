@@ -28,6 +28,8 @@ namespace {
 	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
 
+	static fs::path home_dir_config_file_path = config::make_path("~/.config/rnbo/runner.json");
+
 	//the base dir of our installation
 	static fs::path base_dir;
 	//the location of our found config file ,if there is one
@@ -84,7 +86,7 @@ namespace config {
 
 		//find the path
 		for (auto p: {
-				make_path("~/.config/rnbo/runner.json"),
+				home_dir_config_file_path,
 				base_dir / "share" / "rnbo" / "runner.json"
 				}) {
 			if (fs::exists(p)) {
@@ -111,6 +113,9 @@ namespace config {
 		with_mutex<void>([](){
 				if (update_next && update_next.get() <= system_clock::now()) {
 					update_next.reset();
+
+					//always write to the homedir one
+					config_file_path = home_dir_config_file_path;
 					fs::path dir;
 					fs::create_directories((dir = config_file_path).remove_filename());
 					std::ofstream o(config_file_path.string());
