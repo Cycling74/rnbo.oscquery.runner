@@ -4,7 +4,10 @@
 
 #include <jack/midiport.h>
 #include <readerwriterqueue/readerwriterqueue.h>
-#include <filesystem>
+
+#include <boost/optional.hpp>
+#include <boost/filesystem.hpp>
+
 #include <fstream>
 #include <iostream>
 #include <regex>
@@ -15,6 +18,22 @@ namespace fs = boost::filesystem;
 static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), "RNBO SampleValue must be the same size as jack_default_audio_sample_t");
 
 namespace {
+
+	boost::optional<std::string> ns("jack");
+
+	template <typename T>
+	boost::optional<T> jconfig_get(const std::string& key) {
+		return config::get<T>(key, ns);
+	}
+
+	template <typename T>
+	void jconfig_set(const T& v, const std::string& key) {
+		return config::set<T>(v, key, ns);
+	}
+
+	template boost::optional<int> jconfig_get(const std::string& key);
+	template boost::optional<double> jconfig_get(const std::string& key);
+
 	const static std::regex alsa_card_regex(R"X(\s*(\d+)\s*\[([^\[]+?)\s*\]:\s*([^;]+?)\s*;\s*([^;]+?)\s*;)X");
 
 	static int processJack(jack_nframes_t nframes, void *arg) {
@@ -31,6 +50,16 @@ namespace {
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr) {
+	//read in config
+	{
+		mSampleRate = jconfig_get<double>("sample_rate").get_value_or(44100.);
+		mPeriodFrames = jconfig_get<int>("period_frames").get_value_or(256);
+#ifndef __APPLE__
+		mCardName = jconfig_get<std::string>("card_name").get_value_or("hw:0");
+		mNumPeriods = jconfig_get<int>("num_periods").get_value_or(2);
+#endif
+	}
+
 	mBuilder([this](opp::node root) {
 			mInfo = root.create_child("info");
 
@@ -91,6 +120,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				[this](const opp::value& val) {
 				if (val.is_string())
 					mCardName = val.to_string();
+					jconfig_set(mCardName, "card_name");
 				});
 
 			mNumPeriodsNode = conf.create_int("num_periods");
@@ -103,6 +133,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				//TODO clamp?
 				if (val.is_int())
 					mNumPeriods = val.to_int();
+					jconfig_set(mNumPeriods, "num_periods");
 				});
 #endif
 			mPeriodFramesNode = conf.create_int("period_frames");
@@ -115,6 +146,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				//TODO clamp?
 				if (val.is_int())
 					mPeriodFrames = val.to_int();
+					jconfig_set(mPeriodFrames, "period_frames");
 				});
 
 			mSampleRateNode = conf.create_float("sample_rate");
@@ -127,6 +159,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				//TODO clamp?
 				if (val.is_float())
 					mSampleRate = val.to_float();
+					jconfig_set(mSampleRate, "sample_rate");
 				});
 	});
 	createClient(false);
@@ -134,6 +167,19 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 
 ProcessAudioJack::~ProcessAudioJack() {
 	setActive(false);
+}
+
+void ProcessAudioJack::writeJackDRC() {
+	std::lock_guard<std::mutex> guard(mJackDRCMutex);
+	std::ofstream o(jackdrc_path.string());
+	o << mCmdPrefix;
+#ifndef __APPLE__
+	o << " -device \"" << mCardName << "\"";
+	o << " -nperiods " << mNumPeriods;
+#endif
+	o << " -period " << mPeriodFrames;
+	o << " -rate " << mSampleRate;
+	o.close(); //flush
 }
 
 bool ProcessAudioJack::isActive() {
@@ -190,19 +236,6 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		}
 	}
 	return mJackClient != nullptr;
-}
-
-void ProcessAudioJack::writeJackDRC() {
-	std::lock_guard<std::mutex> guard(mJackDRCMutex);
-	std::ofstream o(jackdrc_path.string());
-	o << mCmdPrefix;
-#ifndef __APPLE__
-	o << " -device \"" << mCardName << "\"";
-	o << " -nperiods " << mNumPeriods;
-#endif
-	o << " -period " << mPeriodFrames;
-	o << " -rate " << mSampleRate;
-	o.close(); //flush
 }
 
 InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder) : mCore(core), mRunning(false) {

@@ -40,13 +40,14 @@ class ProcessAudioJack : public ProcessAudio {
 		opp::node mSampleRateNode;
 		int mPeriodFrames = 256;
 		opp::node mPeriodFramesNode;
+
 #ifdef __APPLE__
 		std::string mCmdPrefix = "jackd -Xcoremidi -dcoreaudio";
 #else
 		std::string mCmdPrefix = "jackd -dalsa -Xseq";
 		int mNumPeriods = 2;
 		opp::node mNumPeriodsNode;
-		std::string mCardName = "hw:0";
+		std::string mCardName;
 #endif
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
