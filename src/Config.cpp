@@ -134,17 +134,6 @@ namespace config {
 		return make_path(p.get());
 	}
 
-	template<typename T>
-	boost::optional<T> get(const std::string& key, boost::optional<std::string> ns) {
-		return with_mutex<boost::optional<T>>([key, ns](){
-				auto j = ns_json(ns);
-				if (j && j->contains(key)) {
-					return boost::make_optional(j->at(key).get<T>());
-				}
-				return boost::optional<T>{ boost::none };
-		});
-	}
-
 	template<>
 	boost::optional<bool> get(const std::string& key, boost::optional<std::string> ns) {
 		return with_mutex<boost::optional<bool>>([key, ns](){
@@ -158,6 +147,18 @@ namespace config {
 		});
 	}
 
+	template<typename T>
+	boost::optional<T> get(const std::string& key, boost::optional<std::string> ns) {
+		return with_mutex<boost::optional<T>>([key, ns](){
+				auto j = ns_json(ns);
+				if (j && j->contains(key)) {
+					return boost::make_optional(j->at(key).get<T>());
+				}
+				return boost::optional<T>{ boost::none };
+		});
+	}
+
+
 	template <typename T>
 	void set(const T& value, const std::string& key, boost::optional<std::string> ns) {
 		return with_mutex<void>([value, key, ns](){
@@ -167,6 +168,15 @@ namespace config {
 				update_next = system_clock::now() + save_debounce_timeout;
 		});
 	}
+
+	//impl for the types we need
+	template boost::optional<std::string> get(const std::string& key, boost::optional<std::string> ns);
+	template boost::optional<int> get(const std::string& key, boost::optional<std::string> ns);
+	template boost::optional<double> get(const std::string& key, boost::optional<std::string> ns);
+	template void set<bool>(const bool& value, const std::string& key, boost::optional<std::string> ns);
+	template void set<int>(const int& value, const std::string& key, boost::optional<std::string> ns);
+	template void set<double>(const double& value, const std::string& key, boost::optional<std::string> ns);
+	template void set<std::string>(const std::string& value, const std::string& key, boost::optional<std::string> ns);
 
 	fs::path make_path(const std::string& str) {
 		return fs::absolute(fs::path(std::regex_replace(str, tilde, home_str)));
