@@ -21,14 +21,28 @@ namespace config {
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
 	}
 
+	//initialize the configuration system
+	void init();
+
 	void set_file_path(boost::filesystem::path p);
 	boost::filesystem::path file_path();
+
+	//read in the config file
 	void read_file();
-	void init(); //find and read
+
+	//write out the config if dirty.
+	//NOTE: you should call this periodically as it does debouncing to assure
+	//that multiple fast updates don't write multiple times
+	void write_if_dirty();
 
 	//ns == namespace, optional to get to an object inside the object
 	template <typename T>
 	boost::optional<T> get(const std::string& key, boost::optional<std::string> ns = boost::none);
+
+	//set a configuration value
+	//ns == namespace, optional to set to an object inside the object
+	template <typename T>
+	void set(const T& value, const std::string& key, boost::optional<std::string> ns = boost::none);
 
 	//make's an absolute path with ~ replaced with $HOME appropriately
 	boost::filesystem::path make_path(const std::string& p);

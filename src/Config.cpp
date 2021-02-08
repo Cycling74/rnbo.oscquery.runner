@@ -5,12 +5,19 @@
 #include <mutex>
 #include <fstream>
 #include <iomanip>
+#include <chrono>
+
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/none.hpp>
+
+using std::chrono::system_clock;
 
 namespace fs = boost::filesystem;
 
 namespace {
+	static const std::chrono::seconds save_debounce_timeout(1);
+	boost::optional<std::chrono::time_point<std::chrono::system_clock>> update_next;
+
 	static std::mutex mutex;
 	//XXX figure out for windows
 	const static std::string home_str = fs::absolute(fs::path(std::getenv("HOME"))).string();
@@ -45,12 +52,16 @@ namespace {
 	RNBO::Json config_json = config_default;
 
 	//get the namespaced json blob, expects to be in a lock
-	boost::optional<RNBO::Json&> ns_json(boost::optional<std::string> ns) {
+	boost::optional<RNBO::Json&> ns_json(boost::optional<std::string> ns, bool create = false) {
 		auto& j = config_json;
 		if (!ns)
 			return j;
 		if (j.contains(ns.get()))
 			return j[ns.get()];
+		if (create) {
+			j[ns.get()] = RNBO::Json::object();
+			return j[ns.get()];
+		}
 		return boost::optional<RNBO::Json&>{ boost::none };
 	}
 }
@@ -95,15 +106,18 @@ namespace config {
 				}
 		});
 	}
-	void write_file() {
+
+	void write_if_dirty() {
 		with_mutex<void>([](){
-				fs::path dir;
-				fs::create_directories((dir = config_file_path).remove_filename());
-				std::ofstream o(config_file_path.string());
-				o << std::setw(4) << config_json << std::endl;
+				if (update_next && update_next.get() <= system_clock::now()) {
+					update_next.reset();
+					fs::path dir;
+					fs::create_directories((dir = config_file_path).remove_filename());
+					std::ofstream o(config_file_path.string());
+					o << std::setw(4) << config_json << std::endl;
+				}
 		});
 	}
-
 
 	template<>
 		boost::optional<boost::filesystem::path> get<boost::filesystem::path>(const std::string& k, boost::optional<std::string> ns) {
@@ -141,6 +155,16 @@ namespace config {
 						return boost::make_optional(v.get<bool>());
 				}
 				return boost::optional<bool>{ boost::none };
+		});
+	}
+
+	template <typename T>
+	void set(const T& value, const std::string& key, boost::optional<std::string> ns) {
+		return with_mutex<void>([value, key, ns](){
+				auto j = ns_json(ns, true);
+				j.get()[key] = value;
+				//set the write update timeout
+				update_next = system_clock::now() + save_debounce_timeout;
 		});
 	}
 
