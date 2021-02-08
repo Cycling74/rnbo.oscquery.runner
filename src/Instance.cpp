@@ -341,12 +341,16 @@ void Instance::queueConfigChangeSignal() {
 }
 
 bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
-	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
 	mCore->releaseExternalData(id.c_str());
 	mDataRefs.erase(id);
 	if (fileName.empty())
 		return true;
-	auto filePath = dataFileDir / fs::path(fileName);
+	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+	if (!dataFileDir) {
+		std::cerr << config::key::DataFileDir << " not in config" << std::endl;
+		return false;
+	}
+	auto filePath = dataFileDir.get() / fs::path(fileName);
 	if (!fs::exists(filePath)) {
 		std::cerr << "no file at " << filePath << std::endl;
 		//TODO clear node value?

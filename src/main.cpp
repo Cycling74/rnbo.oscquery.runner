@@ -42,17 +42,20 @@ int main(int argc, const char * argv[]) {
 
 	//get the host name (or override)
 	auto host = config::get<std::string>(config::key::HostNameOverride);
-	if (!host.size()) {
+	std::string hostName;
+	if (host) {
+		hostName = host.value();
+	} else {
 		char hostname[_POSIX_HOST_NAME_MAX];
 		gethostname(hostname, _POSIX_HOST_NAME_MAX);
-		host = std::string(hostname);
+		hostName = std::string(hostname);
 	}
 
 	//make sure these directories exists, so we can write to them
 	for (auto key: {config::key::DataFileDir, config::key::SaveDir, config::key::SourceCacheDir, config::key::CompileCacheDir}) {
-		fs::create_directories(config::get<fs::path>(key));
+		fs::create_directories(config::get<fs::path>(key).get());
 	}
-	Controller c("rnbo:" + host);
+	Controller c("rnbo:" + hostName);
 	if (options["filename"].size()) {
 		c.loadLibrary(options["filename"]);
 	} else if (config::get<bool>(config::key::InstanceAutoStartLast)){

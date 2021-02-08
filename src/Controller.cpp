@@ -37,7 +37,7 @@ namespace {
 
 
 	fs::path lastFilePath() {
-			return config::get<fs::path>(config::key::SaveDir) / last_file_name;
+			return config::get<fs::path>(config::key::SaveDir).get() / last_file_name;
 	}
 }
 
@@ -267,12 +267,12 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 }
 
 void Controller::processCommands() {
-	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir);
-	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir);
+	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
+	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
 	//setup user defined location of the build program, if they've set it
 	auto configBuildExe = config::get<fs::path>(config::key::SOBuildExe);
-	if (!configBuildExe.empty() && fs::exists(configBuildExe))
-		build_program = configBuildExe.string();
+	if (configBuildExe && fs::exists(configBuildExe.get()))
+		build_program = configBuildExe.get().string();
 
 	//helper to validate and report as there are 2 different commands
 	auto validateFileCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, bool withData) -> bool {
@@ -288,11 +288,18 @@ void Controller::processCommands() {
 		});
 		return true;
 	};
-	auto fileCmdDir = [this](std::string& id, std::string filetype) -> fs::path {
-		if (filetype == "datafile")
-			return config::get<fs::path>(config::key::DataFileDir);
-		reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
-		return {};
+	auto fileCmdDir = [this](std::string& id, std::string filetype) -> boost::optional<fs::path> {
+		boost::optional<fs::path> r;
+		if (filetype == "datafile") {
+			r = config::get<fs::path>(config::key::DataFileDir);
+		} else {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
+			return {};
+		}
+		if (!r) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::Unknown), "no entry in config for filetype: " + filetype);
+		}
+		return r;
 	};
 
 	//wait for commands, then process them
@@ -348,7 +355,7 @@ void Controller::processCommands() {
 				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::string buildCmd = build_program;
-				for (auto a: { generated.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).string(), config::get<fs::path>(config::key::CompileCacheDir).string() }) {
+				for (auto a: { generated.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string() }) {
 					buildCmd += (" \"" + a + "\"");
 				}
 				auto status = std::system(buildCmd.c_str());
@@ -367,12 +374,12 @@ void Controller::processCommands() {
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
 					continue;
-				fs::path dir = fileCmdDir(id, params["filetype"]);
-				if (dir.empty())
+				auto dir = fileCmdDir(id, params["filetype"]);
+				if (!dir)
 					continue;
 
 				std::string fileName = params["filename"];
-				fs::path filePath = dir / fs::path(fileName);
+				fs::path filePath = dir.get() / fs::path(fileName);
 				boost::system::error_code ec;
 				if (fs::remove(filePath, ec)) {
 					reportCommandResult(id, {
@@ -387,12 +394,12 @@ void Controller::processCommands() {
 				if (!validateFileCmd(id, cmdObj, params, true))
 					continue;
 
-				fs::path dir = fileCmdDir(id, params["filetype"]);
-				if (dir.empty())
+				auto dir = fileCmdDir(id, params["filetype"]);
+				if (!dir)
 					continue;
 
 				std::string fileName = params["filename"];
-				fs::path filePath = dir / fs::path(fileName);
+				fs::path filePath = dir.get() / fs::path(fileName);
 				std::fstream fs;
 				//allow for "append" to add to the end of an existing file
 				bool append = params["append"].is_boolean() && params["append"].get<bool>();
@@ -464,7 +471,7 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 
 void Controller::updateDiskSpace() {
 		//could also look at sample dir?
-		fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir)));
+		fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir).get()));
 		auto available = compileCacheSpace.available;
 		if (mDiskSpaceLast != available) {
 			mDiskSpaceLast = available;

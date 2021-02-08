@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include <boost/dll/runtime_symbol_info.hpp>
+#include <boost/none.hpp>
 
 namespace fs = boost::filesystem;
 
@@ -93,36 +94,39 @@ namespace config {
 		});
 	}
 	template<>
-	boost::filesystem::path get<boost::filesystem::path>(const std::string& k) {
-		std::string p = get<std::string>(k);
-		if (p.empty()) {
+		boost::optional<boost::filesystem::path> get<boost::filesystem::path>(const std::string& k) {
+		boost::optional<std::string> p = get<std::string>(k);
+		if (!p) {
 			if (k == key::RnboCPPDir) {
 				return base_dir / "src" / "rnbo";
 			}
 			if (k == key::SOBuildExe) {
 				return base_dir / "bin" / "rnbo-compile-so";
 			}
+			return boost::none;
 		}
-		return make_path(p);
+		return make_path(p.get());
 	}
+
 	template<typename T>
-	T get(const std::string& key) {
-		return with_mutex<T>([key](){
-				T value;
-				if (config_json.contains(key))
-					value = config_json[key];
-				return value;
+	boost::optional<T> get(const std::string& key) {
+		return with_mutex<boost::optional<T>>([key](){
+				if (config_json.contains(key)) {
+					return boost::make_optional(config_json[key].get<T>());
+				}
+				return boost::optional<T>{ boost::none };
 		});
 	}
+
 	template<>
-	bool get(const std::string& key) {
-		return with_mutex<bool>([key](){
+	boost::optional<bool> get(const std::string& key) {
+		return with_mutex<boost::optional<bool>>([key](){
 				if (config_json.contains(key)) {
 					auto v = config_json[key];
 					if (v.is_boolean())
-						return v.get<bool>();
+						return boost::make_optional(v.get<bool>());
 				}
-				return false;
+				return boost::optional<bool>{ boost::none };
 		});
 	}
 	fs::path make_path(const std::string& str) {
