@@ -172,13 +172,13 @@ ProcessAudioJack::~ProcessAudioJack() {
 void ProcessAudioJack::writeJackDRC() {
 	std::lock_guard<std::mutex> guard(mJackDRCMutex);
 	std::ofstream o(jackdrc_path.string());
-	o << mCmdPrefix;
+	o << mCmdPrefix << " " << mCmdSuffix;
 #ifndef __APPLE__
-	o << " -device \"" << mCardName << "\"";
-	o << " -nperiods " << mNumPeriods;
+	o << " --device \"" << mCardName << "\"";
+	o << " --nperiods " << mNumPeriods;
 #endif
-	o << " -period " << mPeriodFrames;
-	o << " -rate " << mSampleRate;
+	o << " --period " << mPeriodFrames;
+	o << " --rate " << mSampleRate;
 	o.close(); //flush
 }
 

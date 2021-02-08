@@ -42,9 +42,12 @@ class ProcessAudioJack : public ProcessAudio {
 		opp::node mPeriodFramesNode;
 
 #ifdef __APPLE__
-		std::string mCmdPrefix = "jackd -Xcoremidi -dcoreaudio";
+		//apple with homebrew, TODO make this configurable
+		std::string mCmdPrefix = "/usr/local/bin/jackd";
+		std::string mCmdSuffix = "-Xcoremidi -dcoreaudio";
 #else
-		std::string mCmdPrefix = "jackd -dalsa -Xseq";
+		std::string mCmdPrefix = "/usr/bin/jackd";
+		std::string mCmdSuffix = "-dalsa -Xseq";
 		int mNumPeriods = 2;
 		opp::node mNumPeriodsNode;
 		std::string mCardName;
