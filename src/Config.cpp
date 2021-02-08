@@ -43,6 +43,16 @@ namespace {
 	};
 
 	RNBO::Json config_json = config_default;
+
+	//get the namespaced json blob, expects to be in a lock
+	boost::optional<RNBO::Json&> ns_json(boost::optional<std::string> ns) {
+		auto& j = config_json;
+		if (!ns)
+			return j;
+		if (j.contains(ns.get()))
+			return j[ns.get()];
+		return boost::optional<RNBO::Json&>{ boost::none };
+	}
 }
 
 #include <iostream>
@@ -93,10 +103,12 @@ namespace config {
 				o << std::setw(4) << config_json << std::endl;
 		});
 	}
+
+
 	template<>
-		boost::optional<boost::filesystem::path> get<boost::filesystem::path>(const std::string& k) {
-		boost::optional<std::string> p = get<std::string>(k);
-		if (!p) {
+		boost::optional<boost::filesystem::path> get<boost::filesystem::path>(const std::string& k, boost::optional<std::string> ns) {
+		boost::optional<std::string> p = get<std::string>(k, ns);
+		if (!p && !ns) {
 			if (k == key::RnboCPPDir) {
 				return base_dir / "src" / "rnbo";
 			}
@@ -109,26 +121,29 @@ namespace config {
 	}
 
 	template<typename T>
-	boost::optional<T> get(const std::string& key) {
-		return with_mutex<boost::optional<T>>([key](){
-				if (config_json.contains(key)) {
-					return boost::make_optional(config_json[key].get<T>());
+	boost::optional<T> get(const std::string& key, boost::optional<std::string> ns) {
+		return with_mutex<boost::optional<T>>([key, ns](){
+				auto j = ns_json(ns);
+				if (j && j->contains(key)) {
+					return boost::make_optional(j->at(key).get<T>());
 				}
 				return boost::optional<T>{ boost::none };
 		});
 	}
 
 	template<>
-	boost::optional<bool> get(const std::string& key) {
-		return with_mutex<boost::optional<bool>>([key](){
-				if (config_json.contains(key)) {
-					auto v = config_json[key];
+	boost::optional<bool> get(const std::string& key, boost::optional<std::string> ns) {
+		return with_mutex<boost::optional<bool>>([key, ns](){
+				auto j = ns_json(ns);
+				if (j && j->contains(key)) {
+					auto v = j->at(key);
 					if (v.is_boolean())
 						return boost::make_optional(v.get<bool>());
 				}
 				return boost::optional<bool>{ boost::none };
 		});
 	}
+
 	fs::path make_path(const std::string& str) {
 		return fs::absolute(fs::path(std::regex_replace(str, tilde, home_str)));
 	}

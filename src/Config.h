@@ -1,6 +1,7 @@
 #pragma once
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
+#include <boost/none.hpp>
 
 namespace config {
 	namespace key {
@@ -25,8 +26,9 @@ namespace config {
 	void read_file();
 	void init(); //find and read
 
+	//ns == namespace, optional to get to an object inside the object
 	template <typename T>
-	boost::optional<T> get(const std::string& key);
+	boost::optional<T> get(const std::string& key, boost::optional<std::string> ns = boost::none);
 
 	//make's an absolute path with ~ replaced with $HOME appropriately
 	boost::filesystem::path make_path(const std::string& p);
