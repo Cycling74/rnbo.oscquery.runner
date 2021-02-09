@@ -24,7 +24,7 @@
   ```shell
   ssh pi@raspberrypi.local
   sudo -s
-  export NEW_HOST_NAME=xnor-rnbo-rpi
+  export NEW_HOST_NAME=c74rpi
   rm -f /etc/xdg/autostart/piwiz.desktop
   apt-key add apt-cycling74-pubkey.asc
   mv cycling74.list /etc/apt/sources.list.d/
