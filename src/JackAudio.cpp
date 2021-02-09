@@ -107,60 +107,89 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 			auto conf = root.create_child("config");
 			conf.set_description("Jack configuration parameters");
 #ifndef __APPLE__
-			auto card = conf.create_string("card");
-			card.set_description("ALSA device name");
-			card.set_value(mCardName);
-			std::vector<opp::value> accepted;
-			for (auto n: mCardNames) {
-				accepted.push_back(n);
+			{
+				auto card = conf.create_string("card");
+				card.set_description("ALSA device name");
+				std::vector<opp::value> accepted;
+				for (auto n: mCardNames) {
+					accepted.push_back(n);
+				}
+				//XXX you have to set min and or max before accepted values takes, will file bug report
+				card.set_bounding(opp::bounding_mode::Clip);
+				card.set_min(accepted.front());
+				card.set_max(accepted.back());
+				card.set_accepted_values(accepted);
+				card.set_value(mCardName);
+				ValueCallbackHelper::setCallback(
+						card, mValueCallbackHelpers,
+						[this](const opp::value& val) {
+							if (val.is_string()) {
+								mCardName = val.to_string();
+								jconfig_set(mCardName, "card_name");
+							}
+						});
 			}
-			card.set_accepted_values(accepted);
-			ValueCallbackHelper::setCallback(
-				card, mValueCallbackHelpers,
-				[this](const opp::value& val) {
-				if (val.is_string())
-					mCardName = val.to_string();
-					jconfig_set(mCardName, "card_name");
-				});
 
-			mNumPeriodsNode = conf.create_int("num_periods");
-			mNumPeriodsNode.set_description("Number of periods of playback latency");
-			mNumPeriodsNode.set_value(mNumPeriods);
-			mNumPeriodsNode.set_min(1.);
-			ValueCallbackHelper::setCallback(
-				mNumPeriodsNode, mValueCallbackHelpers,
-				[this](const opp::value& val) {
-				//TODO clamp?
-				if (val.is_int())
-					mNumPeriods = val.to_int();
-					jconfig_set(mNumPeriods, "num_periods");
-				});
+			{
+				mNumPeriodsNode = conf.create_int("num_periods");
+				mNumPeriodsNode.set_description("Number of periods of playback latency");
+				mNumPeriodsNode.set_value(mNumPeriods);
+				std::vector<opp::value> accepted = { 1, 2, 3, 4};
+				mNumPeriodsNode.set_min(accepted.front());
+				mNumPeriodsNode.set_max(accepted.back());
+				mNumPeriodsNode.set_accepted_values(accepted);
+				mNumPeriodsNode.set_bounding(opp::bounding_mode::Clip);
+				ValueCallbackHelper::setCallback(
+						mNumPeriodsNode, mValueCallbackHelpers,
+						[this](const opp::value& val) {
+							//TODO clamp?
+							if (val.is_int()) {
+								mNumPeriods = val.to_int();
+								jconfig_set(mNumPeriods, "num_periods");
+							}
+						});
+			}
 #endif
-			mPeriodFramesNode = conf.create_int("period_frames");
-			mPeriodFramesNode.set_description("Frames per period");
-			mPeriodFramesNode.set_value(mPeriodFrames);
-			mPeriodFramesNode.set_min(32.);
-			ValueCallbackHelper::setCallback(
-				mPeriodFramesNode, mValueCallbackHelpers,
-				[this](const opp::value& val) {
-				//TODO clamp?
-				if (val.is_int())
-					mPeriodFrames = val.to_int();
-					jconfig_set(mPeriodFrames, "period_frames");
-				});
+			{
+				//accepted is a list of 2**n (32,... 1024)
+				std::vector<opp::value> accepted;
+				for (int i = 5; i <= 10; i++) {
+					accepted.push_back(1 << i);
+				}
+				mPeriodFramesNode = conf.create_int("period_frames");
+				mPeriodFramesNode.set_description("Frames per period");
+				mPeriodFramesNode.set_value(mPeriodFrames);
+				mPeriodFramesNode.set_min(accepted.front());
+				mPeriodFramesNode.set_max(accepted.back());
+				mPeriodFramesNode.set_accepted_values(accepted);
+				mPeriodFramesNode.set_bounding(opp::bounding_mode::Clip);
+				ValueCallbackHelper::setCallback(
+						mPeriodFramesNode, mValueCallbackHelpers,
+						[this](const opp::value& val) {
+							//TODO clamp?
+							if (val.is_int()) {
+								mPeriodFrames = val.to_int();
+								jconfig_set(mPeriodFrames, "period_frames");
+							}
+						});
+			}
 
-			mSampleRateNode = conf.create_float("sample_rate");
-			mSampleRateNode.set_description("Sample rate");
-			mSampleRateNode.set_value(mSampleRate);
-			mSampleRateNode.set_min(44100.0 / 2);
-			ValueCallbackHelper::setCallback(
-				mSampleRateNode, mValueCallbackHelpers,
-				[this](const opp::value& val) {
-				//TODO clamp?
-				if (val.is_float())
-					mSampleRate = val.to_float();
-					jconfig_set(mSampleRate, "sample_rate");
-				});
+			{
+				mSampleRateNode = conf.create_float("sample_rate");
+				mSampleRateNode.set_description("Sample rate");
+				mSampleRateNode.set_value(mSampleRate);
+				mSampleRateNode.set_min(44100.0 / 2);
+				mSampleRateNode.set_bounding(opp::bounding_mode::Clip);
+				ValueCallbackHelper::setCallback(
+						mSampleRateNode, mValueCallbackHelpers,
+						[this](const opp::value& val) {
+							//TODO clamp?
+							if (val.is_float()) {
+								mSampleRate = val.to_float();
+								jconfig_set(mSampleRate, "sample_rate");
+							}
+						});
+			}
 	});
 	createClient(false);
 }
