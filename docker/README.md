@@ -6,15 +6,15 @@ rm rpi-rootfs/usr/lib/systemd/system/rnbo.service
 ```
 * build docker image:
 ```shell
-docker build -f Dockerfile -t rnbo.rpi-xpile:0.1 .
+docker build -f Dockerfile -t rpi-buster-audio-xpile:0.1 .
 ```
 
 cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONAN_CMAKE_FIND_ROOT_PATH=/rootfs/ CONAN_CMAKE_SYSROOT=/rootfs/ cmake -DRNBO_DIR=../cpp/ -DCMAKE_TOOLCHAIN_FILE=../rpi-toolchain.cmake ..
 
 
 ```shell
-docker run -it -v $(pwd):/build rnbo.rpi-xpile:0.1
-docker run -it -v $(pwd):/build rnbo.rpi-xpile:0.1 /bin/bash
+docker run -it -v $(pwd):/build rpi-buster-audio-xpile:0.1
+docker run -it -v $(pwd):/build rpi-buster-audio-xpile:0.1 /bin/bash
 ```
 
 ```shell
@@ -24,8 +24,9 @@ mkdir build-rpi && cd build-rpi
 cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH cmake -DCMAKE_TOOLCHAIN_FILE=../rpi-toolchain.cmake -DCONAN_PROFILE=rpi .. && make
 ```
 
-## share
+## share to docker hub
 ```shell
-docker tag rnbo.rpi-xpile:0.1 registry.digitalocean.com/c74-private/rnbo.rpi-xpile:0.1
-docker push registry.digitalocean.com/c74-private/rnbo.rpi-xpile:0.1
+docker tag rpi-buster-audio-xpile:0.1 xnor/rpi-buster-audio-xpile:0.1
+docker push xnor/rpi-buster-audio-xpile:0.1
 ```
+
