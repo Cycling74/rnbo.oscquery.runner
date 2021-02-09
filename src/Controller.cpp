@@ -11,6 +11,7 @@
 #include "Defines.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
+#include "ValueCallbackHelper.h"
 
 using std::cout;
 using std::cerr;
@@ -72,10 +73,14 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		auto c = r.create_string("cmd");
 		c.set_description("command handler");
 		c.set_access(opp::access_mode::Set);
-		c.set_value_callback([](void * context, const opp::value& val) {
-			Controller * c = reinterpret_cast<Controller *>(context);
-			c->handleCommand(val);
-		}, this);
+		ValueCallbackHelper::setCallback(
+				c, mValueCallbackHelpers,
+				[this](const opp::value& val) {
+					if (val.is_string()) {
+						mCommandQueue.push(val.to_string());
+					}
+			});
+
 		mNodes.push_back(c);
 	}
 	{
@@ -95,10 +100,13 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mAudioActive = j.create_bool("active");
 	mAudioActive.set_access(opp::access_mode::Bi);
 	mAudioActive.set_value(mProcessAudio->isActive());
-	mAudioActive.set_value_callback([](void* context, const opp::value& val) {
-		Controller * c = reinterpret_cast<Controller *>(context);
-		c->handleActive(val.is_bool() && val.to_bool());
-	}, this);
+	ValueCallbackHelper::setCallback(
+			mAudioActive, mValueCallbackHelpers,
+			[this](const opp::value& val) {
+				if (val.is_bool()) {
+					handleActive(val.to_bool());
+				}
+		});
 
 	mInstancesNode = r.create_child("inst");
 	mInstancesNode.set_description("RNBO codegen instances");
@@ -111,14 +119,16 @@ Controller::~Controller() {
 	mCommandThread.join();
 }
 
-bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf) {
+bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
 	//TODO make sure that the version numbers match in the name of the library
 
-	mAudioActive.set_value(mProcessAudio->setActive(true));
+	//activate if we need to
+	if (!mProcessAudio->isActive())
+		mAudioActive.set_value(mProcessAudio->setActive(true));
 	if (!mProcessAudio->isActive()) {
 		cerr << "audio is not active, cannot create instance(s)" << endl;
 		if (cmdId.size()) {
-			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "audio not active");
+			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
 		}
 		return false;
 	}
@@ -142,7 +152,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		//queue a save whenenever the configuration changes
 		instance->registerConfigChangeCallback([this] {
-				queueSave(true);
+				queueSave();
 		});
 		instance->start();
 		mInstances.emplace_back(std::make_pair(instance, path));
@@ -154,12 +164,17 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			{"progress", 100}
 		});
 	}
-	queueSave(true);
+	if (saveConfig)
+		queueSave();
 	return true;
 }
 
 bool Controller::loadLast() {
 	try {
+		{
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			clearInstances(guard);
+		}
 		//try to start the last
 		auto lastFile = lastFilePath();
 		if (!fs::exists(lastFile))
@@ -179,13 +194,12 @@ bool Controller::loadLast() {
 		//load instances
 		for (auto i: c[last_instances_key]) {
 			std::string so = i[last_so_key];
-			if (!loadLibrary(so, std::string(), i[last_config_key])) {
+			//load library but don't save config
+			if (!loadLibrary(so, std::string(), i[last_config_key], false)) {
 				cerr << "failed to load so " << so << endl;
 				return false;
 			}
 		}
-		//load last only happens in the main thread, we don't need to save last again
-		queueSave(false);
 	} catch (std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
 	}
@@ -210,9 +224,9 @@ void Controller::saveLast() {
 	o << std::setw(4) << last << std::endl;
 }
 
-void Controller::queueSave(bool s) {
+void Controller::queueSave() {
 	std::lock_guard<std::mutex> guard(mSaveMutex);
-	mSave = s;
+	mSave = true;
 }
 
 bool Controller::process() {
@@ -251,14 +265,14 @@ void Controller::handleActive(bool active) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		clearInstances(guard);
 	}
+	bool wasActive = mProcessAudio->isActive();
 	if (mProcessAudio->setActive(active) != active) {
 		cerr << "couldn't set active" << endl;
 		//XXX deffer to setting not active
+	} else if (!wasActive) {
+		//load last if we're activating from inactive
+		mCommandQueue.push("load_last");
 	}
-}
-
-void Controller::handleCommand(const opp::value& data) {
-	mCommandQueue.push(data.to_string());
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
@@ -309,6 +323,13 @@ void Controller::processCommands() {
 			if (!cmd)
 				continue;
 			std::string cmdStr = cmd.get();
+
+			//internal commands
+			if (cmdStr == "load_last") {
+				loadLast();
+				continue;
+			}
+
 			auto cmdObj = RNBO::Json::parse(cmdStr);;
 			if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
 				cerr << "invalid cmd json" << cmdStr << endl;

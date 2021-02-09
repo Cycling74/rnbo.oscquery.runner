@@ -14,6 +14,8 @@
 #include "ProcessAudio.h"
 #include "Queue.h"
 
+class ValueCallbackHelper;
+
 //An object which controls the whole show
 class Controller {
 	public:
@@ -21,11 +23,9 @@ class Controller {
 		~Controller();
 
 		//return true on success
-		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr);
+		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true);
 		bool loadLast();
 
-		void handleCommand(const opp::value& data);
-		void handleActive(bool active);
 		//returns true until we should quit
 		bool process();
 	private:
@@ -35,10 +35,11 @@ class Controller {
 		void reportCommandError(std::string id, unsigned int code, std::string message);
 		void reportCommandStatus(std::string id, RNBO::Json obj);
 
+		void handleActive(bool active);
 		void updateDiskSpace();
 		void saveLast();
 		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
-		void queueSave(bool s = true);
+		void queueSave();
 
 		opp::oscquery_server mServer;
 		opp::node mInstancesNode;
@@ -67,4 +68,6 @@ class Controller {
 		bool mSave = false;
 		//a timeout for when to save, debouncing
 		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
+
+		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 };
