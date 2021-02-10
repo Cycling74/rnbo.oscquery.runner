@@ -21,6 +21,8 @@
   * update password
   * set the CPU to not scale
   * reboot (easiest way to update your group security settings)
+
+  you should be able to copy and paste this and do it all at once
   ```shell
   ssh pi@raspberrypi.local
   sudo -s
@@ -30,15 +32,25 @@
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
-  apt upgrade
+  apt -y upgrade
   apt-get -y autoremove
-  apt -y install jackd2 rnbooscquery ccache cpufrequtils
-  dpkg-reconfigure jackd2
+  apt -y install jackd2 ccache cpufrequtils
   sed -i 's/127.0.1.1.*/127.0.1.1\t'"$NEW_HOST_NAME"'/g' /etc/hosts
   hostnamectl set-hostname ${NEW_HOST_NAME}
   echo "pi:c74rnbo" | chpasswd
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
+  ```
+
+  do these one at a time
+  ```shell
+  dpkg-reconfigure jackd2
   reboot
+  ```
+
+  now you have a base package, to setup rnbooscquery
+
+  ```shell
+  apt -y install rnbooscquery
   ```
 
 ## Development
