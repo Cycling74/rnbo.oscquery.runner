@@ -13,6 +13,16 @@ allow for querying the number of packages that want updates, indicate if any are
 sudo apt install ruby-dbus
 ```
 
+## To package
+
+```shell
+VERSION=0.1.0
+DIR=rnbo-update-service-${VERSION}
+mkdir ${DIR}
+cp rnbo-update-service ${DIR}/
+cd ${DIR}
+```
+
 ## Installation
 
 There is an example DBus configuration file `rnbo-system.conf` in this directory.
