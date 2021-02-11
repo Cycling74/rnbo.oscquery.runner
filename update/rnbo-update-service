@@ -12,29 +12,29 @@ RUNNER_PACKAGE_NAME = "rnbooscquery"
 VERSION_VALID_REGEX = /\A(?:\d+:)?\d[[:alnum:]\.\+-~]*?(?:-[[:alnum:]\+\.~]+)?\z/
 
 def exec_cmds(cmds)
-	cmds.each do |cmd|
-		raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
-	end
+  cmds.each do |cmd|
+    raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
+  end
 end
 
 class RNBOUpdater < DBus::Object
   dbus_interface URI_BASE do
     dbus_method :install_runner, "in version:s" do |version|
-			#assert version format
-			raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
-			raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
-			exec_cmds([
-				%w{apt update},
-				%w{apt install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
-				%w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
-			])
+      #assert version format
+      raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
+      raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
+      exec_cmds([
+        %w{apt update},
+        %w{apt install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
+        %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
+      ])
     end
 
     dbus_method :update_system do
-			exec_cmds([
-				%w{apt update},
-				%w{apt -y upgrade}
-			])
+      exec_cmds([
+        %w{apt update},
+        %w{apt -y upgrade}
+      ])
     end
 
     #TODO signal when there are updates available?
