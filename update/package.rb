@@ -24,10 +24,12 @@ Dir.chdir(DIR) do
 all:
 
 install:
+	install -D #{DBUS_FILE} --mode=0644 $(DESTDIR)/etc/dbus-1/system.d/#{DBUS_FILE}
 	install -D #{SCRIPT} $(DESTDIR)/usr/bin/#{SCRIPT}
 
 uninstall:
 	-rm -f $(DESTDIR)/usr/bin/#{SCRIPT}
+	-rm -f $(DESTDIR)/etc/dbus-1/system.d/#{DBUS_FILE}
 
 clean:
 
@@ -38,12 +40,6 @@ EOF
   end
 
   raise "failed to dh_make" unless system("dh_make --indep --createorig -c mit --yes")
-
-begin
-  File.open("debian/rnbo-update-service.install", "w") do |f|
-    f.puts("#{DBUS_FILE} etc/dbus-1/system.d")
-  end
-end
 
   File.open("debian/rules", "w") do |f|
     f.print <<EOF
@@ -65,7 +61,7 @@ EOF
     elsif l =~ /\ADescription/
       "Description: A service for managing the version of the rnbooscquery runner."
     elsif l =~ /insert long description/
-      "  This service communicates via dbus to let the rnbooscquery specify versions to update it to."
+      "  This service communicates via dbus to let the rnbooscquery runner program specify versions to update it to."
     else
       l
     end
@@ -104,9 +100,7 @@ EOF
 
   #remove files we don't need
   FileUtils.rm(["README.source", "README.Debian", "rnbo-update-service-docs.docs", "rnbo-update-service.doc-base.EX"].collect { |f| File.join("debian", f) } )
-  Dir.glob("debian/*.ex") do |f|
-    FileUtils.rm(f)
-  end
+  FileUtils.rm(Dir.glob("debian/*.ex"))
 
   #setup systemd
   FileUtils.cp("../../#{SERVICE_FILE}", "debian/")
