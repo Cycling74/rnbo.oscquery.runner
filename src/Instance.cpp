@@ -34,7 +34,14 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			it->second.set_value(value);
 		}
 	};
-	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback, [this](RNBO::MessageEvent msg) { handleOutportMessage(msg); }));
+	mEventHandler = std::unique_ptr<EventHandler>(
+			new EventHandler(paramCallback,
+				[this](RNBO::MessageEvent msg) {
+					//only send messages that aren't targeted for a specific object
+					if (msg.getObjectId() == 0)
+						handleOutportMessage(msg);
+				})
+			);
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
