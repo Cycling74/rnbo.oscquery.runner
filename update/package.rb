@@ -51,13 +51,6 @@ end
 export DESTROOT=$(CURDIR)/debian/rnbo-update-service
 %:
 	dh $@
-
-# Prevent dh_installdeb of treating files in /etc as configuration files
-# you need this if need configuration files been always rewritten
-# even if changed
-override_dh_installdeb:
-	dh_installdeb
-	rm debian/*/DEBIAN/conffiles
 EOF
   end
 
