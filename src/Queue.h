@@ -38,7 +38,7 @@ class Queue {
 				return boost::none;
 			T item = mQueue.front();
 			mQueue.pop();
-			return {item};
+			return boost::make_optional(item);
 		}
 
 		//get data if it is available.
@@ -48,7 +48,7 @@ class Queue {
 				return boost::none;
 			T item = mQueue.front();
 			mQueue.pop();
-			return {item};
+			return boost::make_optional(item);
 		}
 	private:
 		std::queue<T> mQueue;
