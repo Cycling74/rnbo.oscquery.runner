@@ -62,7 +62,7 @@ Do all the normal use stuff then:
 * install conan
 * make directories for local builds and config
   ```shell
-  sudo apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.67-all-dev libdbus-cpp-dev
+  sudo apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libboost1.62-all-dev libdbus-cpp-dev libproperties-cpp-dev
   sudo apt-get -y --no-install-recommends install ruby python3-pip
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2

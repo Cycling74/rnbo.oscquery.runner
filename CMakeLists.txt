@@ -96,7 +96,7 @@ find_library(JACK_LIB "jack" REQUIRED)
 
 #allow for boost to be installed on system
 #if not, use conan
-find_package(Boost 1.67
+find_package(Boost 1.62
 	COMPONENTS
 	filesystem
 )
@@ -118,10 +118,14 @@ endif()
 
 #find dbus headers if we're on linux
 if (LINUX)
-	find_path(DBUS_CPP_INCLUDE_DIR core/dbus/service.h)
-	if (DBUS_CPP_INCLUDE_DIR)
+	find_package(PkgConfig)
+	pkg_check_modules(DBUS_CPP dbus-cpp)
+	pkg_check_modules(DBUS dbus-1)
+
+	if (DBUS_CPP_INCLUDE_DIRS)
 		add_definitions(-DRNBO_USE_DBUS)
-		include_directories(${DBUS_CPP_INCLUDE_DIR})
+		include_directories(${DBUS_CPP_INCLUDE_DIRS} ${DBUS_INCLUDE_DIRS})
+		link_directories(${DBUS_CPP_LIBRARY_DIRS} ${DBUS_LIBRARY_DIRS})
 	endif()
 endif()
 
@@ -200,6 +204,11 @@ target_link_libraries(${PROJECT_APP}
 	${SNDFILE_LIB}
 	${PLATFORM_LIBS}
 )
+
+if (DBUS_CPP_LIBRARIES)
+	target_link_libraries(${PROJECT_APP} ${DBUS_CPP_LIBRARIES})
+	target_link_libraries(${PROJECT_APP} ${DBUS_LIBRARIES})
+endif()
 
 # add rpath so we can run from the build directory
 if (APPLE)
