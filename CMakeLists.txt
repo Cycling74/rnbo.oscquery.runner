@@ -125,6 +125,8 @@ if (LINUX)
 		add_definitions(-DRNBO_USE_DBUS)
 		include_directories(${DBUS_CPP_INCLUDE_DIRS} ${DBUS_INCLUDE_DIRS})
 		link_directories(${DBUS_CPP_LIBRARY_DIRS} ${DBUS_LIBRARY_DIRS})
+	else()
+		message(FATAL_ERROR "linux requires dbus")
 	endif()
 endif()
 
