@@ -13,7 +13,7 @@ VERSION_VALID_REGEX = /\A(?:\d+:)?\d[[:alnum:]\.\+-~]*?(?:-[[:alnum:]\+\.~]+)?\z
 
 def exec_cmds(cmds)
   cmds.each do |cmd|
-    raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
+    raise DBus.error, "Failed to execute cmd #{cmd}" unless system(*cmd)
   end
 end
 
@@ -22,7 +22,6 @@ class RNBOUpdater < DBus::Object
     dbus_method :install_runner, "in version:s" do |version|
       #assert version format
       raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
-      raise DBus.error, "Failed to execute cmd #{cmd}" unless system(cmd)
       exec_cmds([
         %w{apt update},
         %w{apt install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
@@ -43,7 +42,7 @@ end
 
 bus = DBus::SystemBus.instance
 service = bus.request_service(URI_BASE)
-myobj = RNBOUpdater.new("/com/cycling74/rnbo")
+myobj = RNBOUpdater.new("/#{URI_BASE.gsub('.', '/')}")
 service.export(myobj)
 
 main = DBus::Main.new
