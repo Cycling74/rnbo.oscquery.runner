@@ -22,19 +22,35 @@ def exec_cmds(cmds)
 end
 
 class RNBOUpdater < DBus::Object
+  dbus_signal :InstallStatus, "active:b, status:s"
+
   dbus_interface URI_BASE do
-    dbus_method :install_runner, "in version:s" do |version|
+    dbus_method :install_runner, "in version:s, in upgrade_other:b" do |version, upgrade|
       #assert version format
       raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
       #kick off a thread so we can return immediately
       Thread.new do
         #lock so we don't try to do any other updates before we complete
         SEMAPHORE.synchronize do
+          self.InstallStatus(true, "installing rnbooscquery")
           exec_cmds([
             %w{apt-get -y update},
             %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
             %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
           ])
+
+          #shall we upgrade other services?
+          if upgrade
+            self.InstallStatus(true, "upgrade other")
+            exec_cmds([ %w{apt-get -y upgrade} ])
+            #do we need to reboot?
+            if File.exists?("/var/run/reboot-required")
+              self.InstallStatus(false, "update complete, rebooting")
+              system("reboot")
+              return
+            end
+          end
+          self.InstallStatus(false, "update complete")
         end
       end
     end
