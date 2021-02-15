@@ -527,13 +527,24 @@ void Controller::processCommands() {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
 					continue;
 				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(InstallProgramStatus::Received)},
+					{"message", "signaling update service"},
+					{"progress", 10}
+				});
 				std::string version = params["version"];
+				bool upgradeOther = params.contains("upgrade_other") && params["upgrade_other"].is_boolean() && params["upgrade_other"].get<bool>();
 				try {
-					updateObject->invoke_method_synchronously<RnboUpdateSerivce::InstallRunner, void, std::string>(version);
+					updateObject->invoke_method_synchronously<RnboUpdateSerivce::InstallRunner, void, std::string, bool>(version, upgradeOther);
 				} catch (const std::runtime_error& e) {
 					cerr << "failed to request upgrade: " << e.what() << endl;
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), e.what());
 				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
+					{"message", "installation initiated"},
+					{"progress", 100}
+				});
 #endif
 			} else {
 				cerr << "unknown method " << method << endl;
