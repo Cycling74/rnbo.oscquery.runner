@@ -11,6 +11,8 @@ RUNNER_PACKAGE_NAME = "rnbooscquery"
 #https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
 VERSION_VALID_REGEX = /\A(?:\d+:)?\d[[:alnum:]\.\+-~]*?(?:-[[:alnum:]\+\.~]+)?\z/
 
+ENV['DEBIAN_FRONTEND'] = 'noninteractive'
+
 def exec_cmds(cmds)
   cmds.each do |cmd|
     raise DBus.error, "Failed to execute cmd #{cmd}" unless system(*cmd)
@@ -23,16 +25,16 @@ class RNBOUpdater < DBus::Object
       #assert version format
       raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
       exec_cmds([
-        %w{apt update},
-        %w{apt install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
+        %w{apt-get -y update},
+        %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
         %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
       ])
     end
 
     dbus_method :update_system do
       exec_cmds([
-        %w{apt update},
-        %w{apt -y upgrade}
+        %w{apt-get -y update},
+        %w{apt-get -y upgrade}
       ])
     end
 
