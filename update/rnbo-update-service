@@ -13,6 +13,8 @@ VERSION_VALID_REGEX = /\A(?:\d+:)?\d[[:alnum:]\.\+-~]*?(?:-[[:alnum:]\+\.~]+)?\z
 
 ENV['DEBIAN_FRONTEND'] = 'noninteractive'
 
+SEMAPHORE = Mutex.new
+
 def exec_cmds(cmds)
   cmds.each do |cmd|
     raise DBus.error, "Failed to execute cmd #{cmd}" unless system(*cmd)
@@ -24,18 +26,30 @@ class RNBOUpdater < DBus::Object
     dbus_method :install_runner, "in version:s" do |version|
       #assert version format
       raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
-      exec_cmds([
-        %w{apt-get -y update},
-        %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
-        %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
-      ])
+      #kick off a thread so we can return immediately
+      Thread.new do
+        #lock so we don't try to do any other updates before we complete
+        SEMAPHORE.synchronize do
+          exec_cmds([
+            %w{apt-get -y update},
+            %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
+            %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
+          ])
+        end
+      end
     end
 
     dbus_method :update_system do
-      exec_cmds([
-        %w{apt-get -y update},
-        %w{apt-get -y upgrade}
-      ])
+      #kick off a thread so we can return immediately
+      Thread.new do
+        #lock a semaphore so we don't try to install the runner before we complete
+        SEMAPHORE.synchronize do
+          exec_cmds([
+            %w{apt-get -y update},
+            %w{apt-get -y upgrade}
+          ])
+        end
+      end
     end
 
     #TODO signal when there are updates available?
