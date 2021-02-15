@@ -97,14 +97,13 @@ find_library(JACK_LIB "jack" REQUIRED)
 #allow for boost to be installed on system
 #if not, use conan
 find_package(Boost 1.62
-	COMPONENTS
-	filesystem
+	COMPONENTS filesystem system
 )
 
 #set variables so that we can use them later,
 #for conan BOOST_INCLUDE will be empty but CONAN_INCLUDE_DIRS will have what we need
 if(Boost_FOUND)
-	set(BOOST_LIB Boost::filesystem)
+	set(BOOST_LIB Boost::filesystem Boost::system)
 	set(BOOST_INCLUDE ${Boost_INCLUDE_DIRS})
 else()
 	conan_cmake_run(REQUIRES boost/1.75.0
