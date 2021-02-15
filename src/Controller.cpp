@@ -13,6 +13,20 @@
 #include "PatcherFactory.h"
 #include "ValueCallbackHelper.h"
 
+#ifdef RNBO_USE_DBUS
+
+#include <core/dbus/bus.h>
+#include <core/dbus/object.h>
+#include <core/dbus/service.h>
+#include <core/dbus/signal.h>
+
+#include <core/dbus/asio/executor.h>
+#include <core/dbus/types/stl/tuple.h>
+#include <core/dbus/types/stl/vector.h>
+#include <core/dbus/types/struct.h>
+
+#endif
+
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -22,6 +36,7 @@ namespace fs = boost::filesystem;
 
 
 namespace {
+
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
@@ -40,7 +55,47 @@ namespace {
 	fs::path lastFilePath() {
 			return config::get<fs::path>(config::key::SaveDir).get() / last_file_name;
 	}
+
 }
+
+#if RNBO_USE_DBUS
+
+namespace {
+	struct RnboUpdateSerivce {
+		struct InstallRunner
+		{
+			inline static std::string name()
+			{
+				return "install_runner";
+			};
+			typedef RnboUpdateSerivce Interface;
+			inline static const std::chrono::milliseconds default_timeout() { return std::chrono::seconds{1}; }
+		};
+	};
+}
+
+namespace core
+{
+	namespace dbus
+	{
+		namespace traits
+		{
+
+			template<>
+				struct Service<RnboUpdateSerivce>
+				{
+					inline static const std::string& interface_name()
+					{
+						static const std::string s("com.cylcing74.rnbo");
+						return s;
+					}
+				};
+
+		}
+	}
+}
+
+#endif
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
 	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
@@ -281,6 +336,20 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 }
 
 void Controller::processCommands() {
+#ifdef RNBO_USE_DBUS
+	core::dbus::Bus::Ptr systemBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
+	systemBus->install_executor(core::dbus::asio::make_executor(systemBus));
+	std::thread dbusThread {std::bind(&core::dbus::Bus::run, systemBus)};
+	auto updateService = core::dbus::Service::use_service(systemBus, "com.cycling74.rnbo");
+	std::shared_ptr<core::dbus::Object> updateObject;
+	if (updateService) {
+		updateObject = updateService->object_for_path(core::dbus::types::ObjectPath("/com/cycling74/rnbo"));
+	}
+	if (!updateService || !updateObject) {
+		cerr << "failed to get rnbo dbus update object" << endl;
+	}
+#endif
+
 	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
 	//setup user defined location of the build program, if they've set it
@@ -450,12 +519,21 @@ void Controller::processCommands() {
 				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
 				continue;
 #else
+				if (!updateObject) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
+					continue;
+				}
 				if (!cmdObj.contains("params") || !params.contains("version")) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
 					continue;
 				}
 				std::string version = params["version"];
-				//TODO
+				try {
+					updateObject->invoke_method_synchronously<RnboUpdateSerivce::InstallRunner, void, std::string>(version);
+				} catch (const std::runtime_error& e) {
+					cerr << "failed to request upgrade: " << e.what() << endl;
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), e.what());
+				}
 #endif
 			} else {
 				cerr << "unknown method " << method << endl;
