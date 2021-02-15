@@ -74,19 +74,19 @@ namespace {
 	};
 }
 
+//for some reason it seems that you have to alter the namespace provided by the library in order to create your service
 namespace core
 {
 	namespace dbus
 	{
 		namespace traits
 		{
-
 			template<>
 				struct Service<RnboUpdateSerivce>
 				{
 					inline static const std::string& interface_name()
 					{
-						static const std::string s("com.cylcing74.rnbo");
+						static const std::string s("com.cycling74.rnbo");
 						return s;
 					}
 				};
@@ -340,7 +340,7 @@ void Controller::processCommands() {
 	core::dbus::Bus::Ptr systemBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
 	systemBus->install_executor(core::dbus::asio::make_executor(systemBus));
 	std::thread dbusThread {std::bind(&core::dbus::Bus::run, systemBus)};
-	auto updateService = core::dbus::Service::use_service(systemBus, "com.cycling74.rnbo");
+	auto updateService = core::dbus::Service::use_service(systemBus, core::dbus::traits::Service<RnboUpdateSerivce>::interface_name());
 	std::shared_ptr<core::dbus::Object> updateObject;
 	if (updateService) {
 		updateObject = updateService->object_for_path(core::dbus::types::ObjectPath("/com/cycling74/rnbo"));
