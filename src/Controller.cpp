@@ -200,6 +200,8 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	if (!mDBusService || !mDBusObject) {
 		cerr << "failed to get rnbo dbus update object" << endl;
 	} else {
+		//TODO figure out how to get signals working
+#if 0
     auto sig = mDBusObject->get_signal<RnboUpdateService::Signals::InstallStatus>();
 		if (sig) {
 			sig->connect([](const RnboUpdateService::Signals::InstallStatus::ArgumentType& args) {
@@ -208,6 +210,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		} else {
 			cerr << "failed to get dbus install_status signal" << endl;
 		}
+#endif
 	}
 #endif
 
