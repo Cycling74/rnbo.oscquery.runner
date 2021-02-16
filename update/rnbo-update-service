@@ -4,6 +4,7 @@
 # the rnbo OSCQuery runner to install.
 
 require "dbus"
+require "thread"
 
 URI_BASE = "com.cycling74.rnbo"
 RUNNER_PACKAGE_NAME = "rnbooscquery"
@@ -13,7 +14,7 @@ VERSION_VALID_REGEX = /\A(?:\d+:)?\d[[:alnum:]\.\+-~]*?(?:-[[:alnum:]\+\.~]+)?\z
 
 ENV['DEBIAN_FRONTEND'] = 'noninteractive'
 
-SEMAPHORE = Mutex.new
+CMD_QUEUE = Queue.new
 
 def exec_cmds(cmds)
   cmds.each do |cmd|
@@ -22,50 +23,23 @@ def exec_cmds(cmds)
 end
 
 class RNBOUpdater < DBus::Object
-  dbus_signal :InstallStatus, "active:b, status:s"
-
   dbus_interface URI_BASE do
-    dbus_method :install_runner, "in version:s, in upgrade_other:b" do |version, upgrade|
+    dbus_signal :install_status, "active:b, status:s"
+
+    dbus_method :install_runner, "in version:s, in upgrade_other:b" do |version, upgrade_other|
       #assert version format
       raise "#{version} not in allowed format" unless version =~ VERSION_VALID_REGEX
-      #kick off a thread so we can return immediately
-      Thread.new do
-        #lock so we don't try to do any other updates before we complete
-        SEMAPHORE.synchronize do
-          self.InstallStatus(true, "installing rnbooscquery")
-          exec_cmds([
-            %w{apt-get -y update},
-            %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
-            %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
-          ])
-
-          #shall we upgrade other services?
-          if upgrade
-            self.InstallStatus(true, "upgrade other")
-            exec_cmds([ %w{apt-get -y upgrade} ])
-            #do we need to reboot?
-            if File.exists?("/var/run/reboot-required")
-              self.InstallStatus(false, "update complete, rebooting")
-              system("reboot")
-              return
-            end
-          end
-          self.InstallStatus(false, "update complete")
-        end
-      end
+      CMD_QUEUE.push({
+        method: :install_runner,
+        args: {
+          version: version,
+          upgrade_other: upgrade_other
+        }
+      })
     end
 
     dbus_method :update_system do
-      #kick off a thread so we can return immediately
-      Thread.new do
-        #lock a semaphore so we don't try to install the runner before we complete
-        SEMAPHORE.synchronize do
-          exec_cmds([
-            %w{apt-get -y update},
-            %w{apt-get -y upgrade}
-          ])
-        end
-      end
+      CMD_QUEUE.push({ method: :update_system })
     end
 
     #TODO signal when there are updates available?
@@ -74,8 +48,44 @@ end
 
 bus = DBus::SystemBus.instance
 service = bus.request_service(URI_BASE)
-myobj = RNBOUpdater.new("/#{URI_BASE.gsub('.', '/')}")
-service.export(myobj)
+updateObj = RNBOUpdater.new("/#{URI_BASE.gsub('.', '/')}")
+service.export(updateObj)
+
+Thread.new do
+  while e = CMD_QUEUE.deq
+    upgrade = false
+    case e[:method]
+    when :install_runner
+      version = e[:args][:version]
+      upgrade = e[:args][:upgrade_other]
+      updateObj.install_status(true, "installing rnbooscquery #{version}")
+      exec_cmds([
+        %w{apt-get -y update},
+        %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
+        %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
+      ])
+      updateObj.install_status(false, "install complete") if not upgrade
+    when :update_system
+      upgrade = true
+      updateObj.install_status(true, "update system package lists")
+      exec_cmds([ %w{apt-get -y update} ])
+    end
+
+    #shall we upgrade other services?
+    if upgrade
+      updateObj.install_status(true, "upgrade system")
+      exec_cmds([ %w{apt-get -y upgrade} ])
+      #do we need to reboot?
+      if File.exists?("/var/run/reboot-required")
+        updateObj.install_status(false, "upgrade complete, rebooting")
+        system("reboot")
+        return
+      else
+        updateObj.install_status(false, "upgrade complete")
+      end
+    end
+  end
+end
 
 main = DBus::Main.new
 main << bus

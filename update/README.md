@@ -45,20 +45,20 @@ Though, ideally you'll push this to an apt repository so you can `apt install rn
 
 ## Manual Installation
 
-There is an example DBus configuration file `rnbo-system.conf` in this directory.
-This should go in `/etc/dbus-1/system.d/`
+There are 2 dbus configuration files, one describing the namespace and one identifying permissions.
 
-There is also a service file, `rnbo-update-service.service` that should go in `/lib/systemd/system/`
+There is also a systemd service file, `rnbo-update-service.service`
 
 Here is how I install it all:
 
 ```shell
 sudo -s
 cp rnbo-update-service /usr/bin/ && \
-  cp rnbo-system.conf /etc/dbus-1/system.d/ && \
+  cp com.cycling74.rnbo.conf /usr/share/dbus-1/system.d/ && \
+  cp com.cycling74.rnbo.xml /usr/share/dbus-1/interfaces/ && \
   cp rnbo-update-service.service /lib/systemd/system/ && \
-  chown root:root /etc/dbus-1/system.d/rnbo-system.conf /lib/systemd/system/rnbo-update.service && \
-  chmod 644 /lib/systemd/system/rnbo-update-service.service  /lib/systemd/system/rnbo-update-service.service && \
+  chown root:root /usr/share/dbus-1/system.d/com.cycling74.rnbo.conf /usr/share/dbus-1/interfaces/com.cycling74.rnbo.xml /lib/systemd/system/rnbo-update.service && \
+  chmod 644 /usr/share/dbus-1/system.d/com.cycling74.rnbo.conf /usr/share/dbus-1/interfaces/com.cycling74.rnbo.xml /lib/systemd/system/rnbo-update.service && \
   systemctl reload dbus && \
   systemctl daemon-reload && \
   systemctl enable rnbo-update-service.service && \

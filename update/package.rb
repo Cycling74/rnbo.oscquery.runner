@@ -5,7 +5,9 @@ require 'fileutils'
 VERSION = "0.1.0".freeze
 SCRIPT = "rnbo-update-service".freeze
 SERVICE_FILE = "rnbo-update-service.service".freeze
-DBUS_FILE = "rnbo-system.conf".freeze
+
+DBUS_CONF = "com.cycling74.rnbo.conf".freeze
+DBUS_DESC = "com.cycling74.rnbo.xml".freeze
 
 DIR = File.join("build", "rnbo-update-service-#{VERSION}")
 
@@ -14,9 +16,7 @@ ENV["DEBEMAIL"] = "xnor@cylcing74.com"
 ENV["DEBFULLNAME"] = "Alex Norman"
 
 FileUtils.mkdir_p(DIR)
-FileUtils.mkdir_p(DIR)
-FileUtils.cp(SCRIPT, DIR)
-FileUtils.cp(DBUS_FILE, DIR)
+FileUtils.cp([SCRIPT, DBUS_CONF, DBUS_DESC], DIR)
 
 Dir.chdir(DIR) do
   File.open("Makefile", "w") do |f|
@@ -24,12 +24,14 @@ Dir.chdir(DIR) do
 all:
 
 install:
-	install -D #{DBUS_FILE} --mode=0644 $(DESTDIR)/etc/dbus-1/system.d/#{DBUS_FILE}
+	install -D #{DBUS_DESC} --mode=0644 $(DESTDIR)/usr/share/dbus-1/interfaces/#{DBUS_DESC}
+	install -D #{DBUS_CONF} --mode=0644 $(DESTDIR)/usr/share/dbus-1/system.d/#{DBUS_CONF}
 	install -D #{SCRIPT} $(DESTDIR)/usr/bin/#{SCRIPT}
 
 uninstall:
 	-rm -f $(DESTDIR)/usr/bin/#{SCRIPT}
-	-rm -f $(DESTDIR)/etc/dbus-1/system.d/#{DBUS_FILE}
+	-rm -f $(DESTDIR)/usr/share/dbus-1/system.d/#{DBUS_CONF}
+	-rm -f $(DESTDIR)/usr/share/dbus-1/interfaces/#{DBUS_DESC}
 
 clean:
 
