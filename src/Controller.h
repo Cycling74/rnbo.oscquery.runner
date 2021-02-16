@@ -14,7 +14,18 @@
 #include "ProcessAudio.h"
 #include "Queue.h"
 
+//forward declarations
 class ValueCallbackHelper;
+
+#ifdef RNBO_USE_DBUS
+namespace core {
+	namespace dbus {
+		class Bus;
+		class Object;
+		class Service;
+	}
+}
+#endif
 
 //An object which controls the whole show
 class Controller {
@@ -70,4 +81,10 @@ class Controller {
 		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
+#ifdef RNBO_USE_DBUS
+		std::thread mDBusThread;
+		std::shared_ptr<core::dbus::Bus> mDBusBus;
+		std::shared_ptr<core::dbus::Service> mDBusService;
+		std::shared_ptr<core::dbus::Object> mDBusObject;
+#endif
 };

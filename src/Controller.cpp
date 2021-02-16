@@ -13,27 +13,12 @@
 #include "PatcherFactory.h"
 #include "ValueCallbackHelper.h"
 
-#ifdef RNBO_USE_DBUS
-
-#include <core/dbus/bus.h>
-#include <core/dbus/object.h>
-#include <core/dbus/service.h>
-#include <core/dbus/signal.h>
-
-#include <core/dbus/asio/executor.h>
-#include <core/dbus/types/stl/tuple.h>
-#include <core/dbus/types/stl/vector.h>
-#include <core/dbus/types/struct.h>
-
-#endif
-
 using std::cout;
 using std::cerr;
 using std::endl;
 using std::chrono::system_clock;
 
 namespace fs = boost::filesystem;
-
 
 namespace {
 
@@ -57,19 +42,56 @@ namespace {
 	}
 
 }
+#ifdef RNBO_USE_DBUS
 
-#if RNBO_USE_DBUS
+#include <core/dbus/bus.h>
+#include <core/dbus/service.h>
+#include <core/dbus/signal.h>
+#include <core/dbus/object.h>
 
+#include <core/dbus/asio/executor.h>
+#include <core/dbus/types/stl/tuple.h>
+#include <core/dbus/types/stl/vector.h>
+#include <core/dbus/types/struct.h>
+
+
+//rnbo update service dbus configuration info
 namespace {
-	struct RnboUpdateSerivce {
+	struct RnboUpdateService {
 		struct InstallRunner
 		{
-			inline static std::string name()
-			{
-				return "install_runner";
-			};
-			typedef RnboUpdateSerivce Interface;
+			inline static std::string name() { return "install_runner"; };
+			typedef RnboUpdateService Interface;
 			inline static const std::chrono::milliseconds default_timeout() { return std::chrono::seconds{1}; }
+		};
+		struct Signals
+		{
+			struct InstallStatus
+			{
+				inline static std::string name() { return "install_status"; };
+				typedef RnboUpdateService Interface;
+				typedef std::tuple<bool, std::string> ArgumentType;
+			};
+		};
+		struct Properties
+		{
+			struct Active
+			{
+				inline static std::string name() { return "active"; };
+				typedef RnboUpdateService Interface;
+				typedef bool ValueType;
+				static const bool readable = true;
+				static const bool writable = false;
+			};
+
+			struct Status
+			{
+				inline static std::string name() { return "status"; };
+				typedef RnboUpdateService Interface;
+				typedef std::string ValueType;
+				static const bool readable = true;
+				static const bool writable = false;
+			};
 		};
 	};
 }
@@ -82,7 +104,7 @@ namespace core
 		namespace traits
 		{
 			template<>
-				struct Service<RnboUpdateSerivce>
+				struct Service<RnboUpdateService>
 				{
 					inline static const std::string& interface_name()
 					{
@@ -90,7 +112,6 @@ namespace core
 						return s;
 					}
 				};
-
 		}
 	}
 }
@@ -166,12 +187,42 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mInstancesNode = r.create_child("inst");
 	mInstancesNode.set_description("RNBO codegen instances");
 
+	//setup dbus
+#ifdef RNBO_USE_DBUS
+	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
+	auto ex = core::dbus::asio::make_executor(mDBusBus);
+	mDBusBus->install_executor(ex);
+	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
+	mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<RnboUpdateService>::interface_name());
+	if (mDBusService) {
+		mDBusObject = mDBusService->object_for_path(core::dbus::types::ObjectPath("/com/cycling74/rnbo"));
+	}
+	if (!mDBusService || !mDBusObject) {
+		cerr << "failed to get rnbo dbus update object" << endl;
+	} else {
+    auto sig = mDBusObject->get_signal<RnboUpdateService::Signals::InstallStatus>();
+		if (sig) {
+			sig->connect([](const RnboUpdateService::Signals::InstallStatus::ArgumentType& args) {
+					std::cout << "install_status " << std::get<0>(args) << " " << std::get<1>(args) << endl;
+			});
+		} else {
+			cerr << "failed to get dbus install_status signal" << endl;
+		}
+	}
+#endif
+
 	mCommandThread = std::thread(&Controller::processCommands, this);
 }
 
 Controller::~Controller() {
 	mProcessCommands.store(false);
 	mCommandThread.join();
+#ifdef RNBO_USE_DBUS
+	mDBusBus->stop();
+	if (mDBusThread.joinable()) {
+		mDBusThread.join();
+	}
+#endif
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
@@ -336,19 +387,6 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 }
 
 void Controller::processCommands() {
-#ifdef RNBO_USE_DBUS
-	core::dbus::Bus::Ptr systemBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
-	systemBus->install_executor(core::dbus::asio::make_executor(systemBus));
-	std::thread dbusThread {std::bind(&core::dbus::Bus::run, systemBus)};
-	auto updateService = core::dbus::Service::use_service(systemBus, core::dbus::traits::Service<RnboUpdateSerivce>::interface_name());
-	std::shared_ptr<core::dbus::Object> updateObject;
-	if (updateService) {
-		updateObject = updateService->object_for_path(core::dbus::types::ObjectPath("/com/cycling74/rnbo"));
-	}
-	if (!updateService || !updateObject) {
-		cerr << "failed to get rnbo dbus update object" << endl;
-	}
-#endif
 
 	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
@@ -519,7 +557,7 @@ void Controller::processCommands() {
 				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
 				continue;
 #else
-				if (!updateObject) {
+				if (!mDBusObject) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
 					continue;
 				}
@@ -535,7 +573,7 @@ void Controller::processCommands() {
 				std::string version = params["version"];
 				bool upgradeOther = params.contains("upgrade_other") && params["upgrade_other"].is_boolean() && params["upgrade_other"].get<bool>();
 				try {
-					updateObject->invoke_method_synchronously<RnboUpdateSerivce::InstallRunner, void, std::string, bool>(version, upgradeOther);
+					mDBusObject->invoke_method_synchronously<RnboUpdateService::InstallRunner, void, std::string, bool>(version, upgradeOther);
 				} catch (const std::runtime_error& e) {
 					cerr << "failed to request upgrade: " << e.what() << endl;
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), e.what());
