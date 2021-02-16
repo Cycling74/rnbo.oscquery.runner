@@ -21,8 +21,28 @@
       </doc:doc>
     </method>
     <signal name="install_status">
-      <arg name="active" type="b" />
-      <arg name="status" type="s" />
+      <arg name="active" type="b" direction="out" />
+      <arg name="status" type="s" direction="out" />
     </signal>
+
+    <property name="active" type="b" access="read">
+      <doc:doc>
+        <doc:description>
+          <doc:para>
+            Indicates if the update service is actively updating something.
+          </doc:para>
+        </doc:description>
+      </doc:doc>
+    </property>
+    <property name="status" type="s" access="read">
+      <doc:doc>
+        <doc:description>
+          <doc:para>
+            Indicates the last status string of the installation.
+          </doc:para>
+        </doc:description>
+      </doc:doc>
+    </property>
+
   </interface>
 </node>

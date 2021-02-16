@@ -47,41 +47,46 @@ class RNBOUpdater < DBus::Object
 end
 
 bus = DBus::SystemBus.instance
-service = bus.request_service(URI_BASE)
-updateObj = RNBOUpdater.new("/#{URI_BASE.gsub('.', '/')}")
-service.export(updateObj)
+@service = bus.request_service(URI_BASE)
+@updateObj = RNBOUpdater.new("/#{URI_BASE.gsub('.', '/')}")
+@service.export(@updateObj)
+
+def update_status(active, status)
+  @updateObj.install_status(active, status)
+end
 
 Thread.new do
+  update_status(false, 'startup')
   while e = CMD_QUEUE.deq
     upgrade = false
     case e[:method]
     when :install_runner
       version = e[:args][:version]
       upgrade = e[:args][:upgrade_other]
-      updateObj.install_status(true, "installing rnbooscquery #{version}")
+      update_status(true, "installing rnbooscquery #{version}")
       exec_cmds([
         %w{apt-get -y update},
         %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
         %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
       ])
-      updateObj.install_status(false, "install complete") if not upgrade
+      update_status(false, "install complete") if not upgrade
     when :update_system
       upgrade = true
-      updateObj.install_status(true, "update system package lists")
+      update_status(true, "update system package lists")
       exec_cmds([ %w{apt-get -y update} ])
     end
 
     #shall we upgrade other services?
     if upgrade
-      updateObj.install_status(true, "upgrade system")
+      update_status(true, "upgrade system")
       exec_cmds([ %w{apt-get -y upgrade} ])
       #do we need to reboot?
       if File.exists?("/var/run/reboot-required")
-        updateObj.install_status(false, "upgrade complete, rebooting")
+        update_status(false, "upgrade complete, rebooting")
         system("reboot")
         return
       else
-        updateObj.install_status(false, "upgrade complete")
+        update_status(false, "upgrade complete")
       end
     end
   end
