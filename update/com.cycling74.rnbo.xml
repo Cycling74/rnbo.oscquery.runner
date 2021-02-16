@@ -13,16 +13,16 @@
       <doc:doc>
         <doc:description>
           <doc:para>
-						Attempts to install a specific version of the rnbooscquery runner and
-						optionally upgrades the rest of the system. NOTE: the system upgrade
-						might result in a reboot.
+            Attempts to install a specific version of the rnbooscquery runner and
+            optionally upgrades the rest of the system. NOTE: the system upgrade
+            might result in a reboot.
           </doc:para>
         </doc:description>
       </doc:doc>
     </method>
-		<signal name="install_status">
-			<arg name="active" type="b" />
-			<arg name="status" type="s" />
-		</signal>
+    <signal name="install_status">
+      <arg name="active" type="b" />
+      <arg name="status" type="s" />
+    </signal>
   </interface>
 </node>
