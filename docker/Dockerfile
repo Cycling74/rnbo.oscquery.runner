@@ -4,10 +4,10 @@
 FROM debian:buster-slim
 MAINTAINER Alex Norman "xnor@cylcing74.com"
 
-RUN apt-get update && apt-get upgrade -y
+RUN DEBIAN_FRONTEND=noninteractive apt-get -y update && apt-get upgrade -y
 RUN DEBIAN_FRONTEND=noninteractive \
 	apt-get -y --no-install-recommends install \
-	git wget build-essential \
+	git wget build-essential pkg-config \
 	python3-pip python3-setuptools \
 	libssl-dev \
 	ca-certificates
