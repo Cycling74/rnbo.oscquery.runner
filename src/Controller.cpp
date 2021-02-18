@@ -122,20 +122,18 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
 	mServer.set_echo(true);
 	auto r = mServer.get_root_node().create_child("rnbo");
-	mNodes.push_back(r);
 
 	//expose some information
 	auto info = r.create_child("info");
 	info.set_description("information about RNBO and the running system");
-	mNodes.push_back(info);
 	for (auto it: {
 			std::make_pair("version", rnbo_version),
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			}) {
-		auto n = info.create_string(it.first); n.set_access(opp::access_mode::Get);
+		auto n = info.create_string(it.first);
+		n.set_access(opp::access_mode::Get);
 		n.set_value(it.second);
-		mNodes.push_back(n);
 	}
 
 	{
@@ -143,6 +141,17 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		//might not be enough to indicate disk space
 		mDiskSpaceNode = info.create_string("disk_bytes_available");
 		updateDiskSpace();
+	}
+
+	{
+		auto n = info.create_bool("supports_install");
+		n.set_description("Does this runner support remote upgrade/downgrade");
+		n.set_access(opp::access_mode::Get);
+#ifdef RNBO_USE_DBUS
+		n.set_value(true);
+#else
+		n.set_value(false);
+#endif
 	}
 
 	{
@@ -157,7 +166,6 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 					}
 			});
 
-		mNodes.push_back(c);
 	}
 	{
 		mResponseNode = r.create_string("resp");
@@ -166,7 +174,6 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	}
 
 	auto j = r.create_child("jack");
-	mNodes.push_back(j);
 	NodeBuilder builder = [j, this](std::function<void(opp::node)> f) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		f(j);

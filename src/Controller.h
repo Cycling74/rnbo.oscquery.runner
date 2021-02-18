@@ -55,7 +55,6 @@ class Controller {
 		opp::oscquery_server mServer;
 		opp::node mInstancesNode;
 		opp::node mResponseNode;
-		std::vector<opp::node> mNodes;
 
 		//instance and path to SO
 		std::vector<std::pair<std::unique_ptr<Instance>, boost::filesystem::path>> mInstances;
