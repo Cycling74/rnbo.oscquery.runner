@@ -41,10 +41,9 @@
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
   ```
 
-  do these one at a time
+  configure jack for realtime
   ```shell
   dpkg-reconfigure jackd2
-  reboot
   ```
 
   now you have a base package, to setup rnbooscquery
@@ -52,6 +51,20 @@
   ```shell
   apt -y install rnbooscquery
   ```
+
+  or, to install a specific verison and hold it there
+
+  ```shell
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=0.9.0-dev.30
+  apt-mark hold rnbooscquery
+  ```
+
+  At this point you should be all set to go, best to reboot to make sure that
+  the jack realtime mode is set up for the pi user.
+
+## Wifi Setup
+
+**TODO**
 
 ## Development
 
@@ -168,10 +181,10 @@ Do all the normal use stuff then:
 Aptly lets us manage a package repository and push it up to an s3 compatible
 location and then allow our users to get these packages with `apt-get`.
 
-
 [create gpg key](https://fedoraproject.org/wiki/Creating_GPG_Keys)
 
 A cycling74 pub/priv key are in 1password. The pub key is also in `config/apt-cycling74-pubkey.asc`
+The `aptly.conf` file is there too. At this point that should all be managed by the build machine.
 
 ```shell
 brew install aptly
@@ -201,6 +214,12 @@ aptly -force-overwrite publish update buster s3:c74:
 
 ```shell
 apt-cache policy rnbooscquery
+```
+
+## List all versions of a package
+
+```shell
+apt-cache madison rnbooscquery
 ```
 
 ## How to hold a package and then install a specific version
