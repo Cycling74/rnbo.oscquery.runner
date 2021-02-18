@@ -58,36 +58,37 @@ end
 Thread.new do
   update_status(false, 'startup')
   while e = CMD_QUEUE.deq
-    upgrade = false
-    case e[:method]
-    when :install_runner
-      version = e[:args][:version]
-      upgrade = e[:args][:upgrade_other]
-      update_status(true, "installing rnbooscquery #{version}")
-      exec_cmds([
-        %w{apt-get -y update},
-        %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
-        %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
-      ])
-      update_status(false, "install complete") if not upgrade
-    when :update_system
-      upgrade = true
-      update_status(true, "update system package lists")
-      exec_cmds([ %w{apt-get -y update} ])
-    end
-
-    #shall we upgrade other services?
-    if upgrade
-      update_status(true, "upgrade system")
-      exec_cmds([ %w{apt-get -y upgrade} ])
-      #do we need to reboot?
-      if File.exists?("/var/run/reboot-required")
-        update_status(false, "upgrade complete, rebooting")
-        system("reboot")
-        return
-      else
-        update_status(false, "upgrade complete")
+    begin
+      upgrade = false
+      case e[:method]
+      when :install_runner
+        version = e[:args][:version]
+        upgrade = e[:args][:upgrade_other]
+        update_status(true, "installing rnbooscquery #{version}")
+        exec_cmds([
+          %w{apt-get -y update},
+          %w{apt-get install -y --allow-change-held-packages --allow-downgrades}.append("#{RUNNER_PACKAGE_NAME}=#{version}"),
+          %w{apt-mark hold}.append(RUNNER_PACKAGE_NAME),
+        ])
+        update_status(false, "install complete") if not upgrade
+      when :update_system
+        upgrade = true
+        update_status(true, "update system package lists")
+        exec_cmds([ %w{apt-get -y update} ])
       end
+
+      #shall we upgrade other services?
+      if upgrade
+        update_status(true, "upgrade system")
+        #use a fork incase we get upgraded
+        fork do
+          Kernel::exec("apt-get -y upgrade && test -f /var/run/reboot-required && reboot")
+        end
+        update_status(false, "forked upgrade")
+      end
+    rescue => e
+      $stderr.puts e
+      update_status(false, "error upgrading #{e}")
     end
   end
 end
