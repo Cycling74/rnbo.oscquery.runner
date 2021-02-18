@@ -247,9 +247,7 @@ apt-cache madison rnbooscquery
 
 # TODO
 
-* Github action that builds the runner.
 * [Watchdog?](https://madskjeldgaard.dk/posts/raspi4-notes/#watchdog)
-* Disable CPU scaling?
 * Ubuntu + [kxstudio](https://kx.studio/Repositories:Extras) for newer jack etc?
 
 # More reading
