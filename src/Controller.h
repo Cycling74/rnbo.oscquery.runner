@@ -80,6 +80,8 @@ class Controller {
 		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
+
+		opp::node mSupportsInstall;
 #ifdef RNBO_USE_DBUS
 		std::thread mDBusThread;
 		std::shared_ptr<core::dbus::Bus> mDBusBus;

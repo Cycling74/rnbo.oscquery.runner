@@ -183,7 +183,9 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mInstancesNode = r.create_child("inst");
 	mInstancesNode.set_description("RNBO codegen instances");
 
-#ifdef RNBO_USE_DBUS
+//TODO enable dbus based upgrades
+#if 0
+//#ifdef RNBO_USE_DBUS
 	//setup dbus
 	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
 	auto ex = core::dbus::asio::make_executor(mDBusBus);
@@ -212,13 +214,13 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 
 	//let the outside know if this instance supports up/downgrade
 	{
-		auto n = info.create_bool("supports_install");
-		n.set_description("Does this runner support remote upgrade/downgrade");
-		n.set_access(opp::access_mode::Get);
+		mSupportsInstall = info.create_bool("supports_install");
+		mSupportsInstall.set_description("Does this runner support remote upgrade/downgrade");
+		mSupportsInstall.set_access(opp::access_mode::Get);
+		mSupportsInstall.set_value(false);
 #ifdef RNBO_USE_DBUS
-		n.set_value(static_cast<bool>(mDBusObject));
-#else
-		n.set_value(false);
+		//TODO use property to make sure that the service exists
+		//mSupportsInstall.set_value(static_cast<bool>(mDBusObject));
 #endif
 	}
 
