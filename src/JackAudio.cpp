@@ -55,7 +55,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 		mSampleRate = jconfig_get<double>("sample_rate").get_value_or(44100.);
 		mPeriodFrames = jconfig_get<int>("period_frames").get_value_or(256);
 #ifndef __APPLE__
-		mCardName = jconfig_get<std::string>("card_name").get_value_or("hw:0");
+		mCardName = jconfig_get<std::string>("card_name").get_value_or("");
 		mNumPeriods = jconfig_get<int>("num_periods").get_value_or(2);
 #endif
 	}
@@ -63,6 +63,10 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 	mBuilder([this](opp::node root) {
 			mInfo = root.create_child("info");
 
+			auto conf = root.create_child("config");
+			conf.set_description("Jack configuration parameters");
+
+#ifndef __APPLE__
 			//read info about alsa cards if it exists
 			fs::path alsa_cards("/proc/asound/cards");
 			if (fs::exists(alsa_cards)) {
@@ -79,34 +83,43 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				auto cards = mInfo.create_child("alsa_cards");
 				std::smatch m;
 				while (std::regex_search(value, m, alsa_card_regex)) {
+
 					//description
 					auto v = m[3].str() + "\n" + m[4].str();
+					auto name = std::string("hw:") + m[2].str();
+					auto index = std::string("hw:") + m[1].str();
+					value = m.suffix().str();
+
+					//Headphones doesn't work
+					if (name == "hw:Headphones") {
+						continue;
+					}
+
+					//set card name to first found non Headphones, it is our best guess
+					if (mCardName.empty()) {
+						mCardName = name;
+						jconfig_set(mCardName, "card_name");
+					}
 
 					//hw:NAME
 					{
-						auto n = std::string("hw:") + m[2].str();
-						mCardNames.push_back(n);
-						auto c = cards.create_string(n);
+						mCardNames.push_back(name);
+						auto c = cards.create_string(name);
 						c.set_value(v);
 						c.set_access(opp::access_mode::Get);
 					}
 
 					//hw:Index
 					{
-						auto n = std::string("hw:") + m[1].str();
-						mCardNames.push_back(n);
-						auto c = cards.create_string(n);
+						mCardNames.push_back(index);
+						auto c = cards.create_string(index);
 						c.set_value(v);
 						c.set_access(opp::access_mode::Get);
 					}
 
-					value = m.suffix().str();
 				}
 			}
 
-			auto conf = root.create_child("config");
-			conf.set_description("Jack configuration parameters");
-#ifndef __APPLE__
 			{
 				auto card = conf.create_string("card");
 				card.set_description("ALSA device name");
@@ -114,6 +127,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				for (auto n: mCardNames) {
 					accepted.push_back(n);
 				}
+
 				//XXX you have to set min and or max before accepted values takes, will file bug report
 				card.set_bounding(opp::bounding_mode::Clip);
 				card.set_min(accepted.front());
@@ -203,7 +217,9 @@ void ProcessAudioJack::writeJackDRC() {
 	std::ofstream o(jackdrc_path.string());
 	o << mCmdPrefix << " " << mCmdSuffix;
 #ifndef __APPLE__
-	o << " --device \"" << mCardName << "\"";
+	//default to hw:0 if there is no name set
+	auto card = mCardName.empty() ? "hw:0" : mCardName;
+	o << " --device \"" << card << "\"";
 	o << " --nperiods " << mNumPeriods;
 #endif
 	o << " --period " << mPeriodFrames;
