@@ -144,17 +144,6 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	}
 
 	{
-		auto n = info.create_bool("supports_install");
-		n.set_description("Does this runner support remote upgrade/downgrade");
-		n.set_access(opp::access_mode::Get);
-#ifdef RNBO_USE_DBUS
-		n.set_value(true);
-#else
-		n.set_value(false);
-#endif
-	}
-
-	{
 		auto c = r.create_string("cmd");
 		c.set_description("command handler");
 		c.set_access(opp::access_mode::Set);
@@ -194,8 +183,8 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mInstancesNode = r.create_child("inst");
 	mInstancesNode.set_description("RNBO codegen instances");
 
-	//setup dbus
 #ifdef RNBO_USE_DBUS
+	//setup dbus
 	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
 	auto ex = core::dbus::asio::make_executor(mDBusBus);
 	mDBusBus->install_executor(ex);
@@ -209,17 +198,29 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	} else {
 		//TODO figure out how to get signals working
 #if 0
-    auto sig = mDBusObject->get_signal<RnboUpdateService::Signals::InstallStatus>();
+		auto sig = mDBusObject->get_signal<RnboUpdateService::Signals::InstallStatus>();
 		if (sig) {
 			sig->connect([](const RnboUpdateService::Signals::InstallStatus::ArgumentType& args) {
 					std::cout << "install_status " << std::get<0>(args) << " " << std::get<1>(args) << endl;
-			});
+					});
 		} else {
 			cerr << "failed to get dbus install_status signal" << endl;
 		}
 #endif
 	}
 #endif
+
+	//let the outside know if this instance supports up/downgrade
+	{
+		auto n = info.create_bool("supports_install");
+		n.set_description("Does this runner support remote upgrade/downgrade");
+		n.set_access(opp::access_mode::Get);
+#ifdef RNBO_USE_DBUS
+		n.set_value(static_cast<bool>(mDBusObject));
+#else
+		n.set_value(false);
+#endif
+	}
 
 	mCommandThread = std::thread(&Controller::processCommands, this);
 }
