@@ -13,6 +13,8 @@
 #include "PatcherFactory.h"
 #include "ValueCallbackHelper.h"
 
+#include <boost/algorithm/string/predicate.hpp>
+
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -26,6 +28,8 @@ namespace {
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 	static std::string build_program("rnbo-compile-so");
+
+	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
 
 	static const std::chrono::milliseconds command_wait_timeout(10);
 	static const std::chrono::milliseconds save_debounce_timeout(500);
@@ -239,7 +243,17 @@ Controller::~Controller() {
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
-	//TODO make sure that the version numbers match in the name of the library
+	auto fname = fs::path(path).filename().string();
+	//make sure that the version numbers match in the name of the library
+	if (!boost::algorithm::ends_with(fname, rnbo_dylib_suffix)) {
+		std::string errs("the requested library: " + fname + " doesn't match version suffix " + rnbo_dylib_suffix);
+		cerr << errs << endl;
+		//we should never really have an ID here because we would have just built it, but just in case.
+		if (cmdId.size()) {
+			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::VersionMismatch), errs);
+		}
+		return false;
+	}
 
 	//activate if we need to
 	if (!mProcessAudio->isActive())
@@ -493,7 +507,7 @@ void Controller::processCommands() {
 				//create library name, based on time so we don't have to unload existing
 				std::string libName = "RNBORunnerSO" + timeTag;
 
-				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + std::string(RNBO_DYLIB_SUFFIX)));
+				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::string buildCmd = build_program;
 				for (auto a: { generated.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string() }) {

@@ -23,6 +23,7 @@ enum class CompileLoadError : unsigned int {
 	LibraryNotFound = 3,
 	InvalidRequestObject = 4,
 	AudioNotActive = 5,
+	VersionMismatch = 6,
 };
 
 enum class FileCommandStatus : unsigned int {
