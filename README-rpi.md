@@ -55,7 +55,7 @@
   or, to install a specific verison and hold it there
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=0.9.0-dev.30
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=0.9.0-dev.31
   apt-mark hold rnbooscquery
   ```
 
