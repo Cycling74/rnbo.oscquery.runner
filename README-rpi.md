@@ -2,6 +2,10 @@
 
 ## Normal use
 
+You can install rnbooscquery on an existing buster image or start from scratch.
+Feel free to customize your hostname and password, but at this time you should
+keep the user name `pi`.
+
 * [inital setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
   * I used `Raspberry Pi OS with desktop`.
   * The important detail is that you need to create a file `/boot/ssh` to enable ssh:
@@ -12,21 +16,39 @@
   rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@raspberrypi.local:
   ```
 * setup pi (pw: `raspberry`)
+  * update host name
+  * update password
   * disable screen reader
   * setup our private apt repo
   * uninstall pulse audio
   * install some packages, including rnbooscquery
-  * enable relatime
-  * update host name
-  * update password
   * set the CPU to not scale
+  * enable realtime
+  * install rnbooscquery
   * reboot (easiest way to update your group security settings)
 
-  you should be able to copy and paste this and do it all at once
+  ssh to do the pi and get into sudo.
+
   ```shell
   ssh pi@raspberrypi.local
   sudo -s
+  ```
+
+  Setup the initial host, you can customize this with your own hostname and
+  password if you want, or skip it if you've already set up a buster image
+  that you just want to run rnbo on. You should keep the user name `pi` though.
+  This part is optional.
+
+  ```shell
   export NEW_HOST_NAME=c74rpi
+  sed -i 's/127.0.1.1.*/127.0.1.1\t'"$NEW_HOST_NAME"'/g' /etc/hosts
+  hostnamectl set-hostname ${NEW_HOST_NAME}
+  echo "pi:c74rnbo" | chpasswd
+  ```
+
+  Remove some stuff that causes problems, add the c74 apt repo, install/setup.
+
+  ```shell
   rm -f /etc/xdg/autostart/piwiz.desktop
   apt-key add apt-cycling74-pubkey.asc
   mv cycling74.list /etc/apt/sources.list.d/
@@ -35,9 +57,6 @@
   apt -y upgrade
   apt-get -y autoremove
   apt -y install jackd2 ccache cpufrequtils
-  sed -i 's/127.0.1.1.*/127.0.1.1\t'"$NEW_HOST_NAME"'/g' /etc/hosts
-  hostnamectl set-hostname ${NEW_HOST_NAME}
-  echo "pi:c74rnbo" | chpasswd
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
   ```
 
@@ -46,13 +65,9 @@
   dpkg-reconfigure jackd2
   ```
 
-  now you have a base package, to setup rnbooscquery
-
-  ```shell
-  apt -y install rnbooscquery
-  ```
-
-  or, to install a specific verison and hold it there
+  Install a specific verison and hold it there. You'll want to update the
+  version string to be in line with the version of RNBO you want to start out
+  with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
   apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=0.9.0-dev.31
@@ -61,6 +76,10 @@
 
   At this point you should be all set to go, best to reboot to make sure that
   the jack realtime mode is set up for the pi user.
+
+  ```shell
+  reboot
+  ```
 
 ## Wifi Setup
 
@@ -101,7 +120,7 @@ Do all the normal use stuff then:
 * build and install the runner (on pi)
   ```shell
   ssh pi@c74rpi.local
-  cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make
+  cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make && cpack
   sudo dpkg -i *.deb
   ```
   * you could also do a standard make install, but then you'll need to setup the service file yourself.
@@ -128,15 +147,7 @@ Do all the normal use stuff then:
   reboot
   ```
 
-## Troubleshooting
-
-  To see the status of the service:
-
-  ```
-  journalctl -u rnbooscquery
-  ```
-
-## Install a prebuilt binary
+### Install a prebuilt binary
 
   You're probably better off just using the .deb install.
 
@@ -151,6 +162,14 @@ Do all the normal use stuff then:
 
   ```shell
   sudo service rnbooscquery restart
+  ```
+
+## Troubleshooting
+
+  To see the status of the service:
+
+  ```
+  journalctl -u rnbooscquery
   ```
 
 # Backup your SD card
