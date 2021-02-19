@@ -123,17 +123,23 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 			{
 				auto card = conf.create_string("card");
 				card.set_description("ALSA device name");
-				std::vector<opp::value> accepted;
-				for (auto n: mCardNames) {
-					accepted.push_back(n);
+
+				if (mCardNames.size() != 0) {
+					std::vector<opp::value> accepted;
+					for (auto n: mCardNames) {
+						accepted.push_back(n);
+					}
+
+					//XXX you have to set min and or max before accepted values takes, will file bug report
+					card.set_bounding(opp::bounding_mode::Clip);
+					card.set_min(accepted.front());
+					card.set_max(accepted.back());
+					card.set_accepted_values(accepted);
+					if (!mCardName.empty()) {
+						card.set_value(mCardName);
+					}
 				}
 
-				//XXX you have to set min and or max before accepted values takes, will file bug report
-				card.set_bounding(opp::bounding_mode::Clip);
-				card.set_min(accepted.front());
-				card.set_max(accepted.back());
-				card.set_accepted_values(accepted);
-				card.set_value(mCardName);
 				ValueCallbackHelper::setCallback(
 						card, mValueCallbackHelpers,
 						[this](const opp::value& val) {
