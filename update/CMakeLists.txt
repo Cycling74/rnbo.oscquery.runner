@@ -58,27 +58,37 @@ target_link_libraries(${PROJECT_APP}
 	${DBUS_LIBRARIES}
 )
 
-### INSTALL
-#make sure dirs exist
-install(DIRECTORY DESTINATION bin)
-install(TARGETS ${PROJECT_APP} DESTINATION bin)
-
 
 if (LINUX)
-	#install(FILES
-	#	${CMAKE_CURRENT_SOURCE_DIR}/config/rnbooscquery.service.local
-	#	RENAME rnbooscquery.service
-	#	DESTINATION lib/systemd/system/
-	#	COMPONENT local
-	#)
+	install(DIRECTORY DESTINATION bin)
+	install(TARGETS ${PROJECT_APP} DESTINATION bin)
 
-	#install(FILES
-	#	${CMAKE_CURRENT_SOURCE_DIR}/config/rnbooscquery.service.usr
-	#	RENAME rnbooscquery.service
-	#	DESTINATION lib/systemd/system/
-	#	COMPONENT usr
-	#	EXCLUDE_FROM_ALL
-	#)
+	install(FILES
+		${CMAKE_CURRENT_SOURCE_DIR}/config/rnbo-update-service.service
+		DESTINATION lib/systemd/system/
+		PERMISSIONS
+			OWNER_WRITE OWNER_READ
+			GROUP_READ
+			WORLD_READ
+	)
+
+	install(FILES
+		${CMAKE_CURRENT_SOURCE_DIR}/config/com.cycling74.rnbo.xml
+		DESTINATION share/dbus-1/interfaces/
+		PERMISSIONS
+			OWNER_WRITE OWNER_READ
+			GROUP_READ
+			WORLD_READ
+	)
+
+	install(FILES
+		${CMAKE_CURRENT_SOURCE_DIR}/config/com.cycling74.rnbo.conf
+		DESTINATION share/dbus-1/system.d/
+		PERMISSIONS
+			OWNER_WRITE OWNER_READ
+			GROUP_READ
+			WORLD_READ
+	)
 
 	#setup deb build
 	IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
@@ -101,8 +111,8 @@ if (LINUX)
 		SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 		SET(CPACK_DEBIAN_PACKAGE_SECTION "admin")
 
-		#set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-		#	"${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles")
+		set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+			"${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles")
 
 		INCLUDE(CPack)
 
