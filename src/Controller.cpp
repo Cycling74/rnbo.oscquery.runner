@@ -135,18 +135,18 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	auto ex = core::dbus::asio::make_executor(mDBusBus);
 	mDBusBus->install_executor(ex);
 	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
-	mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<RnboUpdateService>::interface_name());
+	mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<IRnboUpdateService>::interface_name());
 	if (mDBusService) {
-		mDBusObject = mDBusService->object_for_path(RnboUpdateService::InstallRunner::object_path());
+		mDBusObject = mDBusService->object_for_path(IRnboUpdateService::InstallRunner::object_path());
 	}
 	if (!mDBusService || !mDBusObject) {
 		cerr << "failed to get rnbo dbus update object" << endl;
 	} else {
 		//TODO figure out how to get signals working
 #if 0
-		auto sig = mDBusObject->get_signal<RnboUpdateService::Signals::InstallStatus>();
+		auto sig = mDBusObject->get_signal<IRnboUpdateService::Signals::InstallStatus>();
 		if (sig) {
-			sig->connect([](const RnboUpdateService::Signals::InstallStatus::ArgumentType& args) {
+			sig->connect([](const IRnboUpdateService::Signals::InstallStatus::ArgumentType& args) {
 					std::cout << "install_status " << std::get<0>(args) << " " << std::get<1>(args) << endl;
 					});
 		} else {
