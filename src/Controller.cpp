@@ -15,6 +15,22 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#ifdef RNBO_USE_DBUS
+
+#include <core/dbus/bus.h>
+#include <core/dbus/service.h>
+#include <core/dbus/signal.h>
+#include <core/dbus/object.h>
+
+#include <core/dbus/asio/executor.h>
+#include <core/dbus/types/stl/tuple.h>
+#include <core/dbus/types/stl/vector.h>
+#include <core/dbus/types/struct.h>
+
+#include "DBusService.h"
+
+#endif
+
 using std::cout;
 using std::cerr;
 using std::endl;
@@ -46,81 +62,6 @@ namespace {
 	}
 
 }
-#ifdef RNBO_USE_DBUS
-
-#include <core/dbus/bus.h>
-#include <core/dbus/service.h>
-#include <core/dbus/signal.h>
-#include <core/dbus/object.h>
-
-#include <core/dbus/asio/executor.h>
-#include <core/dbus/types/stl/tuple.h>
-#include <core/dbus/types/stl/vector.h>
-#include <core/dbus/types/struct.h>
-
-
-//rnbo update service dbus configuration info
-namespace {
-	struct RnboUpdateService {
-		struct InstallRunner
-		{
-			inline static std::string name() { return "install_runner"; };
-			typedef RnboUpdateService Interface;
-			inline static const std::chrono::milliseconds default_timeout() { return std::chrono::seconds{1}; }
-		};
-		struct Signals
-		{
-			struct InstallStatus
-			{
-				inline static std::string name() { return "install_status"; };
-				typedef RnboUpdateService Interface;
-				typedef std::tuple<bool, std::string> ArgumentType;
-			};
-		};
-		struct Properties
-		{
-			struct Active
-			{
-				inline static std::string name() { return "active"; };
-				typedef RnboUpdateService Interface;
-				typedef bool ValueType;
-				static const bool readable = true;
-				static const bool writable = false;
-			};
-
-			struct Status
-			{
-				inline static std::string name() { return "status"; };
-				typedef RnboUpdateService Interface;
-				typedef std::string ValueType;
-				static const bool readable = true;
-				static const bool writable = false;
-			};
-		};
-	};
-}
-
-//for some reason it seems that you have to alter the namespace provided by the library in order to create your service
-namespace core
-{
-	namespace dbus
-	{
-		namespace traits
-		{
-			template<>
-				struct Service<RnboUpdateService>
-				{
-					inline static const std::string& interface_name()
-					{
-						static const std::string s("com.cycling74.rnbo");
-						return s;
-					}
-				};
-		}
-	}
-}
-
-#endif
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
 	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
@@ -188,8 +129,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mInstancesNode.set_description("RNBO codegen instances");
 
 //TODO enable dbus based upgrades
-#if 0
-//#ifdef RNBO_USE_DBUS
+#ifdef RNBO_USE_DBUS
 	//setup dbus
 	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
 	auto ex = core::dbus::asio::make_executor(mDBusBus);

@@ -132,6 +132,7 @@ endif()
 
 include_directories(
 	./3rdparty/
+	./common/
 	${RNBO_DIR}
 	"${RNBO_DIR}/common"
 	"${RNBO_DIR}/src"
