@@ -1,4 +1,5 @@
 #include <core/dbus/service.h>
+#include <core/dbus/types/object_path.h>
 
 //rnbo update service dbus configuration info
 struct RnboUpdateService {
@@ -7,6 +8,11 @@ struct RnboUpdateService {
 		inline static std::string name() { return "install_runner"; };
 		typedef RnboUpdateService Interface;
 		inline static const std::chrono::milliseconds default_timeout() { return std::chrono::seconds{1}; }
+
+		static core::dbus::types::ObjectPath object_path() {
+			static core::dbus::types::ObjectPath p("/com/cycling74/rnbo");
+			return p;
+		}
 	};
 	struct Signals
 	{

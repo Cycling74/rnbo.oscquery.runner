@@ -137,7 +137,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
 	mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<RnboUpdateService>::interface_name());
 	if (mDBusService) {
-		mDBusObject = mDBusService->object_for_path(core::dbus::types::ObjectPath("/com/cycling74/rnbo"));
+		mDBusObject = mDBusService->object_for_path(RnboUpdateService::InstallRunner::object_path());
 	}
 	if (!mDBusService || !mDBusObject) {
 		cerr << "failed to get rnbo dbus update object" << endl;
