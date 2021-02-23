@@ -1,4 +1,4 @@
-#include "DBusService.h"
+#include "IRnboUpdateService.h"
 
 #include <core/dbus/skeleton.h>
 #include <core/dbus/bus.h>

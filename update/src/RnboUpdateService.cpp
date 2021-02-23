@@ -5,7 +5,7 @@ RnboUpdateService::RnboUpdateService(const core::dbus::Bus::Ptr& bus) :
 			core::dbus::Skeleton<IRnboUpdateService>(bus),
 			mObject(access_service()->add_object_for_path(IRnboUpdateService::object_path()))
 {
-	mObject->install_method_handler<IRnboUpdateService::InstallRunner>( std::bind(&RnboUpdateService::handle_install_runner, this, std::placeholders::_1));
+	mObject->install_method_handler<IRnboUpdateService::Methods::InstallRunner>( std::bind(&RnboUpdateService::handle_install_runner, this, std::placeholders::_1));
 	mPropActive = mObject->get_property<IRnboUpdateService::Properties::Active>();
 	mPropActive->set(true);
 
