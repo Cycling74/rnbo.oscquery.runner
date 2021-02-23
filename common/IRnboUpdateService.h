@@ -8,7 +8,7 @@ class IRnboUpdateService {
 	public:
 		virtual ~IRnboUpdateService() = default;
 
-		virtual void install_runner(std::string version, bool upgradeOther) = 0;
+		virtual bool queue_runner_install(const std::string& version) = 0;
 
 		static core::dbus::types::ObjectPath object_path() {
 			static core::dbus::types::ObjectPath p("/com/cycling74/rnbo");
@@ -16,7 +16,7 @@ class IRnboUpdateService {
 		}
 
 		struct Methods {
-			DBUS_CPP_METHOD_DEF(InstallRunner, IRnboUpdateService)
+			DBUS_CPP_METHOD_DEF(QueueRunnerInstall, IRnboUpdateService)
 		};
 
 		struct Signals
