@@ -49,6 +49,7 @@ endif()
 
 add_executable(${PROJECT_APP}
 	src/main.cpp
+	src/RnboUpdateService.cpp
 )
 
 target_link_libraries(${PROJECT_APP}

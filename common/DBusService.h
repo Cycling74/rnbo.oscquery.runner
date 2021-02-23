@@ -6,17 +6,20 @@ class IRnboUpdateService {
 	public:
 		virtual ~IRnboUpdateService() = default;
 
+		virtual void install_runner(std::string version, bool upgradeOther) = 0;
+
+		static core::dbus::types::ObjectPath object_path() {
+			static core::dbus::types::ObjectPath p("/com/cycling74/rnbo");
+			return p;
+		}
+
 		struct InstallRunner
 		{
 			inline static std::string name() { return "install_runner"; };
 			typedef IRnboUpdateService Interface;
 			inline static const std::chrono::milliseconds default_timeout() { return std::chrono::seconds{1}; }
-
-			static core::dbus::types::ObjectPath object_path() {
-				static core::dbus::types::ObjectPath p("/com/cycling74/rnbo");
-				return p;
-			}
 		};
+
 		struct Signals
 		{
 			struct InstallStatus

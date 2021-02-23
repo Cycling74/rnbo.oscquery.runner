@@ -76,10 +76,6 @@ journalctl -u rnbo-update-service
 The following command should indicate that there are a few methods registered:
 
 ```shell
-dbus-send --system          \
-  --dest=com.cycling74.rnbo \
-  --type=method_call        \
-  --print-reply             \
-  /com/cycling74/rnbo       \
-  org.freedesktop.DBus.Introspectable.Introspect
+dbus-send --system        --dest=com.cycling74.rnbo --type=property    --print-reply          /com/cycling74/rnbo     org.freedesktop.DBus.Introspectable.Introspect
 ```
+dbus-send --system --dest=com.cycling74.rnbo --print-reply /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo.active

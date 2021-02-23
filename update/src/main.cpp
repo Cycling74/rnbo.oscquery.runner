@@ -1,6 +1,9 @@
 #include "RnboUpdateService.h"
+
 #include <memory>
 #include <iostream>
+#include <chrono>
+#include <thread>
 
 #include <core/dbus/bus.h>
 #include <core/dbus/service.h>
@@ -22,7 +25,13 @@ int main(int argc, const char * argv[]) {
 	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
 	auto ex = core::dbus::asio::make_executor(mDBusBus);
 	mDBusBus->install_executor(ex);
+	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
+
 	auto service = core::dbus::announce_service_on_bus<IRnboUpdateService, RnboUpdateService>(mDBusBus);
-	mDBusBus->run();
+
+	while (true) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(5));
+	}
+
 	return 0;
 }
