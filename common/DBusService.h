@@ -28,6 +28,13 @@ class IRnboUpdateService {
 				typedef IRnboUpdateService Interface;
 				typedef std::tuple<bool, std::string> ArgumentType;
 			};
+
+			struct Foo
+			{
+				inline static std::string name() { return "Foo"; };
+				typedef IRnboUpdateService Interface;
+				typedef bool ArgumentType;
+			};
 		};
 		struct Properties
 		{

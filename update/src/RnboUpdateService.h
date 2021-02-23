@@ -19,4 +19,5 @@ class RnboUpdateService: public core::dbus::Skeleton<IRnboUpdateService>
 	private:
 		core::dbus::Object::Ptr mObject;
 		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Active>> mPropActive;
+		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Status>> mPropStatus;
 };
