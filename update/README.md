@@ -85,3 +85,6 @@ gdbus introspect -r --system -o /com/cycling74/rnbo -d com.cycling74.rnbo
 WORKS!!
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:active
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:status
+
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerInstall string:"0.9.0-alpha.0"
+dbus-monitor --system path=/com/cycling74/rnbo
