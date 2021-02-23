@@ -4,8 +4,11 @@
 #include <core/dbus/bus.h>
 #include <core/dbus/object.h>
 #include <core/dbus/property.h>
+#include <core/dbus/signal.h>
+#include <core/dbus/interfaces/properties.h>
 
 #include <memory>
+#include <map>
 
 class RnboUpdateService: public core::dbus::Skeleton<IRnboUpdateService>
 {
@@ -16,6 +19,7 @@ class RnboUpdateService: public core::dbus::Skeleton<IRnboUpdateService>
 		void install_runner(std::string version, bool upgradeOther);
 	protected:
 		void handle_install_runner(const core::dbus::Message::Ptr& msg);
+		void signal_property_changes(const std::map<std::string, core::dbus::types::Variant> props);
 	private:
 		core::dbus::Object::Ptr mObject;
 		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Active>> mPropActive;
