@@ -27,7 +27,7 @@
 #include <core/dbus/types/stl/vector.h>
 #include <core/dbus/types/struct.h>
 
-#include "DBusService.h"
+#include "IRnboUpdateService.h"
 
 #endif
 
@@ -137,7 +137,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
 	mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<IRnboUpdateService>::interface_name());
 	if (mDBusService) {
-		mDBusObject = mDBusService->object_for_path(IRnboUpdateService::InstallRunner::object_path());
+		mDBusObject = mDBusService->object_for_path(IRnboUpdateService::Methods::InstallRunner::object_path());
 	}
 	if (!mDBusService || !mDBusObject) {
 		cerr << "failed to get rnbo dbus update object" << endl;
