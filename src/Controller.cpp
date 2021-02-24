@@ -21,13 +21,12 @@
 #include <core/dbus/service.h>
 #include <core/dbus/signal.h>
 #include <core/dbus/object.h>
+#include <core/dbus/property.h>
 
 #include <core/dbus/asio/executor.h>
 #include <core/dbus/types/stl/tuple.h>
 #include <core/dbus/types/stl/vector.h>
 #include <core/dbus/types/struct.h>
-
-#include "IRnboUpdateService.h"
 
 #endif
 
@@ -128,31 +127,61 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mInstancesNode = r.create_child("inst");
 	mInstancesNode.set_description("RNBO codegen instances");
 
+	bool supports_install = false;
+
 //TODO enable dbus based upgrades
 #ifdef RNBO_USE_DBUS
-	//setup dbus
-	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
-	auto ex = core::dbus::asio::make_executor(mDBusBus);
-	mDBusBus->install_executor(ex);
-	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
-	mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<IRnboUpdateService>::interface_name());
-	if (mDBusService) {
-		mDBusObject = mDBusService->object_for_path(IRnboUpdateService::Methods::InstallRunner::object_path());
-	}
-	if (!mDBusService || !mDBusObject) {
-		cerr << "failed to get rnbo dbus update object" << endl;
-	} else {
-		//TODO figure out how to get signals working
-#if 0
-		auto sig = mDBusObject->get_signal<IRnboUpdateService::Signals::InstallStatus>();
-		if (sig) {
-			sig->connect([](const IRnboUpdateService::Signals::InstallStatus::ArgumentType& args) {
-					std::cout << "install_status " << std::get<0>(args) << " " << std::get<1>(args) << endl;
-					});
-		} else {
-			cerr << "failed to get dbus install_status signal" << endl;
+	try {
+		//setup dbus
+		mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
+		auto ex = core::dbus::asio::make_executor(mDBusBus);
+		mDBusBus->install_executor(ex);
+		mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
+		mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<IRnboUpdateService>::interface_name());
+		if (mDBusService) {
+			mDBusObject = mDBusService->object_for_path(IRnboUpdateService::object_path());
 		}
+		if (!mDBusService || !mDBusObject) {
+			cerr << "failed to get rnbo dbus update object" << endl;
+		} else {
+			auto update = info.create_child("update");
+			update.set_description("Update status");
+
+			{
+				mPropUpdateActive = mDBusObject->get_property<IRnboUpdateService::Properties::Active>();
+				mNodeUpdateActive = update.create_bool("active");
+				mNodeUpdateActive.set_description("Is an update active");
+				mNodeUpdateActive.set_value(mPropUpdateActive->get());
+				//TODO
+				/*
+				mPropUpdateActive->changed().connect([n](bool active) mutable {
+					n.set_value(active);
+				});
+				*/
+			}
+			{
+				mPropUpdateStatus = mDBusObject->get_property<IRnboUpdateService::Properties::Status>();
+				mNodeUpdateStatus = update.create_string("status");
+				mNodeUpdateStatus.set_description("Latest update status");
+				mNodeUpdateStatus.set_value(mPropUpdateStatus->get());
+				//TODO
+				/*
+				mPropUpdateStatus->changed().connect([n](std::string status) mutable {
+					n.set_value(status);
+				});
+				*/
+			}
+		}
+#if 0
+		//XXX figure out how to get change updates
+		auto changed_signal = mDBusObject->get_signal<core::dbus::interfaces::Properties::Signals::PropertiesChanged>();
+		changed_signal->connect([this](const core::dbus::interfaces::Properties::Signals::PropertiesChanged::ArgumentType&)
+		{
+			cout << "got properties changed " << std::endl;
+		});
 #endif
+		supports_install = true;
+	} catch (std::exception& e) {
 	}
 #endif
 
@@ -161,11 +190,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		mSupportsInstall = info.create_bool("supports_install");
 		mSupportsInstall.set_description("Does this runner support remote upgrade/downgrade");
 		mSupportsInstall.set_access(opp::access_mode::Get);
-		mSupportsInstall.set_value(false);
-#ifdef RNBO_USE_DBUS
-		//TODO use property to make sure that the service exists
-		//mSupportsInstall.set_value(static_cast<bool>(mDBusObject));
-#endif
+		mSupportsInstall.set_value(supports_install);
 	}
 
 	mCommandThread = std::thread(&Controller::processCommands, this);
@@ -303,12 +328,13 @@ void Controller::queueSave() {
 }
 
 bool Controller::process() {
+	auto now = system_clock::now();
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		for (auto& i: mInstances)
 			i.first->processEvents();
 	}
-	if (mDiskSpacePollNext <= system_clock::now())
+	if (mDiskSpacePollNext <= now)
 		updateDiskSpace();
 
 	bool save = false;
@@ -318,7 +344,7 @@ bool Controller::process() {
 		if (mSave) {
 			mSave = false;
 			mSaveNext = system_clock::now() + save_debounce_timeout;
-		} else if (mSaveNext && mSaveNext.get() < system_clock::now()) {
+		} else if (mSaveNext && mSaveNext.get() < now) {
 			save = true;
 			mSaveNext.reset();
 		}
@@ -326,6 +352,25 @@ bool Controller::process() {
 	if (save) {
 		saveLast();
 	}
+
+#ifdef RNBO_USE_DBUS
+	if (mPropUpdateActive && mPropUpdateStatus) {
+		//TODO remove once we get property callbakcs
+		if (mPropertyPollNext <= now) {
+			mPropertyPollNext = now + mPropertyPollPeriod;
+			bool active = mPropUpdateActive->get();
+			if (active != mUpdateActiveLast) {
+				mNodeUpdateActive.set_value(active);
+				mUpdateActiveLast = active;
+			}
+			std::string status = mPropUpdateStatus->get();
+			if (status != mUpdateStatusLast) {
+				mNodeUpdateStatus.set_value(status);
+				mUpdateStatusLast = status;
+			}
+		}
+	}
+#endif
 
 	//TODO allow for quitting?
 	return true;
@@ -538,12 +583,14 @@ void Controller::processCommands() {
 					{"progress", 10}
 				});
 				std::string version = params["version"];
-				bool upgradeOther = params.contains("upgrade_other") && params["upgrade_other"].is_boolean() && params["upgrade_other"].get<bool>();
-				try {
-					mDBusObject->invoke_method_synchronously<RnboUpdateService::InstallRunner, void, std::string, bool>(version, upgradeOther);
-				} catch (const std::runtime_error& e) {
-					cerr << "failed to request upgrade: " << e.what() << endl;
-					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), e.what());
+				auto res = mDBusObject->invoke_method_synchronously<IRnboUpdateService::Methods::QueueRunnerInstall, bool, std::string>(version);
+				if (res.is_error()) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
+					continue;
+				}
+				if (!res.value()) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+					continue;
 				}
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
