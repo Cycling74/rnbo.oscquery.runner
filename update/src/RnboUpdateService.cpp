@@ -24,7 +24,6 @@ RnboUpdateService::RnboUpdateService(const core::dbus::Bus::Ptr& bus) :
 		{IRnboUpdateService::Properties::Active::name(), core::dbus::types::TypedVariant<bool>(mPropActive->get())},
 		{IRnboUpdateService::Properties::Status::name(), core::dbus::types::TypedVariant<std::string>(mPropStatus->get())}
 	});
-	//mObject->emit_signal<IRnboUpdateService::Signals::Foo, IRnboUpdateService::Signals::Foo::ArgumentType>(false);
 }
 
 
