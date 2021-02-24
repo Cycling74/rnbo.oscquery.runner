@@ -128,8 +128,9 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	mInstancesNode.set_description("RNBO codegen instances");
 
 	bool supports_install = false;
+	auto update = info.create_child("update");
+	update.set_description("Self upgrade/downgrade");
 
-//TODO enable dbus based upgrades
 #ifdef RNBO_USE_DBUS
 	try {
 		//setup dbus
@@ -144,33 +145,32 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		if (!mDBusService || !mDBusObject) {
 			cerr << "failed to get rnbo dbus update object" << endl;
 		} else {
-			auto update = info.create_child("update");
-			update.set_description("Update status");
+			mPropUpdateActive = mDBusObject->get_property<IRnboUpdateService::Properties::Active>();
+			mPropUpdateStatus = mDBusObject->get_property<IRnboUpdateService::Properties::Status>();
+			bool active = mPropUpdateActive->get();
+			std::string status = mPropUpdateStatus->get();
 
-			{
-				mPropUpdateActive = mDBusObject->get_property<IRnboUpdateService::Properties::Active>();
-				mNodeUpdateActive = update.create_bool("active");
-				mNodeUpdateActive.set_description("Is an update active");
-				mNodeUpdateActive.set_value(mPropUpdateActive->get());
-				//TODO
-				/*
-				mPropUpdateActive->changed().connect([n](bool active) mutable {
-					n.set_value(active);
-				});
-				*/
-			}
-			{
-				mPropUpdateStatus = mDBusObject->get_property<IRnboUpdateService::Properties::Status>();
-				mNodeUpdateStatus = update.create_string("status");
-				mNodeUpdateStatus.set_description("Latest update status");
-				mNodeUpdateStatus.set_value(mPropUpdateStatus->get());
-				//TODO
-				/*
-				mPropUpdateStatus->changed().connect([n](std::string status) mutable {
-					n.set_value(status);
-				});
-				*/
-			}
+			mNodeUpdateActive = update.create_bool("active");
+			mNodeUpdateActive.set_access(opp::access_mode::Get);
+			mNodeUpdateActive.set_description("Is an update active");
+			mNodeUpdateActive.set_value(active);
+			//TODO
+			/*
+			mPropUpdateActive->changed().connect([n](bool active) mutable {
+				n.set_value(active);
+			});
+			*/
+
+			mNodeUpdateStatus = update.create_string("status");
+			mNodeUpdateStatus.set_access(opp::access_mode::Get);
+			mNodeUpdateStatus.set_description("Latest update status");
+			mNodeUpdateStatus.set_value(status);
+			//TODO
+			/*
+			mPropUpdateStatus->changed().connect([n](std::string status) mutable {
+				n.set_value(status);
+			});
+			*/
 		}
 #if 0
 		//XXX figure out how to get change updates
@@ -181,16 +181,21 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		});
 #endif
 		supports_install = true;
-	} catch (std::exception& e) {
+	} catch (...) {
+		//reset shared ptrs as we use them later to decide if we should try to update or poll
+		supports_install = false;
+		mDBusObject.reset();
+		mPropUpdateActive.reset();
+		mPropUpdateStatus.reset();
 	}
 #endif
 
 	//let the outside know if this instance supports up/downgrade
 	{
-		mSupportsInstall = info.create_bool("supports_install");
-		mSupportsInstall.set_description("Does this runner support remote upgrade/downgrade");
-		mSupportsInstall.set_access(opp::access_mode::Get);
-		mSupportsInstall.set_value(supports_install);
+		auto n = update.create_bool("supported");
+		n.set_description("Does this runner support remote upgrade/downgrade");
+		n.set_access(opp::access_mode::Get);
+		n.set_value(supports_install);
 	}
 
 	mCommandThread = std::thread(&Controller::processCommands, this);

@@ -86,7 +86,6 @@ class Controller {
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 
-		opp::node mSupportsInstall;
 #ifdef RNBO_USE_DBUS
 		std::thread mDBusThread;
 		std::shared_ptr<core::dbus::Bus> mDBusBus;
