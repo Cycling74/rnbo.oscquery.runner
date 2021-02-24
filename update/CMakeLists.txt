@@ -28,11 +28,11 @@ pkg_check_modules(DBUS dbus-1
 	REQUIRED
 )
 
-link_directories(${DBUS_CPP_LIBRARY_DIRS} ${DBUS_LIBRARY_DIRS})
+link_directories(${DBUS_CPP_LIBRARY_DIRS} ${DBUS_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS})
 
 include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/../common/"
-	${BOOST_INCLUDE}
+	${Boost_INCLUDE_DIRS}
 	${DBUS_CPP_INCLUDE_DIRS}
 	${DBUS_INCLUDE_DIRS}
 )
@@ -53,8 +53,8 @@ add_executable(${PROJECT_APP}
 )
 
 target_link_libraries(${PROJECT_APP}
-	${BOOST_LIB}
 	${PLATFORM_LIBS}
+	${Boost_LIBRARIES}
 	${DBUS_CPP_LIBRARIES}
 	${DBUS_LIBRARIES}
 )
