@@ -19,13 +19,6 @@ class IRnboUpdateService {
 			DBUS_CPP_METHOD_DEF(QueueRunnerInstall, IRnboUpdateService)
 		};
 
-		struct Signals
-		{
-			//macro doesn't like us providing this type directly
-			typedef core::dbus::types::Struct<std::tuple<bool, std::string>> InstallStatusArg;
-			DBUS_CPP_SIGNAL_DEF(InstallStatus, IRnboUpdateService, InstallStatusArg)
-		};
-
 		struct Properties
 		{
 			DBUS_CPP_READABLE_PROPERTY_DEF(Active, IRnboUpdateService, bool);
