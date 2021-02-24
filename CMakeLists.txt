@@ -293,6 +293,8 @@ if (LINUX)
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 
 		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28), libdbus-cpp5 (>= 5.0.0), libboost-filesystem1.62.0, libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev")
+		#packages that are also installed by default but don't have to be
+		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS, "rnbo-update-service")
 
 		SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 		SET(CPACK_DEBIAN_PACKAGE_SECTION "sound")
