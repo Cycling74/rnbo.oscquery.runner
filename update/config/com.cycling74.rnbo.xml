@@ -3,29 +3,21 @@
     "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd" >
 <node xmlns:doc="http://www.freedesktop.org/dbus/1.0/doc.dtd">
   <interface name="com.cycling74.rnbo">
-    <method name="install_runner">
+    <method name="QueueRunnerInstall">
       <arg name="version" direction="in" type="s">
-        <doc:doc><doc:summary>The version string of the package to install</doc:summary></doc:doc>
-      </arg>
-      <arg name="upgrade_other" direction="in" type="b">
-        <doc:doc><doc:summary>A boolean indicating if we should also upgrade the rest of the system packages.</doc:summary></doc:doc>
+        <doc:doc><doc:summary>The version string of the package to install.</doc:summary></doc:doc>
       </arg>
       <doc:doc>
         <doc:description>
           <doc:para>
-            Attempts to install a specific version of the rnbooscquery runner and
-            optionally upgrades the rest of the system. NOTE: the system upgrade
-            might result in a reboot.
+            Queues a task to install a specific version of the rnbooscquery runner.
+            The status of that task should be reflected in the properties.
           </doc:para>
         </doc:description>
       </doc:doc>
     </method>
-    <signal name="install_status">
-      <arg name="active" type="b" direction="out" />
-      <arg name="status" type="s" direction="out" />
-    </signal>
 
-    <property name="active" type="b" access="read">
+    <property name="Active" type="b" access="read">
       <doc:doc>
         <doc:description>
           <doc:para>
@@ -34,7 +26,7 @@
         </doc:description>
       </doc:doc>
     </property>
-    <property name="status" type="s" access="read">
+    <property name="Status" type="s" access="read">
       <doc:doc>
         <doc:description>
           <doc:para>
