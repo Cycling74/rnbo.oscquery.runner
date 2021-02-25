@@ -1,12 +1,10 @@
 #include "RnboUpdateService.h"
+#include "Validation.h"
 #include <iostream>
-#include <regex>
 #include <stdlib.h>
 
 namespace {
 	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
-	//https://www.debian.org/doc/debian-policy/ch-controlfields.html#version
-	const std::regex VERSION_VALID_REGEX(R"X(^(?:\d+:)?\d[[:alnum:]\.\+\-~]*?(?:-[[:alnum:]\+\.~]+)?$)X");
 }
 
 RnboUpdateService::RnboUpdateService(const core::dbus::Bus::Ptr& bus) :
@@ -59,14 +57,10 @@ bool RnboUpdateService::exec(const std::string cmd) {
 
 bool RnboUpdateService::queue_runner_install(const std::string& version) {
 	//make sure the version string is valid (so we don't allow injection)
-	if (!version_valid(version))
+	if (!validation::version(version))
 		return false;
 	mRunnerInstallQueue.push(version);
 	return true;
-}
-
-bool RnboUpdateService::version_valid(const std::string& version) {
-	return std::regex_match(version, VERSION_VALID_REGEX);
 }
 
 void RnboUpdateService::handle_queue_install_runner(const core::dbus::Message::Ptr& msg) {

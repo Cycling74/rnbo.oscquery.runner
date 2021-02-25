@@ -49,6 +49,7 @@ endif()
 
 add_executable(${PROJECT_APP}
 	src/main.cpp
+	src/Validation.cpp
 	src/RnboUpdateService.cpp
 )
 
