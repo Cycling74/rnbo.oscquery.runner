@@ -59,10 +59,14 @@ bool RnboUpdateService::exec(const std::string cmd) {
 
 bool RnboUpdateService::queue_runner_install(const std::string& version) {
 	//make sure the version string is valid (so we don't allow injection)
-	if (!std::regex_match(version, VERSION_VALID_REGEX))
+	if (!version_valid(version))
 		return false;
 	mRunnerInstallQueue.push(version);
 	return true;
+}
+
+bool RnboUpdateService::version_valid(const std::string& version) {
+	return std::regex_match(version, VERSION_VALID_REGEX);
 }
 
 void RnboUpdateService::handle_queue_install_runner(const core::dbus::Message::Ptr& msg) {

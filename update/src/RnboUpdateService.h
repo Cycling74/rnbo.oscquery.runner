@@ -21,6 +21,8 @@ class RnboUpdateService: public core::dbus::Skeleton<IRnboUpdateService>
 		void evaluate_commands();
 		bool queue_runner_install(const std::string& version);
 
+		static bool version_valid(const std::string& version);
+
 	protected:
 		void handle_queue_install_runner(const core::dbus::Message::Ptr& msg);
 		void signal_property_changes(const std::map<std::string, core::dbus::types::Variant> props);
