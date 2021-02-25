@@ -1,7 +1,9 @@
 # rnbo-update-service
 
-This is a systemd based service for Linux provides a [DBus](https://www.freedesktop.org/wiki/Software/dbus/) interface that lets
-us selectively install versions of the RNBOOSCQueryRunner.
+This is a systemd based service for Linux that provides a
+[DBus](https://www.freedesktop.org/wiki/Software/dbus/) interface and lets us
+selectively install versions of the RNBOOSCQueryRunner, triggered by dbus methods
+from the RNBOOSCQueryRunner itself.
 
 This service should be run as root (the systemd configuration does that).
 
