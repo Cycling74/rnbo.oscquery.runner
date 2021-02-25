@@ -19,15 +19,18 @@ using std::cerr;
 using std::endl;
 
 int main(int argc, const char * argv[]) {
-	std::thread mDBusThread;
-	std::shared_ptr<core::dbus::Bus> mDBusBus;
+	auto bus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
+	auto ex = core::dbus::asio::make_executor(bus);
+	bus->install_executor(ex);
+	if (!ex) {
+		throw std::runtime_error("failed to create executor");
+	}
+	auto t = std::thread(std::bind(&core::dbus::Bus::run, bus));
 
-	mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
-	auto ex = core::dbus::asio::make_executor(mDBusBus);
-	mDBusBus->install_executor(ex);
-	mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
-
-	auto service = core::dbus::announce_service_on_bus<IRnboUpdateService, RnboUpdateService>(mDBusBus);
+	auto service = core::dbus::announce_service_on_bus<IRnboUpdateService, RnboUpdateService>(bus);
+	if (!t.joinable()) {
+		throw std::runtime_error("failed to bind run thread");
+	}
 
 	while (true) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
