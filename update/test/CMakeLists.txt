@@ -7,11 +7,14 @@ project(
 set(CMAKE_CXX_STANDARD 11)
 
 include_directories(
-	"${CMAKE_CURRENT_SOURCE_DIR}/src"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../src"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/catch2"
 )
 
-add_executable(rnbo-remote-update-tests main.cpp)
+add_executable(rnbo-remote-update-tests
+	"${CMAKE_CURRENT_SOURCE_DIR}/../src/Validation.cpp"
+	main.cpp
+)
 
 enable_testing()
 add_test(NAME rnbo-remote-update-tests COMMAND rnbo-remote-update-tests)
