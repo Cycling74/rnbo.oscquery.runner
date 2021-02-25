@@ -1,68 +1,29 @@
 # rnbo-update-service
 
-This is a DBus based service for Linux that lets us selectively install versions of the rnbo oscquery runner.
-It should run as root.
+This is a systemd based service for Linux provides a [DBus](https://www.freedesktop.org/wiki/Software/dbus/) interface that lets
+us selectively install versions of the RNBOOSCQueryRunner.
+
+This service should be run as root (the systemd configuration does that).
+
+It is currently configured to only allow root to create the service and only
+allow the `pi` user to communicate with it, but altering that wouldn't be too
+hard.
 
 ## TODO
 
 * Allow for querying the number of packages that want updates, indicate if any are security updates.
+* Allow for updating other system packages.
 
 ## Dependencies
 
 ```shell
-sudo apt install ruby-dbus
+sudo apt install cmake libboost1.62-all-dev libdbus-cpp-dev libproperties-cpp-dev
 ```
 
-## Package for Debian systems
-
-### Dependencies
+## Build and Install on Debian
 
 ```shell
-apt-get install dh-make devscripts
-```
-
-### Instructions
-
-There is a script that *should* build the package for you. It has been setup on
-Debian buster, rpi. It may need some alterations for other systems. Your best
-bet there is to comment out the *debuild* system command at the end and then
-edit the files in `build/rnbo-update-service-<version>` then run the `debuild`
-command from there.
-
-```shell
-ruby package.rb
-```
-
-## Package Installation
-
-If you've built a package, just update this for your current version:
-
-```shell
-sudo dpkg -i ./build/rnbo-update-service_0.1.0-1_all.deb
-```
-
-Though, ideally you'll push this to an apt repository so you can `apt install rnbo-update-service`
-
-## Manual Installation
-
-There are 2 dbus configuration files, one describing the namespace and one identifying permissions.
-
-There is also a systemd service file, `rnbo-update-service.service`
-
-Here is how I install it all:
-
-```shell
-sudo -s
-cp rnbo-update-service /usr/bin/ && \
-  cp com.cycling74.rnbo.conf /usr/share/dbus-1/system.d/ && \
-  cp com.cycling74.rnbo.xml /usr/share/dbus-1/interfaces/ && \
-  cp rnbo-update-service.service /lib/systemd/system/ && \
-  chown root:root /usr/share/dbus-1/system.d/com.cycling74.rnbo.conf /usr/share/dbus-1/interfaces/com.cycling74.rnbo.xml /lib/systemd/system/rnbo-update.service && \
-  chmod 644 /usr/share/dbus-1/system.d/com.cycling74.rnbo.conf /usr/share/dbus-1/interfaces/com.cycling74.rnbo.xml /lib/systemd/system/rnbo-update.service && \
-  systemctl reload dbus && \
-  systemctl daemon-reload && \
-  systemctl enable rnbo-update-service.service && \
-  service rnbo-update-service start
+mkdir build && cd build && cmake .. && make && cpack && sudo dpkg -i rnbo-update-service_0.1.deb
 ```
 
 ## Testing
@@ -73,18 +34,21 @@ To get status of the service:
 journalctl -u rnbo-update-service
 ```
 
-The following command should indicate that there are a few methods registered:
+monitor all the dbus communication with the service:
 
 ```shell
-dbus-send --system        --dest=com.cycling74.rnbo --type=method_call    --print-reply          /com/cycling74/rnbo     org.freedesktop.DBus.Introspectable.Introspect
-```
-dbus-send --system --dest=com.cycling74.rnbo --print-reply /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.pgaur.GDBUS string:Status
-
-gdbus introspect -r --system -o /com/cycling74/rnbo -d com.cycling74.rnbo
-
-WORKS!!
-dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:active
-dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:status
-
-dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerInstall string:"0.9.0-alpha.0"
 dbus-monitor --system path=/com/cycling74/rnbo
+```
+
+Check out the status of some properties:
+
+```shell
+dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:Active
+dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:Status
+```
+
+Tell the service to install a specific version of the runner:
+
+```shell
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerInstall string:"0.9.0-alpha.0"
+```
