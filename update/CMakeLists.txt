@@ -18,6 +18,8 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
+find_package(Threads REQUIRED)
+
 find_package(Boost 1.62
 	COMPONENTS filesystem system
 	REQUIRED
@@ -45,11 +47,6 @@ if (CCACHE_PROGRAM)
 	set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
 endif()
 
-
-if (LINUX)
-	set(PLATFORM_LIBS "-ldl -latomic -lpthread")
-endif()
-
 add_executable(${PROJECT_APP}
 	src/main.cpp
 	src/Validation.cpp
@@ -61,8 +58,8 @@ target_link_libraries(${PROJECT_APP}
 	${Boost_LIBRARIES}
 	${DBUS_CPP_LIBRARIES}
 	${DBUS_LIBRARIES}
+	Threads::Threads
 )
-
 
 if (LINUX)
 	install(DIRECTORY DESTINATION bin)
