@@ -5,6 +5,9 @@ set(PROJECT_VERSION "0.1")
 set(CMAKE_CXX_STANDARD 11)
 set(PROJECT_APP "rnbo-update-service")
 
+enable_testing()
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test)
+
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
 else()
