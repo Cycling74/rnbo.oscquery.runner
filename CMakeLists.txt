@@ -16,16 +16,21 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-project(rnbooscquery LANGUAGES CXX)
-set(PROJECT_VERSION "${RNBO_VERSION}")
-set(CMAKE_CXX_STANDARD 11)
-set(PROJECT_APP "rnbooscquery")
-
-add_definitions(-DRNBO_USE_FLOAT32)
-
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
 endif()
+
+project(rnbooscquery LANGUAGES CXX)
+set(PROJECT_VERSION "${RNBO_VERSION}")
+if (LINUX)
+	#sdbus requires 17
+	set(CMAKE_CXX_STANDARD 17)
+else()
+	set(CMAKE_CXX_STANDARD 11)
+endif()
+set(PROJECT_APP "rnbooscquery")
+
+add_definitions(-DRNBO_USE_FLOAT32)
 
 if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
@@ -117,16 +122,21 @@ endif()
 
 #find dbus headers if we're on linux
 if (LINUX)
-	find_package(PkgConfig)
-	pkg_check_modules(DBUS_CPP dbus-cpp)
-	pkg_check_modules(DBUS dbus-1)
-
-	if (DBUS_CPP_INCLUDE_DIRS)
-		add_definitions(-DRNBO_USE_DBUS)
-		include_directories(${DBUS_CPP_INCLUDE_DIRS} ${DBUS_INCLUDE_DIRS})
-		link_directories(${DBUS_CPP_LIBRARY_DIRS} ${DBUS_LIBRARY_DIRS})
+	if (TRUE) #TODO CMAKE_CROSSCOMPILING)
+		include_directories(/home/pi/sdbus-cpp-release/include/)
 	else()
-		message(FATAL_ERROR "linux requires dbus")
+	#static linking to LGPL is okay since we provide the source code to this project, users could build and relink
+	conan_cmake_run(REQUIRES sdbus-cpp/0.8.3
+		BASIC_SETUP
+		CMAKE_TARGETS
+		BUILD missing
+		PROFILE ${CONAN_PROFILE}
+		SETTINGS ${ConanSettings}
+
+		#uncomment to get the sdbus-c++-xml2cpp executable for generation glue
+		#OPTIONS sdbus-cpp:with_code_gen=True
+		#IMPORTS "bin, sdbus-c++-xml2cpp -> ./"
+	)
 	endif()
 endif()
 
@@ -160,7 +170,6 @@ if (UNIX)
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${RNBO_VERSION}.dylib")
 	else() # for Linux, BSD, Solaris, Minix
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${RNBO_VERSION}.so")
-		set(PLATFORM_LIBS "-ldl -latomic -lpthread")
 	endif()
 else()
 	message(FATAL_ERROR "platform not supported (yet)")
@@ -204,12 +213,34 @@ target_link_libraries(${PROJECT_APP}
 	${BOOST_LIB}
 	${JACK_LIB}
 	${SNDFILE_LIB}
-	${PLATFORM_LIBS}
 )
 
-if (DBUS_CPP_LIBRARIES)
-	target_link_libraries(${PROJECT_APP} ${DBUS_CPP_LIBRARIES})
-	target_link_libraries(${PROJECT_APP} ${DBUS_LIBRARIES})
+
+if (LINUX)
+	target_link_libraries(${PROJECT_APP}
+		-ldl
+		-latomic
+		-lpthread
+		#CONAN_PKG::sdbus-cpp
+-lrt
+/home/pi/.conan/data/sdbus-cpp/0.8.3/_/_/package/a7cc29832f1d1b14ee48a427e9bb2bd6c47a5f11/lib/libsdbus-c++.a
+/home/pi/.conan/data/libsystemd/247.2/_/_/package/a9a4accb7d96d2a72e21f1e95604f23816eb58a6/lib/libsystemd.a
+/home/pi/.conan/data/libcap/2.45/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libcap.a
+/home/pi/.conan/data/libmount/2.36/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libmount.a
+/home/pi/.conan/data/libmount/2.36/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libblkid.a
+/home/pi/.conan/data/libselinux/3.1/_/_/package/73adedec6e14cf002ea839a35940cac4172eeb84/lib/libselinux.a
+/home/pi/.conan/data/libselinux/3.1/_/_/package/73adedec6e14cf002ea839a35940cac4172eeb84/lib/libsepol.a
+/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-posix.a
+/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-8.a
+/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-16.a
+/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-32.a
+/home/pi/.conan/data/zlib/1.2.11/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libz.a
+/home/pi/.conan/data/bzip2/1.0.8/_/_/package/a75ba7cfdfe534a9066ea33edbf142977cc0a1ca/lib/libbz2.a
+/home/pi/.conan/data/lz4/1.9.2/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/liblz4.a
+/home/pi/.conan/data/xz_utils/5.2.5/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/liblzma.a
+/home/pi/.conan/data/zstd/1.4.5/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libzstd.a
+
+	)
 endif()
 
 # add rpath so we can run from the build directory
@@ -292,7 +323,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28), libdbus-cpp5 (>= 5.0.0), libboost-filesystem1.62.0, libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28), libboost-filesystem1.62.0, libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev")
 		#packages that are also installed by default but don't have to be
 		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS, "rnbo-update-service")
 
