@@ -142,6 +142,7 @@ endif()
 
 include_directories(
 	./3rdparty/
+	./3rdparty/sdbus-cpp/
 	./common/
 	${RNBO_DIR}
 	"${RNBO_DIR}/common"
@@ -222,23 +223,39 @@ if (LINUX)
 		-latomic
 		-lpthread
 		#CONAN_PKG::sdbus-cpp
--lrt
-/home/pi/.conan/data/sdbus-cpp/0.8.3/_/_/package/a7cc29832f1d1b14ee48a427e9bb2bd6c47a5f11/lib/libsdbus-c++.a
-/home/pi/.conan/data/libsystemd/247.2/_/_/package/a9a4accb7d96d2a72e21f1e95604f23816eb58a6/lib/libsystemd.a
-/home/pi/.conan/data/libcap/2.45/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libcap.a
-/home/pi/.conan/data/libmount/2.36/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libmount.a
-/home/pi/.conan/data/libmount/2.36/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libblkid.a
-/home/pi/.conan/data/libselinux/3.1/_/_/package/73adedec6e14cf002ea839a35940cac4172eeb84/lib/libselinux.a
-/home/pi/.conan/data/libselinux/3.1/_/_/package/73adedec6e14cf002ea839a35940cac4172eeb84/lib/libsepol.a
-/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-posix.a
-/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-8.a
-/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-16.a
-/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-32.a
-/home/pi/.conan/data/zlib/1.2.11/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libz.a
-/home/pi/.conan/data/bzip2/1.0.8/_/_/package/a75ba7cfdfe534a9066ea33edbf142977cc0a1ca/lib/libbz2.a
-/home/pi/.conan/data/lz4/1.9.2/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/liblz4.a
-/home/pi/.conan/data/xz_utils/5.2.5/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/liblzma.a
-/home/pi/.conan/data/zstd/1.4.5/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libzstd.a
+		#/home/pi/.conan/data/sdbus-cpp/0.8.3/_/_/package/a7cc29832f1d1b14ee48a427e9bb2bd6c47a5f11/lib/libsdbus-c++.a
+		#/home/pi/.conan/data/libsystemd/247.2/_/_/package/a9a4accb7d96d2a72e21f1e95604f23816eb58a6/lib/libsystemd.a
+		#/home/pi/.conan/data/libcap/2.45/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libcap.a
+		#/home/pi/.conan/data/libmount/2.36/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libmount.a
+		#/home/pi/.conan/data/libmount/2.36/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libblkid.a
+		#/home/pi/.conan/data/libselinux/3.1/_/_/package/73adedec6e14cf002ea839a35940cac4172eeb84/lib/libselinux.a
+		#/home/pi/.conan/data/libselinux/3.1/_/_/package/73adedec6e14cf002ea839a35940cac4172eeb84/lib/libsepol.a
+		#/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-posix.a
+		#/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-8.a
+		#/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-16.a
+		#/home/pi/.conan/data/pcre2/10.33/_/_/package/685f15d307af796a83e9e99ed757f034e2df7fce/lib/libpcre2-32.a
+		#/home/pi/.conan/data/zlib/1.2.11/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libz.a
+		#/home/pi/.conan/data/bzip2/1.0.8/_/_/package/a75ba7cfdfe534a9066ea33edbf142977cc0a1ca/lib/libbz2.a
+		#/home/pi/.conan/data/lz4/1.9.2/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/liblz4.a
+		#/home/pi/.conan/data/xz_utils/5.2.5/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/liblzma.a
+		#/home/pi/.conan/data/zstd/1.4.5/_/_/package/929d9e88f0da2892c7d1af87c7e8b2d7460f9980/lib/libzstd.a .
+		-lrt
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libsdbus-c++.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libsystemd.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libcap.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libmount.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libblkid.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libselinux.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libsepol.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libpcre2-posix.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libpcre2-8.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libpcre2-16.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libpcre2-32.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libz.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libbz2.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/liblz4.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/liblzma.a
+		${CMAKE_CURRENT_SOURCE_DIR}/libs/libzstd.a
 
 	)
 endif()
