@@ -32,6 +32,8 @@ namespace core {
 }
 #endif
 
+class UpdateServiceProxy;
+
 //An object which controls the whole show
 class Controller {
 	public:
@@ -86,6 +88,8 @@ class Controller {
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 
+		std::shared_ptr<UpdateServiceProxy> mUpdateServiceProxy;
+
 #ifdef RNBO_USE_DBUS
 		std::thread mDBusThread;
 		std::shared_ptr<core::dbus::Bus> mDBusBus;
@@ -94,6 +98,7 @@ class Controller {
 
 		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Active>> mPropUpdateActive;
 		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Status>> mPropUpdateStatus;
+#endif
 
 		//TODO remove when we figure out how to get property signals
 		std::chrono::duration<int> mPropertyPollPeriod = std::chrono::seconds(1);
@@ -102,5 +107,4 @@ class Controller {
 		opp::node mNodeUpdateActive;
 		std::string mUpdateStatusLast;
 		opp::node mNodeUpdateStatus;
-#endif
 };

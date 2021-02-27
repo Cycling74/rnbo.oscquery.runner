@@ -15,6 +15,9 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
+#include <sdbus-c++/sdbus-c++.h>
+#include "UpdateServiceProxyGlue.h"
+
 #ifdef RNBO_USE_DBUS
 
 #include <core/dbus/bus.h>
@@ -61,6 +64,32 @@ namespace {
 	}
 
 }
+
+class UpdateServiceProxy : public sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>
+{
+	public:
+		UpdateServiceProxy(std::string destination, std::string objectPath)
+			: sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>(sdbus::createSystemBusConnection(), std::move(destination), std::move(objectPath))
+		{
+			registerProxy();
+		}
+
+		~UpdateServiceProxy()
+		{
+			unregisterProxy();
+		}
+	protected:
+		virtual void onPropertiesChanged(
+				const std::string& interfaceName,
+				const std::map<std::string, sdbus::Variant>& changedProperties,
+				const std::vector<std::string>& invalidatedProperties) {
+			cout << "got prop change " << endl;
+			for (auto& kv: changedProperties) {
+				cout << "key " << kv.first << endl;
+			}
+			//TODO
+		}
+};
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
 	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
@@ -131,64 +160,44 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	auto update = info.create_child("update");
 	update.set_description("Self upgrade/downgrade");
 
-#ifdef RNBO_USE_DBUS
+	//TODO move into dbus
+	mUpdateServiceProxy = std::make_shared<UpdateServiceProxy>("com.cycling74.rnbo", "/com/cycling74/rnbo");
+
+	if (mUpdateServiceProxy) {
+	}
+
 	try {
 		//setup dbus
-		mDBusBus = std::make_shared<core::dbus::Bus>(core::dbus::WellKnownBus::system);
-		auto ex = core::dbus::asio::make_executor(mDBusBus);
-		mDBusBus->install_executor(ex);
-		mDBusThread = std::thread(std::bind(&core::dbus::Bus::run, mDBusBus));
-		mDBusService = core::dbus::Service::use_service(mDBusBus, core::dbus::traits::Service<IRnboUpdateService>::interface_name());
-		if (mDBusService) {
-			mDBusObject = mDBusService->object_for_path(IRnboUpdateService::object_path());
-		}
-		if (!mDBusService || !mDBusObject) {
-			cerr << "failed to get rnbo dbus update object" << endl;
-		} else {
-			mPropUpdateActive = mDBusObject->get_property<IRnboUpdateService::Properties::Active>();
-			mPropUpdateStatus = mDBusObject->get_property<IRnboUpdateService::Properties::Status>();
-			bool active = mPropUpdateActive->get();
-			std::string status = mPropUpdateStatus->get();
+		bool active = mUpdateServiceProxy->Active();
+		std::string status = mUpdateServiceProxy->Status();
 
-			mNodeUpdateActive = update.create_bool("active");
-			mNodeUpdateActive.set_access(opp::access_mode::Get);
-			mNodeUpdateActive.set_description("Is an update active");
-			mNodeUpdateActive.set_value(active);
-			//TODO
-			/*
-			mPropUpdateActive->changed().connect([n](bool active) mutable {
-				n.set_value(active);
-			});
-			*/
+		mNodeUpdateActive = update.create_bool("active");
+		mNodeUpdateActive.set_access(opp::access_mode::Get);
+		mNodeUpdateActive.set_description("Is an update active");
+		mNodeUpdateActive.set_value(active);
+		//TODO
+		/*
+			 mPropUpdateActive->changed().connect([n](bool active) mutable {
+			 n.set_value(active);
+			 });
+			 */
 
-			mNodeUpdateStatus = update.create_string("status");
-			mNodeUpdateStatus.set_access(opp::access_mode::Get);
-			mNodeUpdateStatus.set_description("Latest update status");
-			mNodeUpdateStatus.set_value(status);
-			//TODO
-			/*
-			mPropUpdateStatus->changed().connect([n](std::string status) mutable {
-				n.set_value(status);
-			});
-			*/
-		}
-#if 0
-		//XXX figure out how to get change updates
-		auto changed_signal = mDBusObject->get_signal<core::dbus::interfaces::Properties::Signals::PropertiesChanged>();
-		changed_signal->connect([this](const core::dbus::interfaces::Properties::Signals::PropertiesChanged::ArgumentType&)
-		{
-			cout << "got properties changed " << std::endl;
-		});
-#endif
+		mNodeUpdateStatus = update.create_string("status");
+		mNodeUpdateStatus.set_access(opp::access_mode::Get);
+		mNodeUpdateStatus.set_description("Latest update status");
+		mNodeUpdateStatus.set_value(status);
+		//TODO
+		/*
+			 mPropUpdateStatus->changed().connect([n](std::string status) mutable {
+			 n.set_value(status);
+			 });
+			 */
 		supports_install = true;
-	} catch (...) {
+	} catch (std::exception& e) {
+		cerr << "exception caught " << e.what() << endl;
 		//reset shared ptrs as we use them later to decide if we should try to update or poll
 		supports_install = false;
-		mDBusObject.reset();
-		mPropUpdateActive.reset();
-		mPropUpdateStatus.reset();
 	}
-#endif
 
 	//let the outside know if this instance supports up/downgrade
 	{
