@@ -134,12 +134,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 				n.set_access(opp::access_mode::Get);
 				n.set_description("Is an update active");
 				n.set_value(active);
-				//TODO
-				/*
-					 mPropUpdateActive->changed().connect([n](bool active) mutable {
-					 n.set_value(active);
-					 });
-					 */
+				mUpdateServiceProxy->setActiveCallback([n](bool active) mutable { n.set_value(active); });
 			}
 
 			{
@@ -147,12 +142,7 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 				n.set_access(opp::access_mode::Get);
 				n.set_description("Latest update status");
 				n.set_value(status);
-				//TODO
-				/*
-					 mPropUpdateStatus->changed().connect([n](std::string status) mutable {
-					 n.set_value(status);
-					 });
-					 */
+				mUpdateServiceProxy->setStatusCallback([n](std::string status) mutable { n.set_value(status); });
 			}
 			supports_install = true;
 		} catch (std::exception& e) {
@@ -339,7 +329,7 @@ void Controller::handleActive(bool active) {
 	bool wasActive = mProcessAudio->isActive();
 	if (mProcessAudio->setActive(active) != active) {
 		cerr << "couldn't set active" << endl;
-		//XXX deffer to setting not active
+		//XXX defer to setting not active
 	} else if (!wasActive) {
 		//load last if we're activating from inactive
 		mCommandQueue.push("load_last");
