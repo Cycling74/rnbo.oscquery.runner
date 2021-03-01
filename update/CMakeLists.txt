@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.13 FATAL_ERROR) #upgrade to 17 if we use conan
+cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbo-update-service LANGUAGES CXX)
 set(PROJECT_VERSION "0.1")
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_APP "rnbo-update-service")
 
 enable_testing()
@@ -18,28 +18,39 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
-find_package(Threads REQUIRED)
 
-find_package(Boost 1.62
-	COMPONENTS filesystem system
-	REQUIRED
-)
+if (NOT CMAKE_CROSSCOMPILING)
+	set(CONAN_PROFILE default CACHE STRING "The name of the profile to use for building conan dependencies, defaults to 'default'")
 
-find_package(PkgConfig)
-pkg_check_modules(DBUS_CPP dbus-cpp
-	REQUIRED
-)
-pkg_check_modules(DBUS dbus-1
-	REQUIRED
-)
+	# Download automatically, you can also just copy the conan.cmake file
+	if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
+		message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
+		file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/master/conan.cmake"
+			"${CMAKE_BINARY_DIR}/conan.cmake")
+	endif()
 
-link_directories(${DBUS_CPP_LIBRARY_DIRS} ${DBUS_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS})
+	include(${CMAKE_BINARY_DIR}/conan.cmake)
+	conan_check(VERSION 1.29.0 REQUIRED)
+
+	conan_cmake_run(REQUIRES sdbus-cpp/0.8.3
+		BASIC_SETUP
+		CMAKE_TARGETS
+		BUILD missing
+		IMPORTS "bin, *.dll -> ./lib"
+		IMPORTS "bin, sdbus-c++-xml2cpp -> ./"
+		IMPORTS "lib, *.dylib* -> ./lib"
+		PROFILE ${CONAN_PROFILE}
+		OPTIONS sdbus-cpp:shared=False
+		#uncomment to get the sdbus-c++-xml2cpp executable for generation glue
+		sdbus-cpp:with_code_gen=True
+	)
+	set(SDBUS_LIBS CONAN_PKG::sdbus-cpp)
+else()
+	message(FATAL_ERROR "TODO")
+endif()
 
 include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/../common/"
-	${Boost_INCLUDE_DIRS}
-	${DBUS_CPP_INCLUDE_DIRS}
-	${DBUS_INCLUDE_DIRS}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -54,11 +65,9 @@ add_executable(${PROJECT_APP}
 )
 
 target_link_libraries(${PROJECT_APP}
-	${PLATFORM_LIBS}
-	${Boost_LIBRARIES}
-	${DBUS_CPP_LIBRARIES}
-	${DBUS_LIBRARIES}
-	Threads::Threads
+	${SDBUS_LIBS}
+	-lpthread
+	-latomic
 )
 
 if (LINUX)

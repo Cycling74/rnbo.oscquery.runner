@@ -7,21 +7,15 @@ namespace {
 	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
 }
 
-RnboUpdateService::RnboUpdateService(const core::dbus::Bus::Ptr& bus) :
-			core::dbus::Skeleton<IRnboUpdateService>(bus),
-			mObject(access_service()->add_object_for_path(IRnboUpdateService::object_path()))
+RnboUpdateService::RnboUpdateService(sdbus::IConnection& connection, std::string objectPath)
+: sdbus::AdaptorInterfaces<com::cycling74::rnbo_adaptor, sdbus::Properties_adaptor>(connection, std::move(objectPath))
 {
-	mObject->install_method_handler<IRnboUpdateService::Methods::QueueRunnerInstall>(std::bind(&RnboUpdateService::handle_queue_install_runner, this, std::placeholders::_1));
-	mPropActive = mObject->get_property<IRnboUpdateService::Properties::Active>();
-	mPropActive->set(false);
+	registerAdaptor();
+}
 
-	mPropStatus = mObject->get_property<IRnboUpdateService::Properties::Status>();
-	mPropStatus->set("waiting");
-
-	signal_property_changes({
-		{IRnboUpdateService::Properties::Active::name(), core::dbus::types::TypedVariant<bool>(mPropActive->get())},
-		{IRnboUpdateService::Properties::Status::name(), core::dbus::types::TypedVariant<std::string>(mPropStatus->get())}
-	});
+RnboUpdateService::~RnboUpdateService()
+{
+	unregisterAdaptor();
 }
 
 
@@ -55,7 +49,7 @@ bool RnboUpdateService::exec(const std::string cmd) {
 	return status == 0;
 }
 
-bool RnboUpdateService::queue_runner_install(const std::string& version) {
+bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 	//make sure the version string is valid (so we don't allow injection)
 	if (!validation::version(version))
 		return false;
@@ -63,32 +57,16 @@ bool RnboUpdateService::queue_runner_install(const std::string& version) {
 	return true;
 }
 
-void RnboUpdateService::handle_queue_install_runner(const core::dbus::Message::Ptr& msg) {
-	std::string arg;
-	msg->reader() >> arg;
-	auto out = queue_runner_install(arg);
-	auto reply = core::dbus::Message::make_method_return(msg);
-	reply->writer() << out;
-	access_bus()->send(reply);
-}
-
-void RnboUpdateService::signal_property_changes(const std::map<std::string, core::dbus::types::Variant> props) {
-	core::dbus::interfaces::Properties::Signals::PropertiesChanged::ArgumentType args(core::dbus::traits::Service<IRnboUpdateService>::interface_name(), props, {});
-	mObject->emit_signal<core::dbus::interfaces::Properties::Signals::PropertiesChanged>(args);
-}
+bool RnboUpdateService::Active() { return mActive; }
+std::string RnboUpdateService::Status() { return mStatus; }
 
 void RnboUpdateService::update_active(bool active, const std::string status) {
-	mPropActive->set(active);
-	mPropStatus->set(status);
-	signal_property_changes({
-		{IRnboUpdateService::Properties::Active::name(), core::dbus::types::TypedVariant<bool>(mPropActive->get())},
-		{IRnboUpdateService::Properties::Status::name(), core::dbus::types::TypedVariant<std::string>(mPropStatus->get())}
-	});
+	mActive = active;
+	mStatus = status;
+	emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"Active", "Status"});
 }
 
 void RnboUpdateService::update_status(const std::string status) {
-	mPropStatus->set(status);
-	signal_property_changes({
-		{IRnboUpdateService::Properties::Status::name(), core::dbus::types::TypedVariant<std::string>(mPropStatus->get())}
-	});
+	mStatus = status;
+	emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"Status"});
 }
