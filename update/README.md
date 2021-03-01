@@ -18,8 +18,10 @@ hard.
 
 ## Dependencies
 
+Uses [sdbus-c++](https://github.com/Kistler-Group/sdbus-cpp/blob/master/docs/using-sdbus-c%2B%2B.md).
+
 ```shell
-sudo apt install cmake libboost1.62-all-dev libdbus-cpp-dev libproperties-cpp-dev
+sudo apt install cmake
 ```
 
 ## Build and Install on Debian
@@ -27,6 +29,17 @@ sudo apt install cmake libboost1.62-all-dev libdbus-cpp-dev libproperties-cpp-de
 ```shell
 mkdir build && cd build && cmake .. && make && cpack && sudo dpkg -i rnbo-update-service_0.1.deb
 ```
+
+## How to generate the glue files
+
+I do this all on the pi.  Build the project, in the build directory there
+should be an exeuctable called `sdbus-c++-xml2cpp`
+
+```shell
+./sdbus-c++-xml2cpp ../../config/rnbo-update-service-bindings.xml --adaptor=../src/UpdateServiceServerGlue.h --proxy=../../src/UpdateServiceProxyGlue.h
+```
+
+Copy those .h files back to your computer and copy them into their appropriate places
 
 ## Testing
 
@@ -53,4 +66,14 @@ Tell the service to install a specific version of the runner:
 
 ```shell
 dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerInstall string:"0.9.0-alpha.0"
+```
+
+osc to the runner
+```
+oscsend osc.udp://xnor-rnbo-rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "0.9.0-alpha.1"}}'
+```
+
+Discover the details of the service
+```shell
+dbus-send --system --dest=com.cycling74.rnbo --type=method_call --print-reply /com/cycling74/rnbo org.freedesktop.DBus.Introspectable.Introspect
 ```
