@@ -15,22 +15,8 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
-#include <sdbus-c++/sdbus-c++.h>
-#include "UpdateServiceProxyGlue.h"
-
 #ifdef RNBO_USE_DBUS
-
-#include <core/dbus/bus.h>
-#include <core/dbus/service.h>
-#include <core/dbus/signal.h>
-#include <core/dbus/object.h>
-#include <core/dbus/property.h>
-
-#include <core/dbus/asio/executor.h>
-#include <core/dbus/types/stl/tuple.h>
-#include <core/dbus/types/stl/vector.h>
-#include <core/dbus/types/struct.h>
-
+#include "RnboUpdateServiceProxy.h"
 #endif
 
 using std::cout;
@@ -65,31 +51,6 @@ namespace {
 
 }
 
-class UpdateServiceProxy : public sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>
-{
-	public:
-		UpdateServiceProxy(std::string destination, std::string objectPath)
-			: sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>(sdbus::createSystemBusConnection(), std::move(destination), std::move(objectPath))
-		{
-			registerProxy();
-		}
-
-		~UpdateServiceProxy()
-		{
-			unregisterProxy();
-		}
-	protected:
-		virtual void onPropertiesChanged(
-				const std::string& interfaceName,
-				const std::map<std::string, sdbus::Variant>& changedProperties,
-				const std::vector<std::string>& invalidatedProperties) {
-			cout << "got prop change " << endl;
-			for (auto& kv: changedProperties) {
-				cout << "key " << kv.first << endl;
-			}
-			//TODO
-		}
-};
 
 Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
 	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
@@ -160,44 +121,47 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	auto update = info.create_child("update");
 	update.set_description("Self upgrade/downgrade");
 
-	//TODO move into dbus
-	mUpdateServiceProxy = std::make_shared<UpdateServiceProxy>("com.cycling74.rnbo", "/com/cycling74/rnbo");
-
+#if RNBO_USE_DBUS
+	mUpdateServiceProxy = std::make_shared<RnboUpdateServiceProxy>();
 	if (mUpdateServiceProxy) {
+		try {
+			//setup dbus
+			bool active = mUpdateServiceProxy->Active();
+			std::string status = mUpdateServiceProxy->Status();
+
+			{
+				auto n = update.create_bool("active");
+				n.set_access(opp::access_mode::Get);
+				n.set_description("Is an update active");
+				n.set_value(active);
+				//TODO
+				/*
+					 mPropUpdateActive->changed().connect([n](bool active) mutable {
+					 n.set_value(active);
+					 });
+					 */
+			}
+
+			{
+				auto n = update.create_string("status");
+				n.set_access(opp::access_mode::Get);
+				n.set_description("Latest update status");
+				n.set_value(status);
+				//TODO
+				/*
+					 mPropUpdateStatus->changed().connect([n](std::string status) mutable {
+					 n.set_value(status);
+					 });
+					 */
+			}
+			supports_install = true;
+		} catch (std::exception& e) {
+			cerr << "exception caught " << e.what() << endl;
+			//reset shared ptrs as we use them later to decide if we should try to update or poll
+			supports_install = false;
+		}
 	}
-
-	try {
-		//setup dbus
-		bool active = mUpdateServiceProxy->Active();
-		std::string status = mUpdateServiceProxy->Status();
-
-		mNodeUpdateActive = update.create_bool("active");
-		mNodeUpdateActive.set_access(opp::access_mode::Get);
-		mNodeUpdateActive.set_description("Is an update active");
-		mNodeUpdateActive.set_value(active);
-		//TODO
-		/*
-			 mPropUpdateActive->changed().connect([n](bool active) mutable {
-			 n.set_value(active);
-			 });
-			 */
-
-		mNodeUpdateStatus = update.create_string("status");
-		mNodeUpdateStatus.set_access(opp::access_mode::Get);
-		mNodeUpdateStatus.set_description("Latest update status");
-		mNodeUpdateStatus.set_value(status);
-		//TODO
-		/*
-			 mPropUpdateStatus->changed().connect([n](std::string status) mutable {
-			 n.set_value(status);
-			 });
-			 */
-		supports_install = true;
-	} catch (std::exception& e) {
-		cerr << "exception caught " << e.what() << endl;
-		//reset shared ptrs as we use them later to decide if we should try to update or poll
-		supports_install = false;
-	}
+#endif
 
 	//let the outside know if this instance supports up/downgrade
 	{
@@ -213,12 +177,6 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 Controller::~Controller() {
 	mProcessCommands.store(false);
 	mCommandThread.join();
-#ifdef RNBO_USE_DBUS
-	mDBusBus->stop();
-	if (mDBusThread.joinable()) {
-		mDBusThread.join();
-	}
-#endif
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
@@ -366,25 +324,6 @@ bool Controller::process() {
 	if (save) {
 		saveLast();
 	}
-
-#ifdef RNBO_USE_DBUS
-	if (mPropUpdateActive && mPropUpdateStatus) {
-		//TODO remove once we get property callbakcs
-		if (mPropertyPollNext <= now) {
-			mPropertyPollNext = now + mPropertyPollPeriod;
-			bool active = mPropUpdateActive->get();
-			if (active != mUpdateActiveLast) {
-				mNodeUpdateActive.set_value(active);
-				mUpdateActiveLast = active;
-			}
-			std::string status = mPropUpdateStatus->get();
-			if (status != mUpdateStatusLast) {
-				mNodeUpdateStatus.set_value(status);
-				mUpdateStatusLast = status;
-			}
-		}
-	}
-#endif
 
 	//TODO allow for quitting?
 	return true;
@@ -583,7 +522,7 @@ void Controller::processCommands() {
 				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
 				continue;
 #else
-				if (!mDBusObject) {
+				if (!mUpdateServiceProxy) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
 					continue;
 				}
@@ -597,20 +536,20 @@ void Controller::processCommands() {
 					{"progress", 10}
 				});
 				std::string version = params["version"];
-				auto res = mDBusObject->invoke_method_synchronously<IRnboUpdateService::Methods::QueueRunnerInstall, bool, std::string>(version);
-				if (res.is_error()) {
+				try {
+					if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
+						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+						continue;
+					}
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
+							{"message", "installation initiated"},
+							{"progress", 100}
+					});
+				} catch (std::exception& e) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
 					continue;
 				}
-				if (!res.value()) {
-					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
-					continue;
-				}
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
-					{"message", "installation initiated"},
-					{"progress", 100}
-				});
 #endif
 			} else {
 				cerr << "unknown method " << method << endl;

@@ -18,21 +18,8 @@
 class ValueCallbackHelper;
 
 #ifdef RNBO_USE_DBUS
-
-#include "IRnboUpdateService.h"
-
-namespace core {
-	namespace dbus {
-		class Bus;
-		class Object;
-		class Service;
-		template<typename T>
-			class Property;
-	}
-}
+class RnboUpdateServiceProxy;
 #endif
-
-class UpdateServiceProxy;
 
 //An object which controls the whole show
 class Controller {
@@ -88,23 +75,7 @@ class Controller {
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 
-		std::shared_ptr<UpdateServiceProxy> mUpdateServiceProxy;
-
 #ifdef RNBO_USE_DBUS
-		std::thread mDBusThread;
-		std::shared_ptr<core::dbus::Bus> mDBusBus;
-		std::shared_ptr<core::dbus::Service> mDBusService;
-		std::shared_ptr<core::dbus::Object> mDBusObject;
-
-		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Active>> mPropUpdateActive;
-		std::shared_ptr<core::dbus::Property<IRnboUpdateService::Properties::Status>> mPropUpdateStatus;
+		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
 #endif
-
-		//TODO remove when we figure out how to get property signals
-		std::chrono::duration<int> mPropertyPollPeriod = std::chrono::seconds(1);
-		std::chrono::time_point<std::chrono::system_clock> mPropertyPollNext;
-		bool mUpdateActiveLast = false;
-		opp::node mNodeUpdateActive;
-		std::string mUpdateStatusLast;
-		opp::node mNodeUpdateStatus;
 };

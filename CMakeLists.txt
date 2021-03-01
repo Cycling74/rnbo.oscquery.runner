@@ -30,6 +30,18 @@ else()
 endif()
 set(PROJECT_APP "rnbooscquery")
 
+set(PROJECT_SRC
+	src/main.cpp
+	src/Config.cpp
+	src/Controller.cpp
+	src/Instance.cpp
+	src/EventHandler.cpp
+	src/JackAudio.cpp
+	src/PatcherFactory.cpp
+	src/ValueCallbackHelper.cpp
+	${RNBO_DIR}/RNBO.cpp
+)
+
 add_definitions(-DRNBO_USE_FLOAT32)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -120,8 +132,10 @@ else()
 	set(BOOST_LIB CONAN_PKG::boost)
 endif()
 
-#find dbus headers if we're on linux
+#setup dbus if we're on linux
 if (LINUX)
+	add_definitions(-DRNBO_USE_DBUS)
+	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
 	if (NOT CMAKE_CROSSCOMPILING)
 		#static linking to LGPL is okay since we provide the source code to this project, users could build and relink
 		conan_cmake_run(REQUIRES sdbus-cpp/0.8.3
@@ -133,8 +147,6 @@ if (LINUX)
 			IMPORTS "lib, *.dylib* -> ./lib"
 			PROFILE ${CONAN_PROFILE}
 			OPTIONS sdbus-cpp:shared=False
-			#uncomment to get the sdbus-c++-xml2cpp executable for generation glue
-			sdbus-cpp:with_code_gen=True
 		)
 		set(SDBUS_LIBS CONAN_PKG::sdbus-cpp)
 	else()
@@ -232,17 +244,7 @@ FILE(COPY
 FILE(GLOB RNBO_CPP_FILES ${RNBO_DIR}/*)
 FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 
-add_executable(${PROJECT_APP}
-	src/main.cpp
-	src/Config.cpp
-	src/Controller.cpp
-	src/Instance.cpp
-	src/EventHandler.cpp
-	src/JackAudio.cpp
-	src/PatcherFactory.cpp
-	src/ValueCallbackHelper.cpp
-	${RNBO_DIR}/RNBO.cpp
-)
+add_executable(${PROJECT_APP} ${PROJECT_SRC})
 
 target_link_libraries(${PROJECT_APP}
 	CONAN_PKG::libossia
