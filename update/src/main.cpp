@@ -23,7 +23,7 @@ int main(int argc, const char * argv[]) {
 		while (true) {
 			connection->processPendingRequest();
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-			service.evaluate_commands();
+			service.evaluateCommands();
 		}
 	}
 

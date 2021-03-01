@@ -10,7 +10,7 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		RnboUpdateService(sdbus::IConnection& connection, std::string objectPath = "/com/cycling74/rnbo");
 		virtual ~RnboUpdateService();
 
-		void evaluate_commands();
+		void evaluateCommands();
 	private:
 		Queue<std::string> mRunnerInstallQueue;
 
@@ -21,8 +21,8 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		virtual bool Active();
 		virtual std::string Status();
 
-		void update_active(bool active, const std::string status);
-		void update_status(const std::string status);
+		void updateActive(bool active, const std::string status);
+		void updateStatus(const std::string status);
 		bool exec(const std::string cmd);
 
 		bool mActive = false;

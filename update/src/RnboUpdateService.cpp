@@ -19,23 +19,23 @@ RnboUpdateService::~RnboUpdateService()
 }
 
 
-void RnboUpdateService::evaluate_commands() {
+void RnboUpdateService::evaluateCommands() {
 	auto o = mRunnerInstallQueue.tryPop();
 	if (o) {
 		setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 		std::string packageVersion = RUNNER_PACKAGE_NAME + "=" + o.get();
 		bool success = false;
-		update_active(true, "updating package list");
+		updateActive(true, "updating package list");
 		if (!exec("apt-get -y update")) {
-			update_status("apt-get update failed, attempting to install anyway");
+			updateStatus("apt-get update failed, attempting to install anyway");
 		}
 		//TODO set property for number of packages that need updating
-		update_status("installing " + packageVersion);
+		updateStatus("installing " + packageVersion);
 		success = exec("apt-get install -y --allow-change-held-packages --allow-downgrades " + packageVersion);
-		update_status("marking " + RUNNER_PACKAGE_NAME + "hold");
+		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
 		//always mark hold
 		exec("apt-mark hold " + RUNNER_PACKAGE_NAME);
-		update_active(false, "install of " + packageVersion + " " + (success ? "success" : "failure"));
+		updateActive(false, "install of " + packageVersion + " " + (success ? "success" : "failure"));
 	}
 }
 
@@ -60,13 +60,13 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 bool RnboUpdateService::Active() { return mActive; }
 std::string RnboUpdateService::Status() { return mStatus; }
 
-void RnboUpdateService::update_active(bool active, const std::string status) {
+void RnboUpdateService::updateActive(bool active, const std::string status) {
 	mActive = active;
 	mStatus = status;
 	emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"Active", "Status"});
 }
 
-void RnboUpdateService::update_status(const std::string status) {
+void RnboUpdateService::updateStatus(const std::string status) {
 	mStatus = status;
 	emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"Status"});
 }

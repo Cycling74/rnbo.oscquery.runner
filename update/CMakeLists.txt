@@ -84,15 +84,6 @@ if (LINUX)
 	)
 
 	install(FILES
-		${CMAKE_CURRENT_SOURCE_DIR}/config/com.cycling74.rnbo.xml
-		DESTINATION share/dbus-1/interfaces/
-		PERMISSIONS
-			OWNER_WRITE OWNER_READ
-			GROUP_READ
-			WORLD_READ
-	)
-
-	install(FILES
 		${CMAKE_CURRENT_SOURCE_DIR}/config/com.cycling74.rnbo.conf
 		DESTINATION share/dbus-1/system.d/
 		PERMISSIONS
