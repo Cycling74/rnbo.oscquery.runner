@@ -19,35 +19,19 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 
-if (NOT CMAKE_CROSSCOMPILING)
-	set(CONAN_PROFILE default CACHE STRING "The name of the profile to use for building conan dependencies, defaults to 'default'")
+set(CONAN_PROFILE default CACHE STRING "The name of the profile to use for building conan dependencies, defaults to 'default'")
 
-	# Download automatically, you can also just copy the conan.cmake file
-	if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
-		message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
-		file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/master/conan.cmake"
-			"${CMAKE_BINARY_DIR}/conan.cmake")
-	endif()
-
-	include(${CMAKE_BINARY_DIR}/conan.cmake)
-	conan_check(VERSION 1.29.0 REQUIRED)
-
-	conan_cmake_run(REQUIRES sdbus-cpp/0.8.3
-		BASIC_SETUP
-		CMAKE_TARGETS
-		BUILD missing
-		IMPORTS "bin, *.dll -> ./lib"
-		IMPORTS "bin, sdbus-c++-xml2cpp -> ./"
-		IMPORTS "lib, *.dylib* -> ./lib"
-		PROFILE ${CONAN_PROFILE}
-		OPTIONS sdbus-cpp:shared=False
-		#uncomment to get the sdbus-c++-xml2cpp executable for generation glue
-		sdbus-cpp:with_code_gen=True
-	)
-	set(SDBUS_LIBS CONAN_PKG::sdbus-cpp)
-else()
-	message(FATAL_ERROR "TODO")
+# Download automatically, you can also just copy the conan.cmake file
+if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
+	message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
+	file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/master/conan.cmake"
+		"${CMAKE_BINARY_DIR}/conan.cmake")
 endif()
+
+include(${CMAKE_BINARY_DIR}/conan.cmake)
+conan_check(VERSION 1.29.0 REQUIRED)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/../common/sdbus.cmake")
 
 include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/../common/"
@@ -108,7 +92,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.28), libdbus-cpp5 (>= 5.0.0), libsystemd0")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.28), libsystemd0")
 
 		SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 		SET(CPACK_DEBIAN_PACKAGE_SECTION "admin")
