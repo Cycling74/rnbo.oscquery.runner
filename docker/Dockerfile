@@ -20,5 +20,6 @@ RUN mkdir -p local/src/ && cd local/src \
 	&& tar xf cmake-3.19.3.tar.gz && cd cmake-3.19.3 && ./bootstrap && make && make install
 COPY rpi-rootfs /rpi-rootfs
 RUN mkdir -p ~/.conan/profiles
+COPY sdbus-0.8.3 /sdbus-0.8.3
 
 CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build-rpi.sh"]
