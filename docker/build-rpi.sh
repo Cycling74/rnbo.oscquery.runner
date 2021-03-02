@@ -5,6 +5,7 @@ cp ../config/conan-rpi-xcompile ~/.conan/profiles/rpi && \
 	PATH=/opt/cross-pi-gcc/bin:$PATH \
 	cmake -DRNBO_DIR=/build/src/cpp/ \
 	-DCMAKE_BUILD_TYPE=Release \
+	-DSDBUS_DIR=../sdbus-0.8.3 \
 	-DCMAKE_TOOLCHAIN_FILE=../config/rpi-xpile-toolchain.cmake \
 	-DCONAN_PROFILE=rpi \
 	..  && make && cpack
