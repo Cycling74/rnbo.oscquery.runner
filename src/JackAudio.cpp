@@ -3,6 +3,8 @@
 #include "ValueCallbackHelper.h"
 
 #include <jack/midiport.h>
+#include <jack/uuid.h>
+
 #include <readerwriterqueue/readerwriterqueue.h>
 
 #include <boost/optional.hpp>
@@ -294,6 +296,17 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
 		throw new std::runtime_error("couldn't create jack client");
+
+	//set property change callback, if we can
+	{
+		//try to get our uuid, if we can get it, we set the property and property callback
+		char * uuids;
+		if ((uuids = jack_get_uuid_for_client_name(mJackClient, jack_get_client_name(mJackClient))) != nullptr
+				&& jack_uuid_parse(uuids, &mJackClientUUID) == 0) {
+			jack_set_property_change_callback(mJackClient, InstanceAudioJack::jackPropertyChangeCallback, this);
+		}
+	}
+
 	jack_set_process_callback(mJackClient, processJack, this);
 
 	//setup command queue
@@ -583,4 +596,12 @@ void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
 	if (mPortQueue && reg != 0 && config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
 		mPortQueue->enqueue(id);
 	}
+}
+
+void InstanceAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg) {
+	reinterpret_cast<InstanceAudioJack *>(arg)->jackPropertyChangeCallback(subject, key, change);
+}
+
+void InstanceAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
+	//TODO
 }

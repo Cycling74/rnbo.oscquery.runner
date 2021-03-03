@@ -4,8 +4,10 @@
 #include <memory>
 #include <vector>
 #include <ossia-cpp/ossia-cpp98.hpp>
+
 #include <jack/types.h>
 #include <jack/jack.h>
+#include <jack/metadata.h>
 
 #include "RNBO.h"
 #include "InstanceAudio.h"
@@ -68,6 +70,10 @@ class InstanceAudioJack : public InstanceAudio {
 		void process(jack_nframes_t frames);
 		//callback that gets called with jack adds or removes client ports
 		void jackPortRegistration(jack_port_id_t id, int reg);
+
+		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
+	protected:
+		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
 		void connectToHardware();
 		void connectToMidiIf(jack_port_t * port);
@@ -75,6 +81,8 @@ class InstanceAudioJack : public InstanceAudio {
 		std::vector<opp::node> mNodes;
 
 		jack_client_t * mJackClient;
+		jack_uuid_t mJackClientUUID = 0;
+
 		std::vector<jack_port_t *> mJackAudioPortOut;
 		std::vector<jack_port_t *> mJackAudioPortIn;
 
