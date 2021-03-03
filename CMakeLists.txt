@@ -50,14 +50,6 @@ endif()
 
 set(CONAN_PROFILE default CACHE STRING "The name of the profile to use for building conan dependencies, defaults to 'default'")
 
-#dbus on linux
-if (LINUX)
-	#handle sdbus for linux, common between this and the update lib
-	include("${CMAKE_CURRENT_SOURCE_DIR}/common/sdbus.cmake")
-	add_definitions(-DRNBO_USE_DBUS)
-	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
-endif()
-
 # Download automatically, you can also just copy the conan.cmake file
 if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
 	message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
@@ -81,6 +73,14 @@ if (NOT EXISTS ${CMAKE_BINARY_DIR}/conan_successful)
     message(STATUS "")
 else()
     file(REMOVE ${CMAKE_BINARY_DIR}/conan_successful)
+endif()
+
+#dbus on linux
+if (LINUX)
+	#handle sdbus for linux, common between this and the update lib
+	include("${CMAKE_CURRENT_SOURCE_DIR}/common/sdbus.cmake")
+	add_definitions(-DRNBO_USE_DBUS)
+	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
 endif()
 
 conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
