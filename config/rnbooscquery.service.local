@@ -3,6 +3,8 @@
   After=multi-user.target
   StartLimitIntervalSec=500
   StartLimitBurst=5
+  Wants=rnbo-update-service.service
+  After=rnbo-update-service.service
 
 [Service]
   Type=idle
@@ -18,4 +20,4 @@
 
 [Install]
   WantedBy=multi-user.target
-	Alias=rnbooscquery
+  Alias=rnbooscquery
