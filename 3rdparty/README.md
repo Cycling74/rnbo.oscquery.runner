@@ -3,13 +3,15 @@
 Build latest jack2 packages on rpi.
 
 ```shell
-sudo apt install git-buildpackage cdbs libsamplerate-dev libreadline-dev libraw1394-dev libffado-dev libopus-dev libsystemd-dev libasound2-dev
+sudo apt install git-buildpackage cdbs libsamplerate-dev libreadline-dev libraw1394-dev libffado-dev libopus-dev libsystemd-dev libasound2-dev libdb-dev
 mkdir -p local/src/jack2
 cd local/src/jack2
 git clone -b debian/1.9.17_dfsg-1 https://salsa.debian.org/multimedia-team/jackd2.git
 cd jackd2
 gbp buildpackage --git-ignore-branch --git-no-sign-tags
 ```
+
+*NOTE* the packages get built but gdp wants to sign them, that will fail, its no problem, we sign them later.
 
 To test the packages out on pi before deploying
 
@@ -77,8 +79,5 @@ deb-src http://xnor-rnbo-rpi:8080/testjack/ buster main
 
 ```shell
 sudo apt update
-sudo apt-get install jackd2
-sudo reboot
+sudo apt-get install jackd2 libjack-jackd2-dev
 ```
-
-if that looks all good, publish all the debs to the remote aptly repo (scp them to the build machine and publish them from there)
