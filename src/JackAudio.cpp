@@ -38,6 +38,9 @@ namespace {
 
 	const static std::regex alsa_card_regex(R"X(\s*(\d+)\s*\[([^\[]+?)\s*\]:\s*([^;]+?)\s*;\s*([^;]+?)\s*;)X");
 
+	const std::string bpm_property_key("http://www.x37v.info/jack/metadata/bpm");
+	const std::string bpm_property_type("https://www.w3.org/2001/XMLSchema#decimal");
+
 	static int processJack(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
 		return 0;
@@ -268,22 +271,57 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		mJackClient = jack_client_open("rnbo-info", options, &status);
 		if (status == 0 && mJackClient) {
 			mBuilder([this](opp::node root) {
-					{
-						auto p = mInfo.create_bool("is_realtime");
-						p.set_description("indicates if jack is running in realtime mode or not");
-						p.set_access(opp::access_mode::Get);
-						p.set_value(jack_is_realtime(mJackClient) != 0);
-						mNodes.push_back(p);
-					}
+				{
+					auto p = mInfo.create_bool("is_realtime");
+					p.set_description("indicates if jack is running in realtime mode or not");
+					p.set_access(opp::access_mode::Get);
+					p.set_value(jack_is_realtime(mJackClient) != 0);
+				}
 
-					double sr = jack_get_sample_rate(mJackClient);
-					jack_nframes_t bs = jack_get_buffer_size(mJackClient);
-					if (sr != mSampleRate) {
-						mSampleRateNode.set_value(static_cast<float>(sr));
+				double sr = jack_get_sample_rate(mJackClient);
+				jack_nframes_t bs = jack_get_buffer_size(mJackClient);
+				if (sr != mSampleRate) {
+					mSampleRateNode.set_value(static_cast<float>(sr));
+				}
+				if (bs != mPeriodFrames) {
+					mPeriodFramesNode.set_value(static_cast<int>(bs));
+				}
+
+				auto transport = root.create_child("transport");
+				mTransportBPM = transport.create_float("bpm");
+
+				//set property change callback, if we can
+				{
+					//try to get our uuid, if we can get it, we set the property and property callback
+					char * uuids;
+					if ((uuids = jack_get_uuid_for_client_name(mJackClient, jack_get_client_name(mJackClient))) != nullptr
+							&& jack_uuid_parse(uuids, &mJackClientUUID) == 0) {
+						jack_set_property_change_callback(mJackClient, ProcessAudioJack::jackPropertyChangeCallback, this);
+
+						//find the current bpm
+						jack_description_t * descriptions = nullptr;
+						auto cnt = jack_get_all_properties(&descriptions);
+						if (cnt > 0) {
+							for (auto i = 0; i < cnt; i++) {
+								auto des = descriptions[i];
+								for (auto j = 0; j < des.property_cnt && mBPMClientUUID == 0; j++) {
+									auto prop = des.properties[j];
+									//find bpm key and attempt to convert data to double
+									if (bpm_property_key.compare(prop.key) == 0) {
+										char* pEnd = nullptr;
+										double bpm = std::strtod(prop.data, &pEnd);
+										if (*pEnd == 0) {
+											mBPMClientUUID = des.subject;
+											mTransportBPM.set_value((float)bpm);
+										}
+									}
+								}
+								jack_free_description(&des, 0);
+							}
+							jack_free(descriptions);
+						}
 					}
-					if (bs != mPeriodFrames) {
-						mPeriodFramesNode.set_value(static_cast<int>(bs));
-					}
+				}
 			});
 			//TODO build up i/o dynamically
 		}
@@ -291,21 +329,20 @@ bool ProcessAudioJack::createClient(bool startServer) {
 	return mJackClient != nullptr;
 }
 
+
+void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg) {
+	reinterpret_cast<ProcessAudioJack *>(arg)->jackPropertyChangeCallback(subject, key, change);
+}
+
+void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
+	//TODO
+}
+
 InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder) : mCore(core), mRunning(false) {
 	//get jack client, fail early if we can't
 	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
 		throw new std::runtime_error("couldn't create jack client");
-
-	//set property change callback, if we can
-	{
-		//try to get our uuid, if we can get it, we set the property and property callback
-		char * uuids;
-		if ((uuids = jack_get_uuid_for_client_name(mJackClient, jack_get_client_name(mJackClient))) != nullptr
-				&& jack_uuid_parse(uuids, &mJackClientUUID) == 0) {
-			jack_set_property_change_callback(mJackClient, InstanceAudioJack::jackPropertyChangeCallback, this);
-		}
-	}
 
 	jack_set_process_callback(mJackClient, processJack, this);
 
@@ -322,7 +359,6 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 	builder([this](opp::node root) {
 		//setup jack
 		auto jack = root.create_child("jack");
-		mNodes.push_back(jack);
 
 		//create i/o
 		{
@@ -342,7 +378,6 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 			auto audio_ins = jack.create_list("audio_ins");
 			audio_ins.set_access(opp::access_mode::Get);
 			audio_ins.set_value(names);
-			mNodes.push_back(audio_ins);
 		}
 		{
 			std::vector<opp::value> names;
@@ -360,7 +395,6 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 			auto audio_outs = jack.create_list("audio_outs");
 			audio_outs.set_access(opp::access_mode::Get);
 			audio_outs.set_value(names);
-			mNodes.push_back(audio_outs);
 		}
 
 		{
@@ -373,7 +407,6 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 			auto midi_ins = jack.create_list("midi_ins");
 			midi_ins.set_access(opp::access_mode::Get);
 			midi_ins.set_value(opp::value({opp::value(std::string(jack_port_name(mJackMidiIn)))}));
-			mNodes.push_back(midi_ins);
 		}
 		{
 			mJackMidiOut = jack_port_register(mJackClient,
@@ -385,7 +418,6 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 			auto midi_outs = jack.create_list("midi_outs");
 			midi_outs.set_access(opp::access_mode::Get);
 			midi_outs.set_value(opp::value({opp::value(std::string(jack_port_name(mJackMidiOut)))}));
-			mNodes.push_back(midi_outs);
 		}
 	});
 
@@ -596,12 +628,4 @@ void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
 	if (mPortQueue && reg != 0 && config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
 		mPortQueue->enqueue(id);
 	}
-}
-
-void InstanceAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg) {
-	reinterpret_cast<InstanceAudioJack *>(arg)->jackPropertyChangeCallback(subject, key, change);
-}
-
-void InstanceAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
-	//TODO
 }

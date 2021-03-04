@@ -28,12 +28,20 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual ~ProcessAudioJack();
 		virtual bool isActive() override;
 		virtual bool setActive(bool active) override;
+
+		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
+	protected:
+		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
 		bool createClient(bool startServer);
 		void writeJackDRC();
 		jack_client_t * mJackClient;
-		std::vector<opp::node> mNodes;
+		jack_uuid_t mJackClientUUID = 0;
+
+		jack_uuid_t mBPMClientUUID = 0;
+
 		opp::node mInfo;
+		opp::node mTransportBPM;
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
 		std::vector<std::string> mCardNames;
@@ -70,18 +78,12 @@ class InstanceAudioJack : public InstanceAudio {
 		void process(jack_nframes_t frames);
 		//callback that gets called with jack adds or removes client ports
 		void jackPortRegistration(jack_port_id_t id, int reg);
-
-		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
-	protected:
-		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
 		void connectToHardware();
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
-		std::vector<opp::node> mNodes;
 
 		jack_client_t * mJackClient;
-		jack_uuid_t mJackClientUUID = 0;
 
 		std::vector<jack_port_t *> mJackAudioPortOut;
 		std::vector<jack_port_t *> mJackAudioPortIn;
