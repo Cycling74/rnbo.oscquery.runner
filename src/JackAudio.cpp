@@ -369,10 +369,7 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 					char* pEnd = nullptr;
 					double bpm = std::strtod(values, &pEnd);
 					if (*pEnd == 0) {
-						if (bpm != mTransportBPMLast) {
-							mTransportBPMLast = bpm;
-							mTransportBPMNode.set_value((float)bpm);
-						}
+						updateTransportBPMValue(bpm);
 					}
 					//free
 					if (values)
