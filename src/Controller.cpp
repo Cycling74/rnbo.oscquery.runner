@@ -293,6 +293,8 @@ bool Controller::process() {
 	auto now = system_clock::now();
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
+		if (mProcessAudio)
+			mProcessAudio->processEvents();
 		for (auto& i: mInstances)
 			i.first->processEvents();
 	}

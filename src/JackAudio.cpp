@@ -54,7 +54,7 @@ namespace {
 	static const fs::path jackdrc_path = config::make_path("~/.jackdrc");
 }
 
-ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr) {
+ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mBPMClientUUID(0) {
 	//read in config
 	{
 		mSampleRate = jconfig_get<double>("sample_rate").get_value_or(44100.);
@@ -238,13 +238,6 @@ void ProcessAudioJack::writeJackDRC() {
 	o.close(); //flush
 }
 
-void ProcessAudioJack::updateTransportBPMValue(double bpm) {
-	if (bpm == mTransportBPMLast)
-		return;
-	mTransportBPMLast = bpm;
-	mTransportBPMNode.set_value((float)bpm);
-}
-
 bool ProcessAudioJack::isActive() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	return mJackClient != nullptr;
@@ -260,6 +253,33 @@ bool ProcessAudioJack::setActive(bool active) {
 			mJackClient = nullptr;
 		}
 		return false;
+	}
+}
+
+void ProcessAudioJack::processEvents() {
+	auto bpmClient = mBPMClientUUID.load();
+	bool hasProperty = !jack_uuid_empty(bpmClient);
+
+	//manage BPM between 2 incoming async sources, prefer OSCQuery
+	//OSCQuery and Jack Properties
+	auto v = mTransportBPMNode.get_value();
+	float bpm = v.is_float() ? v.to_float() : 100.0;
+
+	//if the incoming OSCQuery value has changed, report the property
+	if (mTransportBPMLast != bpm) {
+		mTransportBPMLast = bpm;
+		if (hasProperty) {
+			std::string bpms = std::to_string(bpm);
+			mTransportBPMPropLast.store(bpm);
+			jack_set_property(mJackClient, bpmClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+		}
+	} else if (hasProperty) {
+		//property value changed, report out
+		bpm = mTransportBPMPropLast.load();
+		if (mTransportBPMLast != bpm) {
+			mTransportBPMLast = bpm;
+			mTransportBPMNode.set_value(bpm);
+		}
 	}
 }
 
@@ -296,20 +316,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 
 				auto transport = root.create_child("transport");
 				mTransportBPMNode = transport.create_float("bpm");
-
-				ValueCallbackHelper::setCallback(
-						mTransportBPMNode, mValueCallbackHelpers,
-						[this](const opp::value& val) {
-							if (val.is_float()) {
-								double bpm = val.to_float();
-								//if the bpm changed, means we didn't set it, so send it to jack
-								if (mTransportBPMLast != bpm && !jack_uuid_empty(mBPMClientUUID)) {
-									mTransportBPMLast = bpm;
-									std::string bpms = std::to_string(bpm);
-									jack_set_property(mJackClient, mBPMClientUUID, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
-								}
-							}
-						});
+				mTransportBPMNode.set_value(100.0); //default
 
 				mTransportRollingNode = transport.create_bool("rolling");
 				auto state = jack_transport_query(mJackClient, nullptr);
@@ -343,18 +350,23 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						//find the current bpm
 						jack_description_t * descriptions = nullptr;
 						auto cnt = jack_get_all_properties(&descriptions);
+						jack_uuid_t bpmClient = 0;
 						if (cnt > 0) {
 							for (auto i = 0; i < cnt; i++) {
 								auto des = descriptions[i];
-								for (auto j = 0; j < des.property_cnt && jack_uuid_empty(mBPMClientUUID); j++) {
+								for (auto j = 0; j < des.property_cnt && jack_uuid_empty(bpmClient); j++) {
 									auto prop = des.properties[j];
 									//find bpm key and attempt to convert data to double
 									if (bpm_property_key.compare(prop.key) == 0) {
 										char* pEnd = nullptr;
-										double bpm = std::strtod(prop.data, &pEnd);
+										//using floats because ossia doesn't do double
+										float bpm = static_cast<float>(std::strtod(prop.data, &pEnd));
 										if (*pEnd == 0) {
-											mBPMClientUUID = des.subject;
-											updateTransportBPMValue(bpm);
+											bpmClient = des.subject;
+											//update all the values
+											mTransportBPMPropLast.store(bpm);
+											mTransportBPMNode.set_value(bpm);
+											mTransportBPMLast = bpm;
 										}
 									}
 								}
@@ -362,6 +374,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 							}
 							jack_free(descriptions);
 						}
+						mBPMClientUUID.store(bpmClient);
 					}
 				}
 			});
@@ -378,20 +391,29 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 }
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
+	bool key_match = bpm_property_key.compare(key) == 0;
+	jack_uuid_t bpmClient = mBPMClientUUID.load();
+	//update the client uuid in case we don't already have it
+	if (key_match && !jack_uuid_empty(subject)) {
+		auto newId = change == jack_property_change_t::PropertyDeleted ? 0 : subject;
+		if (newId != bpmClient) {
+			mBPMClientUUID.store(newId);
+		}
+	}
 	//if the subject is 'all' or matches the bpm subject
-	if (jack_uuid_empty(subject) || (!jack_uuid_empty(mBPMClientUUID) && subject == mBPMClientUUID)) {
+	if (!jack_uuid_empty(bpmClient) && (jack_uuid_empty(subject) || subject == bpmClient)) {
 		//if the key is 'all' or matches the bpm key and it isn't a delete
 		//grab the info
-		if (!key || bpm_property_key.compare(key) == 0) {
+		if (!key || key_match) {
 			if (change != jack_property_change_t::PropertyDeleted) {
 				char * values = nullptr;
 				char * types = nullptr;
-				if (0 == jack_get_property(mBPMClientUUID, bpm_property_key.c_str(), &values, &types)) {
+				if (0 == jack_get_property(bpmClient, bpm_property_key.c_str(), &values, &types)) {
 					//convert to double and store if success
 					char* pEnd = nullptr;
-					double bpm = std::strtod(values, &pEnd);
+					float bpm = static_cast<float>(std::strtod(values, &pEnd));
 					if (*pEnd == 0) {
-						updateTransportBPMValue(bpm);
+						mTransportBPMPropLast.store(bpm);
 					}
 					//free
 					if (values)

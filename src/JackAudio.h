@@ -3,6 +3,8 @@
 #include <mutex>
 #include <memory>
 #include <vector>
+#include <atomic>
+
 #include <ossia-cpp/ossia-cpp98.hpp>
 
 #include <jack/types.h>
@@ -28,6 +30,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual ~ProcessAudioJack();
 		virtual bool isActive() override;
 		virtual bool setActive(bool active) override;
+		virtual void processEvents() override;
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -36,18 +39,19 @@ class ProcessAudioJack : public ProcessAudio {
 		bool createClient(bool startServer);
 		void writeJackDRC();
 
-		void updateTransportBPMValue(double bpm);
-
 		jack_client_t * mJackClient;
 		jack_uuid_t mJackClientUUID = 0;
 
-		jack_uuid_t mBPMClientUUID = 0;
+		std::atomic<jack_uuid_t> mBPMClientUUID;
 
 		opp::node mInfo;
 		opp::node mTransportBPMNode;
-		double mTransportBPMLast = 0.0;
+		float mTransportBPMLast = 0.0;
+		std::atomic<float> mTransportBPMPropLast;
+
 		opp::node mTransportRollingNode;
 		bool mTransportRollingLast = false;
+
 
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
