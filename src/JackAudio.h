@@ -46,6 +46,8 @@ class ProcessAudioJack : public ProcessAudio {
 		opp::node mInfo;
 		opp::node mTransportBPMNode;
 		double mTransportBPMLast = 0.0;
+		opp::node mTransportRollingNode;
+		bool mTransportRollingLast = false;
 
 		NodeBuilder mBuilder;
 		std::mutex mMutex;

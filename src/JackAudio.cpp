@@ -296,6 +296,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 
 				auto transport = root.create_child("transport");
 				mTransportBPMNode = transport.create_float("bpm");
+
 				ValueCallbackHelper::setCallback(
 						mTransportBPMNode, mValueCallbackHelpers,
 						[this](const opp::value& val) {
@@ -306,6 +307,27 @@ bool ProcessAudioJack::createClient(bool startServer) {
 									mTransportBPMLast = bpm;
 									std::string bpms = std::to_string(bpm);
 									jack_set_property(mJackClient, mBPMClientUUID, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+								}
+							}
+						});
+
+				mTransportRollingNode = transport.create_bool("rolling");
+				auto state = jack_transport_query(mJackClient, nullptr);
+				mTransportRollingLast = state != jack_transport_state_t::JackTransportStopped;
+				mTransportRollingNode.set_value(mTransportRollingLast);
+
+				ValueCallbackHelper::setCallback(
+						mTransportRollingNode, mValueCallbackHelpers,
+						[this](const opp::value& val) {
+							if (val.is_bool()) {
+								bool rolling = val.to_bool();
+								if (mTransportRollingLast != rolling) {
+									mTransportRollingLast = rolling;
+									if (rolling) {
+										jack_transport_start(mJackClient);
+									} else {
+										jack_transport_stop(mJackClient);
+									}
 								}
 							}
 						});
