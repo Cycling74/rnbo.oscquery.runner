@@ -39,7 +39,7 @@ namespace {
 	const static std::regex alsa_card_regex(R"X(\s*(\d+)\s*\[([^\[]+?)\s*\]:\s*([^;]+?)\s*;\s*([^;]+?)\s*;)X");
 
 	const std::string bpm_property_key("http://www.x37v.info/jack/metadata/bpm");
-	const std::string bpm_property_type("https://www.w3.org/2001/XMLSchema#decimal");
+	const char * bpm_property_type = "https://www.w3.org/2001/XMLSchema#decimal";
 
 	static int processJack(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
@@ -238,6 +238,13 @@ void ProcessAudioJack::writeJackDRC() {
 	o.close(); //flush
 }
 
+void ProcessAudioJack::updateTransportBPMValue(double bpm) {
+	if (bpm == mTransportBPMLast)
+		return;
+	mTransportBPMLast = bpm;
+	mTransportBPMNode.set_value((float)bpm);
+}
+
 bool ProcessAudioJack::isActive() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	return mJackClient != nullptr;
@@ -288,7 +295,20 @@ bool ProcessAudioJack::createClient(bool startServer) {
 				}
 
 				auto transport = root.create_child("transport");
-				mTransportBPM = transport.create_float("bpm");
+				mTransportBPMNode = transport.create_float("bpm");
+				ValueCallbackHelper::setCallback(
+						mTransportBPMNode, mValueCallbackHelpers,
+						[this](const opp::value& val) {
+							if (val.is_float()) {
+								double bpm = val.to_float();
+								//if the bpm changed, means we didn't set it, so send it to jack
+								if (mTransportBPMLast != bpm && !jack_uuid_empty(mBPMClientUUID)) {
+									mTransportBPMLast = bpm;
+									std::string bpms = std::to_string(bpm);
+									jack_set_property(mJackClient, mBPMClientUUID, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+								}
+							}
+						});
 
 				//set property change callback, if we can
 				{
@@ -304,7 +324,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						if (cnt > 0) {
 							for (auto i = 0; i < cnt; i++) {
 								auto des = descriptions[i];
-								for (auto j = 0; j < des.property_cnt && mBPMClientUUID == 0; j++) {
+								for (auto j = 0; j < des.property_cnt && jack_uuid_empty(mBPMClientUUID); j++) {
 									auto prop = des.properties[j];
 									//find bpm key and attempt to convert data to double
 									if (bpm_property_key.compare(prop.key) == 0) {
@@ -312,7 +332,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 										double bpm = std::strtod(prop.data, &pEnd);
 										if (*pEnd == 0) {
 											mBPMClientUUID = des.subject;
-											mTransportBPM.set_value((float)bpm);
+											updateTransportBPMValue(bpm);
 										}
 									}
 								}
@@ -325,6 +345,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 			});
 			//TODO build up i/o dynamically
 		}
+		jack_activate(mJackClient);
 	}
 	return mJackClient != nullptr;
 }
@@ -335,7 +356,33 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 }
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
-	//TODO
+	//if the subject is 'all' or matches the bpm subject
+	if (jack_uuid_empty(subject) || (!jack_uuid_empty(mBPMClientUUID) && subject == mBPMClientUUID)) {
+		//if the key is 'all' or matches the bpm key and it isn't a delete
+		//grab the info
+		if (!key || bpm_property_key.compare(key) == 0) {
+			if (change != jack_property_change_t::PropertyDeleted) {
+				char * values = nullptr;
+				char * types = nullptr;
+				if (0 == jack_get_property(mBPMClientUUID, bpm_property_key.c_str(), &values, &types)) {
+					//convert to double and store if success
+					char* pEnd = nullptr;
+					double bpm = std::strtod(values, &pEnd);
+					if (*pEnd == 0) {
+						if (bpm != mTransportBPMLast) {
+							mTransportBPMLast = bpm;
+							mTransportBPMNode.set_value((float)bpm);
+						}
+					}
+					//free
+					if (values)
+						jack_free(values);
+					if (types)
+						jack_free(types);
+				}
+			}
+		}
+	}
 }
 
 InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder) : mCore(core), mRunning(false) {

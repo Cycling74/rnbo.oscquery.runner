@@ -35,13 +35,18 @@ class ProcessAudioJack : public ProcessAudio {
 	private:
 		bool createClient(bool startServer);
 		void writeJackDRC();
+
+		void updateTransportBPMValue(double bpm);
+
 		jack_client_t * mJackClient;
 		jack_uuid_t mJackClientUUID = 0;
 
 		jack_uuid_t mBPMClientUUID = 0;
 
 		opp::node mInfo;
-		opp::node mTransportBPM;
+		opp::node mTransportBPMNode;
+		double mTransportBPMLast = 0.0;
+
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
 		std::vector<std::string> mCardNames;
