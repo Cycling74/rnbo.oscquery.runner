@@ -26,7 +26,6 @@ namespace {
 }
 
 void signal_handler(int signal) {
-	std::cout << "exiting" << std::endl;
 	mRun.store(false);
 }
 
