@@ -54,9 +54,14 @@ sudo apt install gnupg1
 gpg1 --gen-key
 gpg1 --export --armor --output xnor-gpg.pub
 sudo apt-key add xnor-gpg.pub
-aptly -distribution=buster repo create jack
-aptly repo add jack ..
-aptly publish repo jack testjack
+aptly -distribution=buster repo create -component="extra" extra
+aptly repo add extra ..
+aptly publish repo extra testjack
+```
+
+or, to update
+```
+aptly publish update buster
 ```
 
 with tmux or screen
