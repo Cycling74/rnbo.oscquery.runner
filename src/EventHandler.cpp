@@ -1,6 +1,6 @@
 #include "EventHandler.h"
 
-EventHandler::EventHandler(ParameterEventCallback paramCallback, MessageEventEventCallback msgCallback) : mParameterCallback(paramCallback), mMessageCallback(msgCallback) {
+EventHandler::EventHandler(ParameterEventCallback paramCallback, MessageEventEventCallback msgCallback, MidiEventEventCallback midiCallback) : mParameterCallback(paramCallback), mMessageCallback(msgCallback), mMidiCallback(midiCallback) {
 }
 
 void EventHandler::processEvents() {
@@ -24,5 +24,11 @@ void EventHandler::handleParameterEvent(RNBO::ParameterEvent event) {
 void EventHandler::handleMessageEvent(RNBO::MessageEvent event) {
 	if (mMessageCallback) {
 		mMessageCallback(event);
+	}
+}
+
+void EventHandler::handleMidiEvent(RNBO::MidiEvent event) {
+	if (mMidiCallback) {
+		mMidiCallback(event);
 	}
 }
