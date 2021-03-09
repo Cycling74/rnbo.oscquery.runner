@@ -165,8 +165,13 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 }
 
 Controller::~Controller() {
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		clearInstances(guard);
+	}
 	mProcessCommands.store(false);
 	mCommandThread.join();
+	mProcessAudio.reset();
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
