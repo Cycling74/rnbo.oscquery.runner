@@ -61,6 +61,7 @@ class Instance {
 		bool loadDataRef(const std::string& id, const std::string& fileName);
 		void handleInportMessage(RNBO::MessageTag tag, const opp::value& value);
 		void handleOutportMessage(RNBO::MessageEvent e);
+		void handleMidiCallback(RNBO::MidiEvent e);
 
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
@@ -72,6 +73,7 @@ class Instance {
 		std::map<RNBO::ParameterIndex, opp::node> mIndexToNode;
 
 		opp::node mActiveNode;
+		opp::node mMIDIOutNode;
 
 		//queue for loading or unloading data refs
 		Queue<DataRefCommand> mDataRefCommandQueue;

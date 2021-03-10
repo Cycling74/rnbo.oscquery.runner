@@ -34,14 +34,17 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			it->second.set_value(value);
 		}
 	};
-	mEventHandler = std::unique_ptr<EventHandler>(
-			new EventHandler(paramCallback,
-				[this](RNBO::MessageEvent msg) {
-					//only send messages that aren't targeted for a specific object
-					if (msg.getObjectId() == 0)
-						handleOutportMessage(msg);
-				})
-			);
+	auto msgCallback =
+		[this](RNBO::MessageEvent msg) {
+			//only send messages that aren't targeted for a specific object
+			if (msg.getObjectId() == 0)
+				handleOutportMessage(msg);
+		};
+	auto midiCallback =
+		[this](RNBO::MidiEvent e) {
+			handleMidiCallback(e);
+		};
+	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback, msgCallback,midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
@@ -194,6 +197,39 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					mOutportNodes[i] = p;
 				}
 			}
+		}
+
+		//setup virtual midi
+		{
+			auto vmidi = root.create_child("midi");
+			auto in = vmidi.create_list("in");
+			in.set_description("midi events in to your RNBO patch");
+			in.set_access(opp::access_mode::Set);
+			//handle a virtual midi input, route into RNBO object
+			ValueCallbackHelper::setCallback(
+					in, mValueCallbackHelpers,
+					[this](const opp::value& val) {
+						if (val.is_list()) {
+							auto l = val.to_list();
+							std::vector<uint8_t> bytes;
+							for (auto v: l) {
+								if (v.is_int()) {
+									bytes.push_back(static_cast<uint8_t>(v.to_int()));
+								} else if (v.is_float()) {
+									//shouldn't get float but just in case?
+									bytes.push_back(static_cast<uint8_t>(floorf(v.to_float())));
+								} else {
+									//XXX cerr
+									return;
+								}
+							}
+							mCore->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
+						}
+					});
+
+			mMIDIOutNode = vmidi.create_list("out");
+			mMIDIOutNode.set_description("midi events out of your RNBO patch");
+			mMIDIOutNode.set_access(opp::access_mode::Get);
 		}
 	});
 
@@ -450,5 +486,17 @@ void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 		case MessageEvent::Type::Max_Type:
 		default:
 			return; //TODO warning message?
+	}
+}
+
+//from RNBO, report via OSCQuery
+void Instance::handleMidiCallback(RNBO::MidiEvent e) {
+	if (mMIDIOutNode) {
+		auto in = e.getData();
+		std::vector<opp::value> bytes;
+		for (int i = 0; i < e.getLength(); i++) {
+			bytes.push_back(opp::value(static_cast<int>(in[i])));
+		}
+		mMIDIOutNode.set_value(bytes);
 	}
 }
