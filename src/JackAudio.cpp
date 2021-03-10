@@ -495,6 +495,9 @@ void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
 }
 
 void InstanceAudioJack::process(jack_nframes_t nframes) {
+	auto midiOutBuf = jack_port_get_buffer(mJackMidiOut, nframes);
+	jack_midi_clear_buffer(midiOutBuf);
+
 	//get the current time
 	auto nowms = mCore->getCurrentTime();
 	//TODO sync to jack's time?
@@ -568,10 +571,9 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 
 	//process midi out
 	if (mMIDIOutList.size()) {
-		auto midi_buf = jack_port_get_buffer(mJackMidiOut, nframes);
 		for (const auto& e : mMIDIOutList) {
 			jack_nframes_t frame = std::max(0.0, e.getTime() - nowms) * mMilliFrame;
-			jack_midi_event_write(midi_buf, frame, e.getData(), e.getLength());
+			jack_midi_event_write(midiOutBuf, frame, e.getData(), e.getLength());
 		}
 		mMIDIOutList.clear();
 	}
