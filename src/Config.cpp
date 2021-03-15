@@ -82,7 +82,7 @@ namespace config {
 
 	void init() {
 		// /foo/bar/bin/exename -> /foo/bar
-		base_dir = boost::dll::program_location().parent_path().parent_path();
+		base_dir = boost::filesystem::canonical(boost::dll::program_location()).parent_path().parent_path();
 
 		//find the path
 		for (auto p: {
