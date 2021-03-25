@@ -69,6 +69,12 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		n.set_access(opp::access_mode::Get);
 		n.set_value(it.second);
 	}
+	{
+		auto n = info.create_string("system_id");
+		n.set_description("a unique, one time generated id for this system");
+		n.set_access(opp::access_mode::Get);
+		n.set_value(config::get_system_id());
+	}
 
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
