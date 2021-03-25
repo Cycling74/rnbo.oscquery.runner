@@ -9,6 +9,10 @@
 
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/none.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/lexical_cast.hpp>
 
 using std::chrono::system_clock;
 
@@ -29,6 +33,10 @@ namespace {
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
 
 	static fs::path home_dir_config_file_path = config::make_path("~/.config/rnbo/runner.json");
+
+	static fs::path runner_uuid_path = config::make_path("~/.config/rnbo/runner-id.txt");
+
+	static boost::uuids::uuid system_id = boost::uuids::random_generator()();
 
 	//the base dir of our installation
 	static fs::path base_dir;
@@ -81,6 +89,26 @@ namespace config {
 	}
 
 	void init() {
+		{
+			bool write = true;
+			if (fs::exists(runner_uuid_path)) {
+				try {
+					std::ifstream i(runner_uuid_path.string());
+					std::string line;
+					if (std::getline(i, line)) {
+						system_id = boost::lexical_cast<boost::uuids::uuid>(line);
+						write = false;
+					}
+				} catch (...) {
+				}
+			}
+			if (write) {
+				std::ofstream o(runner_uuid_path.string());
+				o << boost::lexical_cast<std::string>(system_id) << std::endl;
+				o << "//automatically generated once by rnbo" << std::endl;
+			}
+		}
+
 		// /foo/bar/bin/exename -> /foo/bar
 		base_dir = boost::filesystem::canonical(boost::dll::program_location()).parent_path().parent_path();
 
@@ -185,5 +213,9 @@ namespace config {
 
 	fs::path make_path(const std::string& str) {
 		return fs::absolute(fs::path(std::regex_replace(str, tilde, home_str)));
+	}
+
+	std::string get_system_id() {
+		return boost::lexical_cast<std::string>(system_id);
 	}
 }

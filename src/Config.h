@@ -46,4 +46,6 @@ namespace config {
 
 	//make's an absolute path with ~ replaced with $HOME appropriately
 	boost::filesystem::path make_path(const std::string& p);
+
+	std::string get_system_id();
 }
