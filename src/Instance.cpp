@@ -31,7 +31,15 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	auto paramCallback = [this](RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 		auto it = mIndexToNode.find(index);
 		if (it != mIndexToNode.end()) {
-			it->second.set_value(value);
+			//enumerated value
+			if (it->second.second) {
+				auto it2 = it->second.second->find(static_cast<int>(value));
+				if (it2 != it->second.second->end()) {
+					it->second.first.set_value(it2->second);
+				}
+			} else {
+				it->second.first.set_value(value);
+			}
 		}
 	};
 	auto msgCallback =
@@ -94,21 +102,60 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (info.type != ParameterType::ParameterTypeNumber || !info.visible || info.debug)
 				continue;
 
-			//set parameter access, range, etc etc
-			auto p = params.create_float(mCore->getParameterId(index));
-			p.set_access(opp::access_mode::Bi);
-			p.set_value(info.initialValue);
-			p.set_min(info.min);
-			p.set_max(info.max);
-			p.set_bounding(opp::bounding_mode::Clip);
+			if (info.enumValues == nullptr) {
+				//numerical parameters
+				//set parameter access, range, etc etc
+				auto p = params.create_float(mCore->getParameterId(index));
+				p.set_access(opp::access_mode::Bi);
+				p.set_value(info.initialValue);
+				p.set_min(info.min);
+				p.set_max(info.max);
+				p.set_bounding(opp::bounding_mode::Clip);
 
-			ValueCallbackHelper::setCallback(
-				p, mValueCallbackHelpers,
-				[this, index](const opp::value& val) {
-				if (val.is_float())
-					mCore->setParameterValue(index, val.to_float());
-				});
-			mIndexToNode[index] = p;
+				ValueCallbackHelper::setCallback(
+					p, mValueCallbackHelpers,
+					[this, index](const opp::value& val) {
+					if (val.is_float())
+						mCore->setParameterValue(index, val.to_float());
+					});
+				//setup lookup, no enum
+				mIndexToNode[index] = std::make_pair(p, boost::none);
+			} else {
+				//enumerated parameters
+				std::vector<opp::value> values;
+
+				//build out lookup maps between strings and numbers
+				std::unordered_map<std::string, ParameterValue> nameToVal;
+				std::unordered_map<int, std::string> valToName;
+				for (int e = 0; e < info.steps; e++) {
+					std::string s(info.enumValues[e]);
+					values.push_back(s);
+					nameToVal[s] = static_cast<ParameterValue>(e);
+					valToName[e] = s;
+				}
+
+				auto p = params.create_string(mCore->getParameterId(index));
+				p.set_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
+
+				//XXX you have to set min and or max before accepted values takes, will file bug report
+				p.set_bounding(opp::bounding_mode::Clip);
+				p.set_min(values.front());
+				p.set_max(values.back());
+				p.set_accepted_values(values);
+
+				ValueCallbackHelper::setCallback(
+					p, mValueCallbackHelpers,
+					[this, index, nameToVal](const opp::value& val) {
+						if (val.is_string()) {
+							auto f = nameToVal.find(val.to_string());
+							if (f != nameToVal.end()) {
+								mCore->setParameterValue(index, f->second);
+							}
+						}
+					});
+				//set lookup with enum lookup
+				mIndexToNode[index] = std::make_pair(p, valToName);
+			}
 		}
 
 		auto dataRefs = root.create_child("data_refs");

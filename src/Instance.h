@@ -9,6 +9,7 @@
 #include <mutex>
 #include <functional>
 
+#include <boost/optional.hpp>
 #include <ossia-cpp/ossia-cpp98.hpp>
 
 #include "RNBO.h"
@@ -70,7 +71,8 @@ class Instance {
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 
-		std::map<RNBO::ParameterIndex, opp::node> mIndexToNode;
+		//parameter index -> (node and optional int -> string for enum lookups)
+		std::map<RNBO::ParameterIndex, std::pair<opp::node, boost::optional<std::unordered_map<int, std::string>>>> mIndexToNode;
 
 		opp::node mActiveNode;
 		opp::node mMIDIOutNode;
