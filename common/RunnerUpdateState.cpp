@@ -12,11 +12,11 @@ namespace runner_update {
 	std::string into(const RunnerUpdateState& s) {
 		switch (s) {
 			case RunnerUpdateState::Idle:
-				return "Idle";
+				return "idle";
 			case RunnerUpdateState::Active:
-				return "Active";
+				return "active";
 			case RunnerUpdateState::Failed:
-				return "Failed";
+				return "failed";
 			default:
 				return "";
 		}
