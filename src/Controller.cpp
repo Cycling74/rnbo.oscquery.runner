@@ -142,6 +142,14 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 				n.set_access(opp::access_mode::Get);
 				n.set_description("Update state");
 				n.set_value(runner_update::into(state));
+				std::vector<opp::value> accepted;
+				for (auto v: runner_update::all()) {
+					accepted.push_back(v);
+				}
+				n.set_bounding(opp::bounding_mode::Clip);
+				n.set_min(accepted.front());
+				n.set_max(accepted.back());
+				n.set_accepted_values(accepted);
 				mUpdateServiceProxy->setStateCallback([n](RunnerUpdateState state) mutable { n.set_value(runner_update::into(state)); });
 			}
 
