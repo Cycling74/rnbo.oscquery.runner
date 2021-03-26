@@ -6,7 +6,7 @@
             <arg type="s" name="version" direction="in"/>
             <arg type="b" name="queued" direction="out"/>
         </method>
-				<property name="Active" type="b" access="read"/>
+				<property name="State" type="u" access="read"/>
 				<property name="Status" type="s" access="read"/>
     </interface>
 </node>
