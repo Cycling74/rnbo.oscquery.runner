@@ -25,7 +25,7 @@ void RnboUpdateService::evaluateCommands() {
 		setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 		std::string packageVersion = RUNNER_PACKAGE_NAME + "=" + o.get();
 		bool success = false;
-		updateActive(true, "updating package list");
+		updateState(RunnerUpdateState::Active, "updating package list");
 		if (!exec("apt-get -y update")) {
 			updateStatus("apt-get update failed, attempting to install anyway");
 		}
@@ -35,7 +35,7 @@ void RnboUpdateService::evaluateCommands() {
 		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
 		//always mark hold
 		exec("apt-mark hold " + RUNNER_PACKAGE_NAME);
-		updateActive(false, "install of " + packageVersion + " " + (success ? "success" : "failure"));
+		updateState(success ? RunnerUpdateState::Idle : RunnerUpdateState::Failed, "install of " + packageVersion + " " + (success ? "success" : "failure"));
 	}
 }
 
@@ -57,13 +57,13 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 	return true;
 }
 
-bool RnboUpdateService::Active() { return mActive; }
+uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }
 std::string RnboUpdateService::Status() { return mStatus; }
 
-void RnboUpdateService::updateActive(bool active, const std::string status) {
-	mActive = active;
+void RnboUpdateService::updateState(RunnerUpdateState state, const std::string status) {
+	mState = state;
 	mStatus = status;
-	emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"Active", "Status"});
+	emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"State", "Status"});
 }
 
 void RnboUpdateService::updateStatus(const std::string status) {

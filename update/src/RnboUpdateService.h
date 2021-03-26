@@ -3,6 +3,7 @@
 #include <sdbus-c++/sdbus-c++.h>
 #include "UpdateServiceServerGlue.h"
 #include "Queue.h"
+#include "RunnerUpdateState.h"
 
 class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_adaptor, sdbus::Properties_adaptor>
 {
@@ -18,13 +19,13 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		virtual bool QueueRunnerInstall(const std::string& version);
 
 		//properties
-		virtual bool Active();
+		virtual uint32_t State();
 		virtual std::string Status();
 
-		void updateActive(bool active, const std::string status);
+		void updateState(RunnerUpdateState state, const std::string status);
 		void updateStatus(const std::string status);
 		bool exec(const std::string cmd);
 
-		bool mActive = false;
+		RunnerUpdateState mState = RunnerUpdateState::Idle;
 		std::string mStatus = "waiting";
 };
