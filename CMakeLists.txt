@@ -39,6 +39,7 @@ set(PROJECT_SRC
 	src/JackAudio.cpp
 	src/PatcherFactory.cpp
 	src/ValueCallbackHelper.cpp
+	common/RunnerUpdateState.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
 

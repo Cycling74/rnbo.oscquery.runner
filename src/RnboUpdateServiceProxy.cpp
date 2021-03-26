@@ -12,9 +12,9 @@ RnboUpdateServiceProxy::RnboUpdateServiceProxy(std::string destination, std::str
 
 RnboUpdateServiceProxy::~RnboUpdateServiceProxy() { unregisterProxy(); }
 
-void RnboUpdateServiceProxy::setActiveCallback(std::function<void(bool)> cb) {
+void RnboUpdateServiceProxy::setStateCallback(std::function<void(RunnerUpdateState)> cb) {
 	std::lock_guard<std::mutex> guard(mCallbackMutex);
-	mActiveCallback = cb;
+	mStateCallback = cb;
 }
 void RnboUpdateServiceProxy::setStatusCallback(std::function<void(std::string)> cb) {
 	std::lock_guard<std::mutex> guard(mCallbackMutex);
@@ -33,9 +33,10 @@ void RnboUpdateServiceProxy::onPropertiesChanged(
 			if (mStatusCallback && var.containsValueOfType<std::string>()) {
 				mStatusCallback(var.get<std::string>());
 			}
-		} else if (key == "Active") {
-			if (mActiveCallback && var.containsValueOfType<bool>()) {
-				mActiveCallback(var.get<bool>());
+		} else if (key == "State") {
+			RunnerUpdateState state;
+			if (mStateCallback && var.containsValueOfType<uint32_t>() && runner_update::from(var.get<uint32_t>(), state)) {
+				mStateCallback(state);
 			}
 		}
 	}

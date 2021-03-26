@@ -16,6 +16,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #ifdef RNBO_USE_DBUS
+#include "RunnerUpdateState.h"
 #include "RnboUpdateServiceProxy.h"
 #endif
 
@@ -132,15 +133,16 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	if (mUpdateServiceProxy) {
 		try {
 			//setup dbus
-			bool active = mUpdateServiceProxy->Active();
+			RunnerUpdateState state;
+			runner_update::from(mUpdateServiceProxy->State(), state);
 			std::string status = mUpdateServiceProxy->Status();
 
 			{
-				auto n = update.create_bool("active");
+				auto n = update.create_string("state");
 				n.set_access(opp::access_mode::Get);
-				n.set_description("Is an update active");
-				n.set_value(active);
-				mUpdateServiceProxy->setActiveCallback([n](bool active) mutable { n.set_value(active); });
+				n.set_description("Update state");
+				n.set_value(runner_update::into(state));
+				mUpdateServiceProxy->setStateCallback([n](RunnerUpdateState state) mutable { n.set_value(runner_update::into(state)); });
 			}
 
 			{
