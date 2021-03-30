@@ -66,7 +66,7 @@ void RnboUpdateService::evaluateCommands() {
 					err.push_back(l.substr(3));
 			}
 			if (err.size()) {
-				msg += " failed with errors: " + boost::algorithm::join(err, ", ");
+				msg += std::string(" failed with error") + (err.size() > 1 ? "s: " : ": ") + boost::algorithm::join(err, ", ");
 			} else {
 				msg += " failed for unknown reasons";
 			}
