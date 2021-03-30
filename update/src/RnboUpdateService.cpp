@@ -49,7 +49,7 @@ void RnboUpdateService::evaluateCommands() {
 		}
 		//TODO set property for number of packages that need updating
 		updateStatus("installing " + packageVersion);
-		r = exec("apt-get install -y --allow-change-held-packages --allow-downgrades " + packageVersion);
+		r = exec("apt-get install -y --install-recommends --allow-change-held-packages --allow-downgrades " + packageVersion);
 		bool success = r.first;
 		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
 		//always mark hold
