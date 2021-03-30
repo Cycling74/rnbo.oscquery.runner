@@ -24,7 +24,6 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 
 		void updateState(RunnerUpdateState state, const std::string status);
 		void updateStatus(const std::string status);
-		bool exec(const std::string cmd);
 
 		RunnerUpdateState mState = RunnerUpdateState::Idle;
 		std::string mStatus = "waiting";
