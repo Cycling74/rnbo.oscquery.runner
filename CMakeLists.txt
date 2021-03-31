@@ -67,7 +67,7 @@ conan_check(VERSION 1.29.0 REQUIRED)
 #add our public remote, has libossia
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/conan_successful)
     execute_process(
-			COMMAND conan remote add cycling-bintray https://api.bintray.com/conan/xnor/cycling74
+			COMMAND conan remote add cycling-jfrog https://xnor.jfrog.io/artifactory/api/conan/cycling74
 			# COMMAND_ECHO STDOUT
 			ERROR_QUIET # errors are okay: the entries might already exist
     )
