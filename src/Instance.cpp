@@ -1,9 +1,10 @@
 #include <memory>
 #include <iostream>
 #include <functional>
-#include <filesystem>
+
 #include <sndfile.hh>
 #include <readerwriterqueue/readerwriterqueue.h>
+#include <boost/filesystem.hpp>
 
 #include "Config.h"
 #include "Instance.h"
