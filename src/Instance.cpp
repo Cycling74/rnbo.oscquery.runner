@@ -28,6 +28,16 @@ namespace {
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
 	std::vector<std::string> outportTags;
+	std::unordered_map<std::string, std::string> dataRefMap;
+
+	//load up data ref map so we can set the initial value
+	auto datarefs = conf["datarefs"];
+	if (datarefs.is_object()) {
+		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+			dataRefMap[it.key()] = it.value();
+		}
+	}
+
 	//RNBO is telling us we have a parameter update, tell ossia
 	auto paramCallback = [this](RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 		auto it = mIndexToNode.find(index);
@@ -91,7 +101,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
-	builder([this, outportTags](opp::node root) {
+	builder([this, outportTags, &dataRefMap](opp::node root) {
 		//setup parameters
 		auto params = root.create_child("params");
 		params.set_description("Parameter get/set");
@@ -164,6 +174,10 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			auto id = mCore->getExternalDataId(index);
 			std::string name(id);
 			auto d = dataRefs.create_string(name);
+			auto it = dataRefMap.find(name);
+			if (it != dataRefMap.end()) {
+				d.set_value(it->second);
+			}
 			ValueCallbackHelper::setCallback(
 				d, mValueCallbackHelpers,
 					[this, id](const opp::value& val) {
@@ -282,13 +296,8 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	});
 
 	//auto load data refs
-	auto datarefs = conf["datarefs"];
-	if (datarefs.is_object()) {
-		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
-			std::string value = it.value();
-			if (value.size() > 0)
-				loadDataRef(it.key(), value);
-		}
+	for (auto& kv: dataRefMap) {
+		loadDataRef(kv.first, kv.second);
 	}
 
 	//load the initial or last preset, if in the config
