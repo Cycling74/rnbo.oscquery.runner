@@ -567,7 +567,7 @@ void Controller::processCommands() {
 				continue;
 			}
 		} catch (std::exception& e) {
-			cerr << "exception processing command" << e.what() << endl;
+			cerr << "exception processing command " << e.what() << endl;
 		}
 	}
 }
