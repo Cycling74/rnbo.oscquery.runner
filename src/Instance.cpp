@@ -497,6 +497,16 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) 
 		//empty list, bang
 		if (list.size() == 0 || (list.size() == 1 && list[0].is_impulse())) {
 			mCore->sendMessage(tag);
+		} else if (list.size() == 1) {
+			RNBO::number v = 0.0;
+			if (list[0].is_int()) {
+				v = static_cast<RNBO::number>(list[0].to_int());
+			} else if (list[0].is_float()) {
+				v = static_cast<RNBO::number>(list[0].to_float());
+			} else {
+				std::cerr << "only numeric items are allowed in lists, aborting message" << std::endl;
+			}
+			mCore->sendMessage(tag, v);
 		} else {
 			//construct and send list
 			auto l = RNBO::make_unique<RNBO::list>();
