@@ -71,11 +71,16 @@ int main(int argc, const char * argv[]) {
 	}
 	{
 		Controller c("rnbo:" + hostName);
+
+#ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
 		if (options["filename"].size()) {
 			c.loadLibrary(options["filename"]);
 		} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
 			c.loadLast();
 		}
+#else
+			c.loadBuiltIn();
+#endif
 
 		auto config_timeout = std::chrono::seconds(1);
 		std::chrono::time_point<std::chrono::system_clock> config_poll_next = system_clock::now() + config_timeout;

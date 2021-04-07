@@ -204,9 +204,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 	}
 
 	//activate if we need to
-	if (!mProcessAudio->isActive())
-		mAudioActive.set_value(mProcessAudio->setActive(true));
-	if (!mProcessAudio->isActive()) {
+	if (!tryActivateAudio()) {
 		cerr << "audio is not active, cannot create instance(s)" << endl;
 		if (cmdId.size()) {
 			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
@@ -287,6 +285,45 @@ bool Controller::loadLast() {
 	return false;
 }
 
+#ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
+bool Controller::loadBuiltIn() {
+	mSave = false;
+	try {
+		if (!tryActivateAudio()) {
+			cerr << "audio is not active, cannot create builtin instance" << endl;
+			return false;
+		}
+
+		{
+			//make sure that no other instances can be created while this is active
+			std::lock_guard<std::mutex> iguard(mInstanceMutex);
+			auto factory = PatcherFactory::CreateBuiltInFactory();
+			opp::node instNode;
+			std::string instIndex;
+			{
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				clearInstances(guard);
+				instIndex = std::to_string(mInstances.size());
+				instNode = mInstancesNode.create_child(instIndex);
+			}
+			auto builder = [instNode, this](std::function<void(opp::node)> f) {
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				f(instNode);
+			};
+			auto instance = new Instance(factory, "rnbo" + instIndex, builder, {});
+			{
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				mInstances.emplace_back(std::make_pair(instance, fs::path()));
+			}
+		}
+		return true;
+	} catch (std::exception& e) {
+		cerr << "exception " << e.what() << " trying to load last setup" << endl;
+	}
+	return false;
+}
+#endif
+
 void Controller::saveLast() {
 	RNBO::Json instances = RNBO::Json::array();
 	RNBO::Json last = RNBO::Json::object();
@@ -355,6 +392,12 @@ void Controller::handleActive(bool active) {
 		//load last if we're activating from inactive
 		mCommandQueue.push("load_last");
 	}
+}
+
+bool Controller::tryActivateAudio() {
+	if (!mProcessAudio->isActive())
+		mAudioActive.set_value(mProcessAudio->setActive(true));
+	return mProcessAudio->isActive();
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {

@@ -16,6 +16,9 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
+set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
+mark_as_advanced(BUILTIN_PATCHER_PATH)
+
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
 endif()
@@ -82,6 +85,11 @@ if (LINUX)
 	include("${CMAKE_CURRENT_SOURCE_DIR}/common/sdbus.cmake")
 	add_definitions(-DRNBO_USE_DBUS)
 	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
+endif()
+
+if (BUILTIN_PATCHER_PATH)
+	add_definitions(-DRNBO_OSCQUERY_BUILTIN_PATCHER)
+	list(APPEND PROJECT_SRC ${BUILTIN_PATCHER_PATH})
 endif()
 
 conan_cmake_run(REQUIRES cpp-optparse/cci.20171104

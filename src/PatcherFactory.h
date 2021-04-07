@@ -10,6 +10,11 @@ class PatcherFactory {
 		/// Create a factory with the DLL at the given path.
 		/// Throws on error, returns on success.
 		static std::shared_ptr<PatcherFactory> CreateFactory(const std::string& dllPath) noexcept(false);
+
+#ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
+		static std::shared_ptr<PatcherFactory> CreateBuiltInFactory() noexcept(false);
+#endif
+
 		/// Create an instance.
 		RNBO::UniquePtr<RNBO::PatcherInterface> createInstance();
 		~PatcherFactory();

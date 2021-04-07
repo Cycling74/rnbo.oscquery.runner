@@ -464,6 +464,16 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 			return false;
 		}
 
+		//sanity check
+		if (sndfile.channels() < 1 || sndfile.samplerate() < 1.0 || sndfile.frames() < 1) {
+			std::cerr << "sound file needs to have samplerate, frames and channels greater than zero " << fileName <<
+				" samplerate: " << sndfile.samplerate() <<
+				" channels: " << sndfile.channels() <<
+				" frames: " << sndfile.frames() <<
+				std::endl;
+			return false;
+		}
+
 		std::shared_ptr<std::vector<float>> data;
 		sf_count_t framesRead = 0;
 
@@ -489,6 +499,11 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 			} while (read == framesToRead);
 		}
 
+		if (framesRead == 0) {
+			std::cerr << "read zero frames from " << fileName << std::endl;
+			return false;
+		}
+
 		//TODO check mDataRefFileNameMap so we don't double load?
 		mDataRefs[id] = data;
 
@@ -504,6 +519,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 				//hold onto data shared_ptr until rnbo stops using it
 				data.reset();
 				});
+		std::cout << "loading: " << fileName << " into: " << id << std::endl;
 		return true;
 	} catch (std::exception& e) {
 		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
