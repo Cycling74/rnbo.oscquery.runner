@@ -445,44 +445,70 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 	mDataRefs.erase(id);
 	if (fileName.empty())
 		return true;
-	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
-	if (!dataFileDir) {
-		std::cerr << config::key::DataFileDir << " not in config" << std::endl;
-		return false;
-	}
-	auto filePath = dataFileDir.get() / fs::path(fileName);
-	if (!fs::exists(filePath)) {
-		std::cerr << "no file at " << filePath << std::endl;
-		//TODO clear node value?
-		return false;
-	}
-	SndfileHandle sndfile(filePath.string());
-	if (!sndfile) {
-		std::cerr << "couldn't open as sound file " << filePath << std::endl;
-		//TODO clear node value?
-		return false;
-	}
+	try {
+		auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+		if (!dataFileDir) {
+			std::cerr << config::key::DataFileDir << " not in config" << std::endl;
+			return false;
+		}
+		auto filePath = dataFileDir.get() / fs::path(fileName);
+		if (!fs::exists(filePath)) {
+			std::cerr << "no file at " << filePath << std::endl;
+			//TODO clear node value?
+			return false;
+		}
+		SndfileHandle sndfile(filePath.string());
+		if (!sndfile) {
+			std::cerr << "couldn't open as sound file " << filePath << std::endl;
+			//TODO clear node value?
+			return false;
+		}
 
-	//actually read in audio and set the data
-	auto data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
-	auto framesRead = sndfile.readf(&data->front(), sndfile.frames());
+		std::shared_ptr<std::vector<float>> data;
+		sf_count_t framesRead = 0;
 
-	//TODO check mDataRefFileNameMap so we don't double load?
-	mDataRefs[id] = data;
+		//actually read in audio and set the data
+		//Some formats have an unknown frame size, so we have to read a bit at a time
+		if (sndfile.frames() < SF_COUNT_MAX) {
+			data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
+			framesRead = sndfile.readf(&data->front(), sndfile.frames());
+		} else {
+			const sf_count_t framesToRead = static_cast<sf_count_t>(sndfile.samplerate());
+			//blockSize, offset, offsetIncr are in samples, not frames
+			const auto blockSize = static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(framesToRead);
+			size_t offset = 0;
+			size_t offsetIncr = framesToRead * sndfile.channels();
+			sf_count_t read = 0;
+			//reserve 5 seconds of space
+			data = std::make_shared<std::vector<float>>(blockSize * 5);
+			do {
+				data->resize(offset + blockSize);
+				read = sndfile.readf(&data->front() + offset, framesToRead);
+				framesRead += read;
+				offset += offsetIncr;
+			} while (read == framesToRead);
+		}
 
-	//store the mapping so we can persist
-	{
-		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-		mDataRefFileNameMap[id] = fileName;
+		//TODO check mDataRefFileNameMap so we don't double load?
+		mDataRefs[id] = data;
+
+		//store the mapping so we can persist
+		{
+			std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
+			mDataRefFileNameMap[id] = fileName;
+		}
+
+		//set the dataref data
+		RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
+		mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
+				//hold onto data shared_ptr until rnbo stops using it
+				data.reset();
+				});
+		return true;
+	} catch (std::exception& e) {
+		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
 	}
-
-	//set the dataref data
-	RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-	mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
-			//hold onto data shared_ptr until rnbo stops using it
-			data.reset();
-	});
-	return true;
+	return false;
 }
 
 void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) {
