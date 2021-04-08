@@ -313,6 +313,7 @@ bool Controller::loadBuiltIn() {
 			auto instance = new Instance(factory, "rnbo" + instIndex, builder, {});
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
+				instance->start();
 				mInstances.emplace_back(std::make_pair(instance, fs::path()));
 			}
 		}
