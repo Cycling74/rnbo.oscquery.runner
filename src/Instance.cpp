@@ -519,7 +519,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 				//hold onto data shared_ptr until rnbo stops using it
 				data.reset();
 				});
-		std::cout << "loading: " << fileName << " into: " << id << std::endl;
+		//std::cout << "loading: " << fileName << " into: " << id << std::endl;
 		return true;
 	} catch (std::exception& e) {
 		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
