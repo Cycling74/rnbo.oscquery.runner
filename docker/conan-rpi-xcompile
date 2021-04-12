@@ -1,0 +1,25 @@
+#Profile for using conan in debian buster in a docker container
+#and cross compiling for raspbian rpi
+
+toolchain=/rpi-rootfs/
+target_host=arm-linux-gnueabihf
+cc_compiler=gcc
+cxx_compiler=g++
+
+[env]
+CHOST=$target_host
+AR=$target_host-ar
+AS=$target_host-as
+RANLIB=$target_host-ranlib
+CC=$target_host-$cc_compiler
+CXX=$target_host-$cxx_compiler
+STRIP=$target_host-strip
+RC=$target_host-windres
+
+[settings]
+os=Linux
+arch=armv7
+build_type=Release
+compiler=gcc
+compiler.version=8.3
+compiler.libcxx=libstdc++11
