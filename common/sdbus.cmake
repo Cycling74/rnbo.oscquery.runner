@@ -3,17 +3,23 @@ mark_as_advanced(SDBUS_DIR)
 
 if (NOT SDBUS_DIR)
 	#static linking to LGPL is okay since we provide the source code to this project, users could build and relink
-	conan_cmake_run(REQUIRES sdbus-cpp/0.8.3
-		BASIC_SETUP
-		CMAKE_TARGETS
-		BUILD missing
+	conan_cmake_configure(
+		REQUIRES sdbus-cpp/0.8.3
+		GENERATORS cmake_find_package
+		OPTIONS sdbus-cpp:shared=False
 		IMPORTS "bin, *.dll -> ./lib"
 		IMPORTS "bin, sdbus-c++-xml2cpp -> ./"
 		IMPORTS "lib, *.dylib* -> ./lib"
-		PROFILE ${CONAN_PROFILE}
-		OPTIONS sdbus-cpp:shared=False
 		)
-	set(SDBUS_LIBS CONAN_PKG::sdbus-cpp)
+	conan_cmake_install(
+		PATH_OR_REFERENCE .
+		BUILD missing
+		REMOTE cycling-jfrog
+		PROFILE ${CONAN_PROFILE}
+	)
+	find_package(sdbus-c++ REQUIRED)
+	set(SDBUS_LIBS ${SDBusCpp_LIBRARIES})
+	include_directories(${SDBusCpp_INCLUDE_DIRS})
 else()
 	#should have sdbus-c++ in the include dir
 	include_directories("${SDBUS_DIR}/include")

@@ -16,6 +16,8 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
+include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
+
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
 
@@ -52,33 +54,6 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
-set(CONAN_PROFILE default CACHE STRING "The name of the profile to use for building conan dependencies, defaults to 'default'")
-
-# Download automatically, you can also just copy the conan.cmake file
-if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
-	message(STATUS "Downloading conan.cmake from https://github.com/conan-io/cmake-conan")
-	file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/master/conan.cmake"
-		"${CMAKE_BINARY_DIR}/conan.cmake")
-endif()
-
-include(${CMAKE_BINARY_DIR}/conan.cmake)
-conan_check(VERSION 1.29.0 REQUIRED)
-
-#add our public remote, has libossia
-if (NOT EXISTS ${CMAKE_BINARY_DIR}/conan_successful)
-    execute_process(
-			COMMAND conan remote add cycling-jfrog https://xnor.jfrog.io/artifactory/api/conan/cycling74
-			# COMMAND_ECHO STDOUT
-			ERROR_QUIET # errors are okay: the entries might already exist
-    )
-
-    message(STATUS "")
-    message(STATUS "Bootstrapping conan.")
-    message(STATUS "")
-else()
-    file(REMOVE ${CMAKE_BINARY_DIR}/conan_successful)
-endif()
-
 #dbus on linux
 if (LINUX)
 	#handle sdbus for linux, common between this and the update lib
@@ -92,34 +67,41 @@ if (BUILTIN_PATCHER_PATH)
 	list(APPEND PROJECT_SRC ${BUILTIN_PATCHER_PATH})
 endif()
 
-conan_cmake_run(REQUIRES cpp-optparse/cci.20171104
-	BASIC_SETUP
-	CMAKE_TARGETS
+conan_cmake_configure(
+	REQUIRES cpp-optparse/cci.20171104
+	GENERATORS cmake_find_package
+	)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
 	BUILD missing
+	REMOTE cycling-jfrog
 	PROFILE ${CONAN_PROFILE}
 )
 
-conan_cmake_run(REQUIRES libossia/1.2.1@xnor/testing
-	BASIC_SETUP
-	CMAKE_TARGETS
+conan_cmake_configure(
+	REQUIRES libossia/1.2.1@xnor/testing
+	GENERATORS cmake_find_package
 	KEEP_RPATHS
-	BUILD missing
-	PROFILE ${CONAN_PROFILE}
 	IMPORTS "bin, *.dll -> ./bin"
 	IMPORTS "lib, *.dylib* -> ./lib"
 	IMPORTS "lib, *.so* -> ./lib"
 )
-
-if(LINUX)
-	set(ConanSettings compiler.libcxx=libstdc++11)
-endif()
-
-conan_cmake_run(REQUIRES base64/0.4.0
-	BASIC_SETUP
-	CMAKE_TARGETS
+conan_cmake_install(
+	PATH_OR_REFERENCE .
 	BUILD missing
+	REMOTE cycling-jfrog
 	PROFILE ${CONAN_PROFILE}
-	SETTINGS ${ConanSettings}
+)
+
+conan_cmake_configure(
+	REQUIRES base64/0.4.0
+	GENERATORS cmake_find_package
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	REMOTE cycling-jfrog
+	PROFILE ${CONAN_PROFILE}
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
@@ -134,6 +116,10 @@ find_package(Boost 1.62
 	COMPONENTS filesystem system
 )
 
+find_package(cpp-optparse REQUIRED)
+find_package(libossia REQUIRED)
+find_package(base64 REQUIRED)
+
 #set variables so that we can use them later,
 #for conan BOOST_INCLUDE will be empty but CONAN_INCLUDE_DIRS will have what we need
 if(Boost_FOUND)
@@ -141,10 +127,11 @@ if(Boost_FOUND)
 	set(BOOST_INCLUDE ${Boost_INCLUDE_DIRS})
 else()
 	conan_cmake_run(REQUIRES boost/1.75.0
-				 BASIC_SETUP
-				 CMAKE_TARGETS
-				 BUILD missing
-				 PROFILE ${CONAN_PROFILE}
+				BASIC_SETUP
+				CMAKE_TARGETS
+				BUILD missing
+				REMOTE cycling-jfrog
+				PROFILE ${CONAN_PROFILE}
 	)
 	set(BOOST_LIB CONAN_PKG::boost)
 endif()
@@ -156,7 +143,9 @@ include_directories(
 	"${RNBO_DIR}/common"
 	"${RNBO_DIR}/src"
 	"${RNBO_DIR}/src/3rdparty"
-	${CONAN_INCLUDE_DIRS}
+	${cpp-optparse_INCLUDE_DIRS}
+	${libossia_INCLUDE_DIRS}
+	${base64_INCLUDE_DIRS}
 	${SNDFILE_INCLUDE_DIR}
 	${BOOST_INCLUDE}
 )
@@ -206,9 +195,9 @@ FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 add_executable(${PROJECT_APP} ${PROJECT_SRC})
 
 target_link_libraries(${PROJECT_APP}
-	CONAN_PKG::libossia
-	CONAN_PKG::base64
-	CONAN_PKG::cpp-optparse
+	${libossia_LIBRARIES}
+	${base64_LIBRARIES}
+	${cpp-optparse_LIBRARIES}
 	${BOOST_LIB}
 	${JACK_LIB}
 	${SNDFILE_LIB}
