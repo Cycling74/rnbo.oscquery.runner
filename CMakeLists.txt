@@ -35,6 +35,8 @@ else()
 endif()
 set(PROJECT_APP "rnbooscquery")
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 set(PROJECT_SRC
 	src/main.cpp
 	src/Config.cpp
