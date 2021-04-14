@@ -107,10 +107,9 @@ conan_cmake_install(
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
+find_library(JACKSERVER_LIB "jackserver" REQUIRED)
 find_library(SNDFILE_LIB "sndfile" REQUIRED)
 find_path(SNDFILE_INCLUDE_DIR sndfile.hh REQUIRED)
-
-find_library(JACK_LIB "jack" REQUIRED)
 
 #allow for boost to be installed on system
 #if not, use conan
@@ -202,6 +201,7 @@ target_link_libraries(${PROJECT_APP}
 	${cpp-optparse_LIBRARIES}
 	${BOOST_LIB}
 	${JACK_LIB}
+	${JACKSERVER_LIB}
 	${SNDFILE_LIB}
 	${SDBUS_LIBS}
 )

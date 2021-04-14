@@ -6,6 +6,7 @@
 #include <ossia-cpp/ossia-cpp98.hpp>
 #include <jack/types.h>
 #include <jack/jack.h>
+#include <jack/control.h>
 
 #include "RNBO.h"
 #include "InstanceAudio.h"
@@ -28,8 +29,10 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual bool setActive(bool active) override;
 	private:
 		bool createClient(bool startServer);
-		void writeJackDRC();
+		bool createServer();
 		jack_client_t * mJackClient;
+		jackctl_server_t * mJackServer = nullptr;
+
 		std::vector<opp::node> mNodes;
 		opp::node mInfo;
 		NodeBuilder mBuilder;
@@ -41,13 +44,7 @@ class ProcessAudioJack : public ProcessAudio {
 		int mPeriodFrames = 256;
 		opp::node mPeriodFramesNode;
 
-#ifdef __APPLE__
-		//apple with homebrew, TODO make this configurable
-		std::string mCmdPrefix = "/usr/local/bin/jackd";
-		std::string mCmdSuffix = "-Xcoremidi -dcoreaudio";
-#else
-		std::string mCmdPrefix = "/usr/bin/jackd";
-		std::string mCmdSuffix = "-dalsa -Xseq";
+#ifndef __APPLE__
 		int mNumPeriods = 2;
 		opp::node mNumPeriodsNode;
 		std::string mCardName;
