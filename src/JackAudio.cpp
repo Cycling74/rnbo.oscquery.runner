@@ -249,6 +249,7 @@ bool ProcessAudioJack::setActive(bool active) {
 		}
 		if (mJackServer) {
 			jackctl_server_stop(mJackServer);
+			jackctl_server_close(mJackServer);
 			jackctl_server_destroy(mJackServer);
 			mJackServer = nullptr;
 		}
@@ -307,7 +308,6 @@ bool ProcessAudioJack::createServer() {
 			while (n) {
 				jackctl_driver_t * driver = reinterpret_cast<jackctl_driver_t *>(n->data);
 				std::string dname = jackctl_driver_get_name(driver);
-				std::cout << "driver name: " << dname << std::endl;
 				if (name.compare(dname) == 0) {
 					return driver;
 				}
@@ -354,7 +354,7 @@ bool ProcessAudioJack::createServer() {
 			return false;
 		}
 
-		auto sigmask = jackctl_setup_signals(0);
+		//auto sigmask = jackctl_setup_signals(0);
 
 		if (!jackctl_server_open(mJackServer, audioDriver)) {
 			std::cerr << "failed to open jack server" << std::endl;
