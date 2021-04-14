@@ -30,10 +30,14 @@ class Controller {
 		//return true on success
 		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true);
 		bool loadLast();
+#ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
+		bool loadBuiltIn();
+#endif
 
 		//returns true until we should quit
 		bool process();
 	private:
+		bool tryActivateAudio();
 		void clearInstances(std::lock_guard<std::mutex>&);
 		void processCommands();
 		void reportCommandResult(std::string id, RNBO::Json res);

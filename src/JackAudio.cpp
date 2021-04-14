@@ -4,6 +4,7 @@
 
 #include <jack/midiport.h>
 #include <jack/uuid.h>
+#include <jack/jslist.h>
 
 #include <readerwriterqueue/readerwriterqueue.h>
 
@@ -13,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <string>
 
 namespace fs = boost::filesystem;
 
@@ -22,6 +24,14 @@ static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), 
 namespace {
 
 	boost::optional<std::string> ns("jack");
+
+#ifdef __APPLE__
+	const static std::string jack_driver_name = "coreaudio";
+	const static std::string jack_midi_driver_name = "coremidi";
+#else
+	const static std::string jack_driver_name = "alsa";
+	const static std::string jack_midi_driver_name;
+#endif
 
 	template <typename T>
 	boost::optional<T> jconfig_get(const std::string& key) {
@@ -50,8 +60,18 @@ namespace {
 		reinterpret_cast<InstanceAudioJack *>(arg)->jackPortRegistration(id, reg);
 	}
 
-	std::mutex mJackDRCMutex;
-	static const fs::path jackdrc_path = config::make_path("~/.jackdrc");
+	jackctl_driver_t * jackctl_server_get_driver(jackctl_server_t * server, const std::string& name) {
+		auto n = jackctl_server_get_drivers_list(server);
+		while (n) {
+			jackctl_driver_t * driver = reinterpret_cast<jackctl_driver_t *>(n->data);
+			std::string dname = jackctl_driver_get_name(driver);
+			if (name.compare(dname) == 0) {
+				return driver;
+			}
+			n = jack_slist_next(n);
+		}
+		return nullptr;
+	}
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mBPMClientUUID(0) {
@@ -223,21 +243,6 @@ ProcessAudioJack::~ProcessAudioJack() {
 	setActive(false);
 }
 
-void ProcessAudioJack::writeJackDRC() {
-	std::lock_guard<std::mutex> guard(mJackDRCMutex);
-	std::ofstream o(jackdrc_path.string());
-	o << mCmdPrefix << " " << mCmdSuffix;
-#ifndef __APPLE__
-	//default to hw:0 if there is no name set
-	auto card = mCardName.empty() ? "hw:0" : mCardName;
-	o << " --device \"" << card << "\"";
-	o << " --nperiods " << mNumPeriods;
-#endif
-	o << " --period " << mPeriodFrames;
-	o << " --rate " << mSampleRate;
-	o.close(); //flush
-}
-
 bool ProcessAudioJack::isActive() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	return mJackClient != nullptr;
@@ -251,6 +256,18 @@ bool ProcessAudioJack::setActive(bool active) {
 		if (mJackClient) {
 			jack_client_close(mJackClient);
 			mJackClient = nullptr;
+		}
+		if (mJackServer) {
+			jackctl_server_stop(mJackServer);
+			if (jack_midi_driver_name.size()) {
+				jackctl_driver_t * midiDriver = jackctl_server_get_driver(mJackServer, jack_midi_driver_name);
+				if (midiDriver != nullptr && jackctl_driver_get_type(midiDriver) == JackSlave) {
+					jackctl_server_remove_slave(mJackServer, midiDriver);
+				}
+			}
+			jackctl_server_close(mJackServer);
+			jackctl_server_destroy(mJackServer);
+			mJackServer = nullptr;
 		}
 		return false;
 	}
@@ -286,16 +303,14 @@ void ProcessAudioJack::processEvents() {
 bool ProcessAudioJack::createClient(bool startServer) {
 	std::lock_guard<std::mutex> guard(mMutex);
 	if (mJackClient == nullptr) {
-		jack_options_t options = JackOptions::JackNoStartServer;
-
-		//if we start the server, we want to write the command too
-		if (startServer) {
-			options = JackOptions::JackNullOption;
-			writeJackDRC();
+		//start server
+		if (startServer && mJackServer == nullptr && !createServer()) {
+			std::cerr << "failed to create jack server" << std::endl;
+			return false;
 		}
 
 		jack_status_t status;
-		mJackClient = jack_client_open("rnbo-info", options, &status);
+		mJackClient = jack_client_open("rnbo-info", JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
 			mBuilder([this](opp::node root) {
 				{
@@ -385,7 +400,6 @@ bool ProcessAudioJack::createClient(bool startServer) {
 	return mJackClient != nullptr;
 }
 
-
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg) {
 	reinterpret_cast<ProcessAudioJack *>(arg)->jackPropertyChangeCallback(subject, key, change);
 }
@@ -424,6 +438,86 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 			}
 		}
 	}
+}
+
+//XXX expects to have mutex already
+bool ProcessAudioJack::createServer() {
+	mJackServer = jackctl_server_create(NULL, NULL);
+	if (mJackServer == nullptr) {
+		std::cerr << "failed to create jack server" << std::endl;
+		return false;
+	}
+
+	//create the server, destroy on failure
+	auto create = [this]() -> bool {
+
+		jackctl_driver_t * audioDriver = jackctl_server_get_driver(mJackServer, jack_driver_name);
+		if (audioDriver == nullptr) {
+			std::cerr << "cannot get driver " << jack_driver_name << " to create jack server" << std::endl;
+			return false;
+		}
+
+		std::vector<char *> args;
+		args.push_back(const_cast<char *>(jack_driver_name.c_str()));
+
+#ifndef __APPLE__
+		std::string dev("--device");
+		std::string card = mCardName.empty() ? "hw:0" : mCardName;
+		args.push_back(const_cast<char *>(dev.c_str()));
+		args.push_back(const_cast<char *>(card.c_str()));
+
+		std::string midi("-Xseq");
+		args.push_back(const_cast<char *>(midi.c_str()));
+#endif
+
+		std::string period = "--period";
+		std::string periodv = std::to_string(mPeriodFrames);
+		args.push_back(const_cast<char *>(period.c_str()));
+		args.push_back(const_cast<char *>(periodv.c_str()));
+
+		std::string rate = "--rate";
+		std::string ratev = std::to_string(mSampleRate);
+		args.push_back(const_cast<char *>(rate.c_str()));
+		args.push_back(const_cast<char *>(ratev.c_str()));
+
+		if (jackctl_driver_params_parse(audioDriver, args.size(), &args.front())) {
+			std::cerr << "failed to parse audio driver args ";
+			for (auto a: args) {
+				std::cerr << a << " ";
+			}
+			std::cerr << std::endl;
+			return false;
+		}
+
+		//auto sigmask = jackctl_setup_signals(0);
+
+		if (!jackctl_server_open(mJackServer, audioDriver)) {
+			std::cerr << "failed to open jack server" << std::endl;
+			return false;
+		}
+
+		if (jack_midi_driver_name.size()) {
+			jackctl_driver_t * midiDriver = jackctl_server_get_driver(mJackServer, jack_midi_driver_name);
+			if (midiDriver != nullptr && jackctl_driver_get_type(midiDriver) == JackSlave) {
+				jackctl_server_add_slave(mJackServer, midiDriver);
+			} else {
+				std::cerr << "couldn't get jack midi driver" << std::endl;
+			}
+		}
+
+		if (!jackctl_server_start(mJackServer)) {
+			std::cerr << "failed to start jack server" << std::endl;
+			return false;
+		}
+		return true;
+	};
+
+	if (!create()) {
+		jackctl_server_destroy(mJackServer);
+		mJackServer = nullptr;
+		return false;
+	}
+	return true;
 }
 
 InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder) : mCore(core), mRunning(false) {
@@ -628,6 +722,9 @@ void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
 }
 
 void InstanceAudioJack::process(jack_nframes_t nframes) {
+	auto midiOutBuf = jack_port_get_buffer(mJackMidiOut, nframes);
+	jack_midi_clear_buffer(midiOutBuf);
+
 	//get the current time
 	auto nowms = mCore->getCurrentTime();
 	//TODO sync to jack's time?
@@ -701,10 +798,9 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 
 	//process midi out
 	if (mMIDIOutList.size()) {
-		auto midi_buf = jack_port_get_buffer(mJackMidiOut, nframes);
 		for (const auto& e : mMIDIOutList) {
 			jack_nframes_t frame = std::max(0.0, e.getTime() - nowms) * mMilliFrame;
-			jack_midi_event_write(midi_buf, frame, e.getData(), e.getLength());
+			jack_midi_event_write(midiOutBuf, frame, e.getData(), e.getLength());
 		}
 		mMIDIOutList.clear();
 	}

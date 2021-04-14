@@ -7,6 +7,7 @@
 
 #include <sdbus-c++/sdbus-c++.h>
 #include "UpdateServiceProxyGlue.h"
+#include "RunnerUpdateState.h"
 
 class RnboUpdateServiceProxy : public sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>
 {
@@ -14,10 +15,10 @@ class RnboUpdateServiceProxy : public sdbus::ProxyInterfaces<com::cycling74::rnb
 		RnboUpdateServiceProxy(std::string destination = std::string(com::cycling74::rnbo_proxy::INTERFACE_NAME), std::string objectPath = "/com/cycling74/rnbo");
 		virtual ~RnboUpdateServiceProxy();
 
-		void setActiveCallback(std::function<void(bool)> cb);
+		void setStateCallback(std::function<void(RunnerUpdateState)> cb);
 		void setStatusCallback(std::function<void(std::string)> cb);
 	protected:
-		std::function<void(bool)> mActiveCallback;
+		std::function<void(RunnerUpdateState)> mStateCallback;
 		std::function<void(std::string)> mStatusCallback;
 		std::mutex mCallbackMutex;
 

@@ -16,6 +16,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #ifdef RNBO_USE_DBUS
+#include "RunnerUpdateState.h"
 #include "RnboUpdateServiceProxy.h"
 #endif
 
@@ -68,6 +69,12 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 		auto n = info.create_string(it.first);
 		n.set_access(opp::access_mode::Get);
 		n.set_value(it.second);
+	}
+	{
+		auto n = info.create_string("system_id");
+		n.set_description("a unique, one time generated id for this system");
+		n.set_access(opp::access_mode::Get);
+		n.set_value(config::get_system_id());
 	}
 
 	{
@@ -126,15 +133,24 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 	if (mUpdateServiceProxy) {
 		try {
 			//setup dbus
-			bool active = mUpdateServiceProxy->Active();
+			RunnerUpdateState state;
+			runner_update::from(mUpdateServiceProxy->State(), state);
 			std::string status = mUpdateServiceProxy->Status();
 
 			{
-				auto n = update.create_bool("active");
+				auto n = update.create_string("state");
 				n.set_access(opp::access_mode::Get);
-				n.set_description("Is an update active");
-				n.set_value(active);
-				mUpdateServiceProxy->setActiveCallback([n](bool active) mutable { n.set_value(active); });
+				n.set_description("Update state");
+				n.set_value(runner_update::into(state));
+				std::vector<opp::value> accepted;
+				for (auto v: runner_update::all()) {
+					accepted.push_back(v);
+				}
+				n.set_bounding(opp::bounding_mode::Clip);
+				n.set_min(accepted.front());
+				n.set_max(accepted.back());
+				n.set_accepted_values(accepted);
+				mUpdateServiceProxy->setStateCallback([n](RunnerUpdateState state) mutable { n.set_value(runner_update::into(state)); });
 			}
 
 			{
@@ -165,8 +181,13 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 }
 
 Controller::~Controller() {
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		clearInstances(guard);
+	}
 	mProcessCommands.store(false);
 	mCommandThread.join();
+	mProcessAudio.reset();
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
@@ -183,9 +204,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 	}
 
 	//activate if we need to
-	if (!mProcessAudio->isActive())
-		mAudioActive.set_value(mProcessAudio->setActive(true));
-	if (!mProcessAudio->isActive()) {
+	if (!tryActivateAudio()) {
 		cerr << "audio is not active, cannot create instance(s)" << endl;
 		if (cmdId.size()) {
 			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
@@ -266,6 +285,46 @@ bool Controller::loadLast() {
 	return false;
 }
 
+#ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
+bool Controller::loadBuiltIn() {
+	mSave = false;
+	try {
+		if (!tryActivateAudio()) {
+			cerr << "audio is not active, cannot create builtin instance" << endl;
+			return false;
+		}
+
+		{
+			//make sure that no other instances can be created while this is active
+			std::lock_guard<std::mutex> iguard(mInstanceMutex);
+			auto factory = PatcherFactory::CreateBuiltInFactory();
+			opp::node instNode;
+			std::string instIndex;
+			{
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				clearInstances(guard);
+				instIndex = std::to_string(mInstances.size());
+				instNode = mInstancesNode.create_child(instIndex);
+			}
+			auto builder = [instNode, this](std::function<void(opp::node)> f) {
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				f(instNode);
+			};
+			auto instance = new Instance(factory, "rnbo" + instIndex, builder, {});
+			{
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				instance->start();
+				mInstances.emplace_back(std::make_pair(instance, fs::path()));
+			}
+		}
+		return true;
+	} catch (std::exception& e) {
+		cerr << "exception " << e.what() << " trying to load last setup" << endl;
+	}
+	return false;
+}
+#endif
+
 void Controller::saveLast() {
 	RNBO::Json instances = RNBO::Json::array();
 	RNBO::Json last = RNBO::Json::object();
@@ -336,6 +395,12 @@ void Controller::handleActive(bool active) {
 		//load last if we're activating from inactive
 		mCommandQueue.push("load_last");
 	}
+}
+
+bool Controller::tryActivateAudio() {
+	if (!mProcessAudio->isActive())
+		mAudioActive.set_value(mProcessAudio->setActive(true));
+	return mProcessAudio->isActive();
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
@@ -548,7 +613,7 @@ void Controller::processCommands() {
 				continue;
 			}
 		} catch (std::exception& e) {
-			cerr << "exception processing command" << e.what() << endl;
+			cerr << "exception processing command " << e.what() << endl;
 		}
 	}
 }

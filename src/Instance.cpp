@@ -1,9 +1,10 @@
 #include <memory>
 #include <iostream>
 #include <functional>
-#include <filesystem>
+
 #include <sndfile.hh>
 #include <readerwriterqueue/readerwriterqueue.h>
+#include <boost/filesystem.hpp>
 
 #include "Config.h"
 #include "Instance.h"
@@ -27,21 +28,42 @@ namespace {
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
 	std::vector<std::string> outportTags;
+	std::unordered_map<std::string, std::string> dataRefMap;
+
+	//load up data ref map so we can set the initial value
+	auto datarefs = conf["datarefs"];
+	if (datarefs.is_object()) {
+		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+			dataRefMap[it.key()] = it.value();
+		}
+	}
+
 	//RNBO is telling us we have a parameter update, tell ossia
 	auto paramCallback = [this](RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 		auto it = mIndexToNode.find(index);
 		if (it != mIndexToNode.end()) {
-			it->second.set_value(value);
+			//enumerated value
+			if (it->second.second) {
+				auto it2 = it->second.second->find(static_cast<int>(value));
+				if (it2 != it->second.second->end()) {
+					it->second.first.set_value(it2->second);
+				}
+			} else {
+				it->second.first.set_value(value);
+			}
 		}
 	};
-	mEventHandler = std::unique_ptr<EventHandler>(
-			new EventHandler(paramCallback,
-				[this](RNBO::MessageEvent msg) {
-					//only send messages that aren't targeted for a specific object
-					if (msg.getObjectId() == 0)
-						handleOutportMessage(msg);
-				})
-			);
+	auto msgCallback =
+		[this](RNBO::MessageEvent msg) {
+			//only send messages that aren't targeted for a specific object
+			if (msg.getObjectId() == 0)
+				handleOutportMessage(msg);
+		};
+	auto midiCallback =
+		[this](RNBO::MidiEvent e) {
+			handleMidiCallback(e);
+		};
+	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback, msgCallback,midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
@@ -79,7 +101,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
-	builder([this, outportTags](opp::node root) {
+	builder([this, outportTags, &dataRefMap](opp::node root) {
 		//setup parameters
 		auto params = root.create_child("params");
 		params.set_description("Parameter get/set");
@@ -91,21 +113,60 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (info.type != ParameterType::ParameterTypeNumber || !info.visible || info.debug)
 				continue;
 
-			//set parameter access, range, etc etc
-			auto p = params.create_float(mCore->getParameterId(index));
-			p.set_access(opp::access_mode::Bi);
-			p.set_value(info.initialValue);
-			p.set_min(info.min);
-			p.set_max(info.max);
-			p.set_bounding(opp::bounding_mode::Clip);
+			if (info.enumValues == nullptr) {
+				//numerical parameters
+				//set parameter access, range, etc etc
+				auto p = params.create_float(mCore->getParameterId(index));
+				p.set_access(opp::access_mode::Bi);
+				p.set_value(info.initialValue);
+				p.set_min(info.min);
+				p.set_max(info.max);
+				p.set_bounding(opp::bounding_mode::Clip);
 
-			ValueCallbackHelper::setCallback(
-				p, mValueCallbackHelpers,
-				[this, index](const opp::value& val) {
-				if (val.is_float())
-					mCore->setParameterValue(index, val.to_float());
-				});
-			mIndexToNode[index] = p;
+				ValueCallbackHelper::setCallback(
+					p, mValueCallbackHelpers,
+					[this, index](const opp::value& val) {
+					if (val.is_float())
+						mCore->setParameterValue(index, val.to_float());
+					});
+				//setup lookup, no enum
+				mIndexToNode[index] = std::make_pair(p, boost::none);
+			} else {
+				//enumerated parameters
+				std::vector<opp::value> values;
+
+				//build out lookup maps between strings and numbers
+				std::unordered_map<std::string, ParameterValue> nameToVal;
+				std::unordered_map<int, std::string> valToName;
+				for (int e = 0; e < info.steps; e++) {
+					std::string s(info.enumValues[e]);
+					values.push_back(s);
+					nameToVal[s] = static_cast<ParameterValue>(e);
+					valToName[e] = s;
+				}
+
+				auto p = params.create_string(mCore->getParameterId(index));
+				p.set_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
+
+				//XXX you have to set min and or max before accepted values takes, will file bug report
+				p.set_bounding(opp::bounding_mode::Clip);
+				p.set_min(values.front());
+				p.set_max(values.back());
+				p.set_accepted_values(values);
+
+				ValueCallbackHelper::setCallback(
+					p, mValueCallbackHelpers,
+					[this, index, nameToVal](const opp::value& val) {
+						if (val.is_string()) {
+							auto f = nameToVal.find(val.to_string());
+							if (f != nameToVal.end()) {
+								mCore->setParameterValue(index, f->second);
+							}
+						}
+					});
+				//set lookup with enum lookup
+				mIndexToNode[index] = std::make_pair(p, valToName);
+			}
 		}
 
 		auto dataRefs = root.create_child("data_refs");
@@ -113,6 +174,10 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			auto id = mCore->getExternalDataId(index);
 			std::string name(id);
 			auto d = dataRefs.create_string(name);
+			auto it = dataRefMap.find(name);
+			if (it != dataRefMap.end()) {
+				d.set_value(it->second);
+			}
 			ValueCallbackHelper::setCallback(
 				d, mValueCallbackHelpers,
 					[this, id](const opp::value& val) {
@@ -195,16 +260,44 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				}
 			}
 		}
+
+		//setup virtual midi
+		{
+			auto vmidi = root.create_child("midi");
+			auto in = vmidi.create_list("in");
+			in.set_description("midi events in to your RNBO patch");
+			in.set_access(opp::access_mode::Set);
+			//handle a virtual midi input, route into RNBO object
+			ValueCallbackHelper::setCallback(
+					in, mValueCallbackHelpers,
+					[this](const opp::value& val) {
+						if (val.is_list()) {
+							auto l = val.to_list();
+							std::vector<uint8_t> bytes;
+							for (auto v: l) {
+								if (v.is_int()) {
+									bytes.push_back(static_cast<uint8_t>(v.to_int()));
+								} else if (v.is_float()) {
+									//shouldn't get float but just in case?
+									bytes.push_back(static_cast<uint8_t>(floorf(v.to_float())));
+								} else {
+									//XXX cerr
+									return;
+								}
+							}
+							mCore->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
+						}
+					});
+
+			mMIDIOutNode = vmidi.create_list("out");
+			mMIDIOutNode.set_description("midi events out of your RNBO patch");
+			mMIDIOutNode.set_access(opp::access_mode::Get);
+		}
 	});
 
 	//auto load data refs
-	auto datarefs = conf["datarefs"];
-	if (datarefs.is_object()) {
-		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
-			std::string value = it.value();
-			if (value.size() > 0)
-				loadDataRef(it.key(), value);
-		}
+	for (auto& kv: dataRefMap) {
+		loadDataRef(kv.first, kv.second);
 	}
 
 	//load the initial or last preset, if in the config
@@ -352,44 +445,86 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 	mDataRefs.erase(id);
 	if (fileName.empty())
 		return true;
-	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
-	if (!dataFileDir) {
-		std::cerr << config::key::DataFileDir << " not in config" << std::endl;
-		return false;
-	}
-	auto filePath = dataFileDir.get() / fs::path(fileName);
-	if (!fs::exists(filePath)) {
-		std::cerr << "no file at " << filePath << std::endl;
-		//TODO clear node value?
-		return false;
-	}
-	SndfileHandle sndfile(filePath.string());
-	if (!sndfile) {
-		std::cerr << "couldn't open as sound file " << filePath << std::endl;
-		//TODO clear node value?
-		return false;
-	}
+	try {
+		auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+		if (!dataFileDir) {
+			std::cerr << config::key::DataFileDir << " not in config" << std::endl;
+			return false;
+		}
+		auto filePath = dataFileDir.get() / fs::path(fileName);
+		if (!fs::exists(filePath)) {
+			std::cerr << "no file at " << filePath << std::endl;
+			//TODO clear node value?
+			return false;
+		}
+		SndfileHandle sndfile(filePath.string());
+		if (!sndfile) {
+			std::cerr << "couldn't open as sound file " << filePath << std::endl;
+			//TODO clear node value?
+			return false;
+		}
 
-	//actually read in audio and set the data
-	auto data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
-	auto framesRead = sndfile.readf(&data->front(), sndfile.frames());
+		//sanity check
+		if (sndfile.channels() < 1 || sndfile.samplerate() < 1.0 || sndfile.frames() < 1) {
+			std::cerr << "sound file needs to have samplerate, frames and channels greater than zero " << fileName <<
+				" samplerate: " << sndfile.samplerate() <<
+				" channels: " << sndfile.channels() <<
+				" frames: " << sndfile.frames() <<
+				std::endl;
+			return false;
+		}
 
-	//TODO check mDataRefFileNameMap so we don't double load?
-	mDataRefs[id] = data;
+		std::shared_ptr<std::vector<float>> data;
+		sf_count_t framesRead = 0;
 
-	//store the mapping so we can persist
-	{
-		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-		mDataRefFileNameMap[id] = fileName;
+		//actually read in audio and set the data
+		//Some formats have an unknown frame size, so we have to read a bit at a time
+		if (sndfile.frames() < SF_COUNT_MAX) {
+			data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
+			framesRead = sndfile.readf(&data->front(), sndfile.frames());
+		} else {
+			const sf_count_t framesToRead = static_cast<sf_count_t>(sndfile.samplerate());
+			//blockSize, offset, offsetIncr are in samples, not frames
+			const auto blockSize = static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(framesToRead);
+			size_t offset = 0;
+			size_t offsetIncr = framesToRead * sndfile.channels();
+			sf_count_t read = 0;
+			//reserve 5 seconds of space
+			data = std::make_shared<std::vector<float>>(blockSize * 5);
+			do {
+				data->resize(offset + blockSize);
+				read = sndfile.readf(&data->front() + offset, framesToRead);
+				framesRead += read;
+				offset += offsetIncr;
+			} while (read == framesToRead);
+		}
+
+		if (framesRead == 0) {
+			std::cerr << "read zero frames from " << fileName << std::endl;
+			return false;
+		}
+
+		//TODO check mDataRefFileNameMap so we don't double load?
+		mDataRefs[id] = data;
+
+		//store the mapping so we can persist
+		{
+			std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
+			mDataRefFileNameMap[id] = fileName;
+		}
+
+		//set the dataref data
+		RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
+		mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
+				//hold onto data shared_ptr until rnbo stops using it
+				data.reset();
+				});
+		//std::cout << "loading: " << fileName << " into: " << id << std::endl;
+		return true;
+	} catch (std::exception& e) {
+		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
 	}
-
-	//set the dataref data
-	RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-	mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
-			//hold onto data shared_ptr until rnbo stops using it
-			data.reset();
-	});
-	return true;
+	return false;
 }
 
 void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) {
@@ -404,6 +539,16 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) 
 		//empty list, bang
 		if (list.size() == 0 || (list.size() == 1 && list[0].is_impulse())) {
 			mCore->sendMessage(tag);
+		} else if (list.size() == 1) {
+			RNBO::number v = 0.0;
+			if (list[0].is_int()) {
+				v = static_cast<RNBO::number>(list[0].to_int());
+			} else if (list[0].is_float()) {
+				v = static_cast<RNBO::number>(list[0].to_float());
+			} else {
+				std::cerr << "only numeric items are allowed in lists, aborting message" << std::endl;
+			}
+			mCore->sendMessage(tag, v);
 		} else {
 			//construct and send list
 			auto l = RNBO::make_unique<RNBO::list>();
@@ -450,5 +595,17 @@ void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 		case MessageEvent::Type::Max_Type:
 		default:
 			return; //TODO warning message?
+	}
+}
+
+//from RNBO, report via OSCQuery
+void Instance::handleMidiCallback(RNBO::MidiEvent e) {
+	if (mMIDIOutNode) {
+		auto in = e.getData();
+		std::vector<opp::value> bytes;
+		for (int i = 0; i < e.getLength(); i++) {
+			bytes.push_back(opp::value(static_cast<int>(in[i])));
+		}
+		mMIDIOutNode.set_value(bytes);
 	}
 }

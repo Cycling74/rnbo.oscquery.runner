@@ -10,6 +10,7 @@
 #include <jack/types.h>
 #include <jack/jack.h>
 #include <jack/metadata.h>
+#include <jack/control.h>
 
 #include "RNBO.h"
 #include "InstanceAudio.h"
@@ -37,9 +38,9 @@ class ProcessAudioJack : public ProcessAudio {
 		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
 		bool createClient(bool startServer);
-		void writeJackDRC();
-
+		bool createServer();
 		jack_client_t * mJackClient;
+		jackctl_server_t * mJackServer = nullptr;
 		jack_uuid_t mJackClientUUID = 0;
 
 		std::atomic<jack_uuid_t> mBPMClientUUID;
@@ -62,13 +63,7 @@ class ProcessAudioJack : public ProcessAudio {
 		int mPeriodFrames = 256;
 		opp::node mPeriodFramesNode;
 
-#ifdef __APPLE__
-		//apple with homebrew, TODO make this configurable
-		std::string mCmdPrefix = "/usr/local/bin/jackd";
-		std::string mCmdSuffix = "-Xcoremidi -dcoreaudio";
-#else
-		std::string mCmdPrefix = "/usr/bin/jackd";
-		std::string mCmdSuffix = "-dalsa -Xseq";
+#ifndef __APPLE__
 		int mNumPeriods = 2;
 		opp::node mNumPeriodsNode;
 		std::string mCardName;

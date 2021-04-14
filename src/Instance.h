@@ -9,6 +9,7 @@
 #include <mutex>
 #include <functional>
 
+#include <boost/optional.hpp>
 #include <ossia-cpp/ossia-cpp98.hpp>
 
 #include "RNBO.h"
@@ -61,6 +62,7 @@ class Instance {
 		bool loadDataRef(const std::string& id, const std::string& fileName);
 		void handleInportMessage(RNBO::MessageTag tag, const opp::value& value);
 		void handleOutportMessage(RNBO::MessageEvent e);
+		void handleMidiCallback(RNBO::MidiEvent e);
 
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
@@ -69,9 +71,11 @@ class Instance {
 
 		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 
-		std::map<RNBO::ParameterIndex, opp::node> mIndexToNode;
+		//parameter index -> (node and optional int -> string for enum lookups)
+		std::map<RNBO::ParameterIndex, std::pair<opp::node, boost::optional<std::unordered_map<int, std::string>>>> mIndexToNode;
 
 		opp::node mActiveNode;
+		opp::node mMIDIOutNode;
 
 		//queue for loading or unloading data refs
 		Queue<DataRefCommand> mDataRefCommandQueue;

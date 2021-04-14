@@ -1,7 +1,8 @@
 #include <chrono>
 #include <thread>
-#include <filesystem>
+#include <csignal>
 #include <OptionParser.h>
+#include <boost/filesystem.hpp>
 
 #include "Controller.h"
 #include "Config.h"
@@ -17,6 +18,16 @@ using std::endl;
 using std::chrono::system_clock;
 
 namespace fs = boost::filesystem;
+
+#include <iostream>
+
+namespace {
+	std::atomic<bool> mRun(true);;
+}
+
+void signal_handler(int signal) {
+	mRun.store(false);
+}
 
 int main(int argc, const char * argv[]) {
 	OptionParser parser = OptionParser().description("rnbo so runner");
@@ -37,6 +48,8 @@ int main(int argc, const char * argv[]) {
 	if (options.get("verbose"))
 		cout << options["filename"] << endl;
 
+	std::signal(SIGINT, signal_handler);
+
 	//initialize the config
 	//TODO, optionally set the config file path
 	config::init();
@@ -56,20 +69,27 @@ int main(int argc, const char * argv[]) {
 	for (auto key: {config::key::DataFileDir, config::key::SaveDir, config::key::SourceCacheDir, config::key::CompileCacheDir}) {
 		fs::create_directories(config::get<fs::path>(key).get());
 	}
-	Controller c("rnbo:" + hostName);
-	if (options["filename"].size()) {
-		c.loadLibrary(options["filename"]);
-	} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
-		c.loadLast();
-	}
+	{
+		Controller c("rnbo:" + hostName);
 
-	auto config_timeout = std::chrono::seconds(1);
-	std::chrono::time_point<std::chrono::system_clock> config_poll_next = system_clock::now() + config_timeout;
-	while (c.process()) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		if (config_poll_next <= system_clock::now()) {
-			config_poll_next = system_clock::now() + config_timeout;
-			config::write_if_dirty();
+#ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
+		if (options["filename"].size()) {
+			c.loadLibrary(options["filename"]);
+		} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
+			c.loadLast();
+		}
+#else
+			c.loadBuiltIn();
+#endif
+
+		auto config_timeout = std::chrono::seconds(1);
+		std::chrono::time_point<std::chrono::system_clock> config_poll_next = system_clock::now() + config_timeout;
+		while (c.process() && mRun.load()) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			if (config_poll_next <= system_clock::now()) {
+				config_poll_next = system_clock::now() + config_timeout;
+				config::write_if_dirty();
+			}
 		}
 	}
 	return 0;
