@@ -62,6 +62,19 @@ namespace {
 	static void jackPortRegistration(jack_port_id_t id, int reg, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->jackPortRegistration(id, reg);
 	}
+
+	jackctl_driver_t * jackctl_server_get_driver(jackctl_server_t * server, const std::string& name) {
+		auto n = jackctl_server_get_drivers_list(server);
+		while (n) {
+			jackctl_driver_t * driver = reinterpret_cast<jackctl_driver_t *>(n->data);
+			std::string dname = jackctl_driver_get_name(driver);
+			if (name.compare(dname) == 0) {
+				return driver;
+			}
+			n = jack_slist_next(n);
+		}
+		return nullptr;
+	}
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr) {
@@ -249,6 +262,12 @@ bool ProcessAudioJack::setActive(bool active) {
 		}
 		if (mJackServer) {
 			jackctl_server_stop(mJackServer);
+			if (jack_midi_driver_name.size()) {
+				jackctl_driver_t * midiDriver = jackctl_server_get_driver(mJackServer, jack_midi_driver_name);
+				if (midiDriver != nullptr && jackctl_driver_get_type(midiDriver) == JackSlave) {
+					jackctl_server_remove_slave(mJackServer, midiDriver);
+				}
+			}
 			jackctl_server_close(mJackServer);
 			jackctl_server_destroy(mJackServer);
 			mJackServer = nullptr;
@@ -303,18 +322,6 @@ bool ProcessAudioJack::createServer() {
 
 	//create the server, destroy on failure
 	auto create = [this]() -> bool {
-		auto jackctl_server_get_driver = [](jackctl_server_t * server, const std::string& name) -> jackctl_driver_t * {
-			auto n = jackctl_server_get_drivers_list(server);
-			while (n) {
-				jackctl_driver_t * driver = reinterpret_cast<jackctl_driver_t *>(n->data);
-				std::string dname = jackctl_driver_get_name(driver);
-				if (name.compare(dname) == 0) {
-					return driver;
-				}
-				n = jack_slist_next(n);
-			}
-			return nullptr;
-		};
 
 		jackctl_driver_t * audioDriver = jackctl_server_get_driver(mJackServer, jack_driver_name);
 		if (audioDriver == nullptr) {
@@ -362,7 +369,6 @@ bool ProcessAudioJack::createServer() {
 		}
 
 		if (jack_midi_driver_name.size()) {
-			std::cout << "find midi" << std::endl;
 			jackctl_driver_t * midiDriver = jackctl_server_get_driver(mJackServer, jack_midi_driver_name);
 			if (midiDriver != nullptr && jackctl_driver_get_type(midiDriver) == JackSlave) {
 				jackctl_server_add_slave(mJackServer, midiDriver);
