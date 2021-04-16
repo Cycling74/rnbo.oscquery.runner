@@ -54,9 +54,9 @@ sudo apt install gnupg1
 gpg1 --gen-key
 gpg1 --export --armor --output xnor-gpg.pub
 sudo apt-key add xnor-gpg.pub
-aptly -distribution=buster repo create -component="extra" extra
-aptly repo add extra ..
-aptly publish repo extra testjack
+aptly -distribution=buster repo create -component="extra" rnbo-extra
+aptly repo add rnbo-extra ..
+aptly publish repo rnbo-extra testjack
 ```
 
 or, to update

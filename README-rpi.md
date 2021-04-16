@@ -215,7 +215,7 @@ to create a package and upload it, from a mac, in the root of this repo.
 ./build-rpi.sh
 aptly -distribution=buster repo create rnbo
 aptly repo add rnbo examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo rnbo s3:c74:
+aptly publish repo -component=,, rnbo rnbo-extra s3:c74:
 ```
 
 to update the repo
