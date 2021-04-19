@@ -2,10 +2,13 @@
 #include <dlfcn.h>
 #include <iostream>
 #include <exception>
+#include <boost/filesystem.hpp>
 
 using std::endl;
 using std::cerr;
 using std::runtime_error;
+
+namespace fs = boost::filesystem;
 
 #ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
 RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction(RNBO::PlatformInterface*) {
@@ -35,6 +38,15 @@ RNBO::UniquePtr<RNBO::PatcherInterface> PatcherFactory::createInstance() {
 }
 
 std::shared_ptr<PatcherFactory> PatcherFactory::CreateFactory(const std::string& dllPath) {
+	if (!fs::exists(dllPath)) {
+		throw new runtime_error("dynamic library file does not exist: " + dllPath);
+	}
+	boost::system::error_code ec;
+	boost::uintmax_t filesize = fs::file_size(dllPath, ec);
+	if (ec || !filesize) {
+		throw new runtime_error("dynamic library file size problem: " + dllPath);
+	}
+
 	void* handle = dlopen(dllPath.c_str(), RTLD_LAZY | RTLD_LOCAL);
 	if (!handle) {
 		throw new runtime_error("failed to open dynamic library at path: " + dllPath);
