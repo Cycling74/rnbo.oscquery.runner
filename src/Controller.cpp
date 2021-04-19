@@ -161,9 +161,12 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 				mUpdateServiceProxy->setStatusCallback([n](std::string status) mutable { n.set_value(status); });
 			}
 			supports_install = true;
-		} catch (std::exception& e) {
+		} catch (const std::exception& e) {
 			cerr << "exception caught " << e.what() << endl;
 			//reset shared ptrs as we use them later to decide if we should try to update or poll
+			supports_install = false;
+		} catch (...) {
+			cerr << "unknown exception caught " << endl;
 			supports_install = false;
 		}
 	}
@@ -192,60 +195,67 @@ Controller::~Controller() {
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
 	auto fname = fs::path(path).filename().string();
-	//make sure that the version numbers match in the name of the library
-	if (!boost::algorithm::ends_with(fname, rnbo_dylib_suffix)) {
-		std::string errs("the requested library: " + fname + " doesn't match version suffix " + rnbo_dylib_suffix);
-		cerr << errs << endl;
-		//we should never really have an ID here because we would have just built it, but just in case.
-		if (cmdId.size()) {
-			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::VersionMismatch), errs);
+	try {
+		//make sure that the version numbers match in the name of the library
+		if (!boost::algorithm::ends_with(fname, rnbo_dylib_suffix)) {
+			std::string errs("the requested library: " + fname + " doesn't match version suffix " + rnbo_dylib_suffix);
+			cerr << errs << endl;
+			//we should never really have an ID here because we would have just built it, but just in case.
+			if (cmdId.size()) {
+				reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::VersionMismatch), errs);
+			}
+			return false;
 		}
-		return false;
-	}
 
-	//activate if we need to
-	if (!tryActivateAudio()) {
-		cerr << "audio is not active, cannot create instance(s)" << endl;
-		if (cmdId.size()) {
-			reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
+		//activate if we need to
+		if (!tryActivateAudio()) {
+			cerr << "audio is not active, cannot create instance(s)" << endl;
+			if (cmdId.size()) {
+				reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
+			}
+			return false;
 		}
-		return false;
+		//make sure that no other instances can be created while this is active
+		std::lock_guard<std::mutex> iguard(mInstanceMutex);
+		auto factory = PatcherFactory::CreateFactory(path);
+		opp::node instNode;
+		std::string instIndex;
+		{
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			clearInstances(guard);
+			instIndex = std::to_string(mInstances.size());
+			instNode = mInstancesNode.create_child(instIndex);
+		}
+		auto builder = [instNode, this](std::function<void(opp::node)> f) {
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			f(instNode);
+		};
+		auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf);
+		{
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			//queue a save whenenever the configuration changes
+			instance->registerConfigChangeCallback([this] {
+					queueSave();
+			});
+			instance->start();
+			mInstances.emplace_back(std::make_pair(instance, path));
+		}
+		if (cmdId.size()) {
+			reportCommandResult(cmdId, {
+				{"code", static_cast<unsigned int>(CompileLoadStatus::Loaded)},
+				{"message", "loaded"},
+				{"progress", 100}
+			});
+		}
+		if (saveConfig)
+			queueSave();
+		return true;
+	} catch (const std::exception& e) {
+		std::cerr << "failed to load library: " << fname << " exception: " << e.what() << std::endl;
+	} catch (...) {
+		std::cerr << "failed to load library: " << fname << std::endl;
 	}
-	//make sure that no other instances can be created while this is active
-	std::lock_guard<std::mutex> iguard(mInstanceMutex);
-	auto factory = PatcherFactory::CreateFactory(path);
-	opp::node instNode;
-	std::string instIndex;
-	{
-		std::lock_guard<std::mutex> guard(mBuildMutex);
-		clearInstances(guard);
-		instIndex = std::to_string(mInstances.size());
-		instNode = mInstancesNode.create_child(instIndex);
-	}
-	auto builder = [instNode, this](std::function<void(opp::node)> f) {
-		std::lock_guard<std::mutex> guard(mBuildMutex);
-		f(instNode);
-	};
-	auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf);
-	{
-		std::lock_guard<std::mutex> guard(mBuildMutex);
-		//queue a save whenenever the configuration changes
-		instance->registerConfigChangeCallback([this] {
-				queueSave();
-		});
-		instance->start();
-		mInstances.emplace_back(std::make_pair(instance, path));
-	}
-	if (cmdId.size()) {
-		reportCommandResult(cmdId, {
-			{"code", static_cast<unsigned int>(CompileLoadStatus::Loaded)},
-			{"message", "loaded"},
-			{"progress", 100}
-		});
-	}
-	if (saveConfig)
-		queueSave();
-	return true;
+	return false;
 }
 
 bool Controller::loadLast() {
@@ -279,8 +289,10 @@ bool Controller::loadLast() {
 				return false;
 			}
 		}
-	} catch (std::exception& e) {
+	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
+	} catch (...) {
+		cerr << "unknown exception trying to load last setup" << endl;
 	}
 	return false;
 }
@@ -318,8 +330,10 @@ bool Controller::loadBuiltIn() {
 			}
 		}
 		return true;
-	} catch (std::exception& e) {
-		cerr << "exception " << e.what() << " trying to load last setup" << endl;
+	} catch (const std::exception& e) {
+		cerr << "exception " << e.what() << " trying to load built in" << endl;
+	} catch (...) {
+		cerr << "unknown exception trying to load built in" << endl;
 	}
 	return false;
 }
@@ -601,7 +615,7 @@ void Controller::processCommands() {
 							{"message", "installation initiated"},
 							{"progress", 100}
 					});
-				} catch (std::exception& e) {
+				} catch (...) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
 					continue;
 				}
@@ -610,8 +624,10 @@ void Controller::processCommands() {
 				cerr << "unknown method " << method << endl;
 				continue;
 			}
-		} catch (std::exception& e) {
+		} catch (const std::exception& e) {
 			cerr << "exception processing command " << e.what() << endl;
+		} catch (...) {
+			cerr << "unknown exception processing command " << endl;
 		}
 	}
 }
