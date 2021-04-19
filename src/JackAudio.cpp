@@ -52,7 +52,7 @@ namespace {
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr) {
 	//read in config
 	{
-		mSampleRate = jconfig_get<double>("sample_rate").get_value_or(44100.);
+		mSampleRate = jconfig_get<double>("sample_rate").get_value_or(48000.);
 		mPeriodFrames = jconfig_get<int>("period_frames").get_value_or(256);
 #ifndef __APPLE__
 		mCardName = jconfig_get<std::string>("card_name").get_value_or("");
