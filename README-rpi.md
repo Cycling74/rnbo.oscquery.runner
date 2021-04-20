@@ -213,9 +213,9 @@ brew install gnupg
 to create a package and upload it, from a mac, in the root of this repo.
 ```shell
 ./build-rpi.sh
-aptly -distribution=buster repo create rnbo
-aptly repo add rnbo examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo -component=,, rnbo rnbo-extra s3:c74:
+aptly -distribution=buster repo create buster-rpi
+aptly repo add buster-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly publish repo -component=,, buster-rpi buster-rpi-extra s3:c74:
 ```
 
 to update the repo
@@ -225,7 +225,7 @@ aptly publish update buster s3:c74:
 
 to overwrite a package
 ```shell
-aptly -force-replace repo add rnbo examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly -force-replace repo add buster-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
 aptly -force-overwrite publish update buster s3:c74:
 ```
 
