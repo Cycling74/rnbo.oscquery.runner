@@ -70,7 +70,7 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends rnbooscquery=0.10.0-rpi-remote-update.5
+  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.11.0-xnor-jack2-properties-server.0
   apt-mark hold rnbooscquery
   ```
 
