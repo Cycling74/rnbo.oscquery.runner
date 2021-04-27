@@ -38,21 +38,6 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
-	//RNBO is telling us we have a parameter update, tell ossia
-	auto paramCallback = [this](RNBO::ParameterIndex index, RNBO::ParameterValue value) {
-		auto it = mIndexToNode.find(index);
-		if (it != mIndexToNode.end()) {
-			//enumerated value
-			if (it->second.second) {
-				auto it2 = it->second.second->find(static_cast<int>(value));
-				if (it2 != it->second.second->end()) {
-					it->second.first.set_value(it2->second);
-				}
-			} else {
-				it->second.first.set_value(value);
-			}
-		}
-	};
 	auto msgCallback =
 		[this](RNBO::MessageEvent msg) {
 			//only send messages that aren't targeted for a specific object
@@ -63,7 +48,9 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		[this](RNBO::MidiEvent e) {
 			handleMidiCallback(e);
 		};
-	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(paramCallback, msgCallback,midiCallback));
+	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(
+				std::bind(&Instance::handleParamUpdate, this, std::placeholders::_1, std::placeholders::_2),
+				msgCallback, midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
 
@@ -113,6 +100,35 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (info.type != ParameterType::ParameterTypeNumber || !info.visible || info.debug)
 				continue;
 
+			//use a mutex to make sure we don't update in a loop
+			auto active = std::make_shared<std::mutex>();
+
+			//create normalized version
+			auto cnorm = [this, info, index, active](opp::node & param) -> opp::node {
+				auto n = param.create_float("normalized");
+				n.set_access(opp::access_mode::Bi);
+				n.set_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
+				n.set_min(0.);
+				n.set_max(1.);
+				n.set_bounding(opp::bounding_mode::Clip);
+
+				//normalized callback
+				ValueCallbackHelper::setCallback(
+					n, mValueCallbackHelpers,
+					[this, index, active](const opp::value& val) mutable {
+						if (val.is_float()) {
+							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+								double f = static_cast<double>(val.to_float());
+								f = mCore->convertFromNormalizedParameterValue(index, f);
+								mCore->setParameterValue(index, f);
+								handleParamUpdate(index, f);
+							}
+						}
+					});
+
+				return n;
+			};
+
 			if (info.enumValues == nullptr) {
 				//numerical parameters
 				//set parameter access, range, etc etc
@@ -123,14 +139,26 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				p.set_max(info.max);
 				p.set_bounding(opp::bounding_mode::Clip);
 
+				//normalized
+				auto norm = cnorm(p);
+
+				//param callback, set norm
 				ValueCallbackHelper::setCallback(
 					p, mValueCallbackHelpers,
-					[this, index](const opp::value& val) {
-					if (val.is_float())
-						mCore->setParameterValue(index, val.to_float());
+					[this, index, norm, active](const opp::value& val) mutable {
+						if (val.is_float()) {
+							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+								double f = static_cast<double>(val.to_float());
+								mCore->setParameterValue(index, f);
+								f = mCore->convertToNormalizedParameterValue(index, f);
+								norm.set_value(static_cast<float>(f));
+							}
+						}
 					});
+
 				//setup lookup, no enum
 				mIndexToNode[index] = std::make_pair(p, boost::none);
+
 			} else {
 				//enumerated parameters
 				std::vector<opp::value> values;
@@ -154,19 +182,26 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				p.set_max(values.back());
 				p.set_accepted_values(values);
 
+				//normalized
+				auto norm = cnorm(p);
+
 				ValueCallbackHelper::setCallback(
 					p, mValueCallbackHelpers,
-					[this, index, nameToVal](const opp::value& val) {
+					[this, index, nameToVal, active, norm](const opp::value& val) mutable {
 						if (val.is_string()) {
-							auto f = nameToVal.find(val.to_string());
-							if (f != nameToVal.end()) {
-								mCore->setParameterValue(index, f->second);
+							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+								auto f = nameToVal.find(val.to_string());
+								if (f != nameToVal.end()) {
+									mCore->setParameterValue(index, f->second);
+									norm.set_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second)));
+								}
 							}
 						}
 					});
 				//set lookup with enum lookup
 				mIndexToNode[index] = std::make_pair(p, valToName);
 			}
+
 		}
 
 		auto dataRefs = root.create_child("data_refs");
@@ -607,5 +642,22 @@ void Instance::handleMidiCallback(RNBO::MidiEvent e) {
 			bytes.push_back(opp::value(static_cast<int>(in[i])));
 		}
 		mMIDIOutNode.set_value(bytes);
+	}
+}
+
+//from RNBO
+void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value) {
+	//RNBO is telling us we have a parameter update, tell ossia
+	auto it = mIndexToNode.find(index);
+	if (it != mIndexToNode.end()) {
+		//enumerated value
+		if (it->second.second) {
+			auto it2 = it->second.second->find(static_cast<int>(value));
+			if (it2 != it->second.second->end()) {
+				it->second.first.set_value(it2->second);
+			}
+		} else {
+			it->second.first.set_value(value);
+		}
 	}
 }

@@ -64,6 +64,8 @@ class Instance {
 		void handleOutportMessage(RNBO::MessageEvent e);
 		void handleMidiCallback(RNBO::MidiEvent e);
 
+		void handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value);
+
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
 		std::shared_ptr<PatcherFactory> mPatcherFactory;
