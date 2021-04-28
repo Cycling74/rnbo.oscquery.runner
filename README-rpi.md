@@ -193,6 +193,20 @@ Do all the normal use stuff then:
   * shrink with: [PiShrink](https://github.com/Drewsif/PiShrink)
 
 
+# Transport
+
+The runner is setup to synchronize to [Jack Transport](https://jackaudio.org/api/transport-design.html).
+
+## Ableton's Link
+
+In order to sync your runner with external clients, you can use the [jack_transport_link](https://github.com/x37v/jack_transport_link) application.
+This drives the Jack Transport and synchronizes it with other [Link](https://www.ableton.com/en/link/) clients on your network.
+By default, this application is automatically installed on the rpi if you've added the `extra` component to your apt entry.
+`extra` will be added by default for images for rnbo `0.11.0` and later.
+
+If `jack_transport_link` is running, you should be able to control your tempo and start/stop the transport with both OSCQuery methods as well as with external link clients.
+
+
 # Package management
 
 ## Aptly
