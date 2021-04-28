@@ -23,16 +23,15 @@ mark_as_advanced(BUILTIN_PATCHER_PATH)
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
-endif()
-
-project(rnbooscquery LANGUAGES CXX)
-set(PROJECT_VERSION "${RNBO_VERSION}")
-if (LINUX)
-	#sdbus requires 17
+	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
+	#sdbus requires 17, so we're just requiring it for all Linux for now
 	set(CMAKE_CXX_STANDARD 17)
 else()
 	set(CMAKE_CXX_STANDARD 11)
 endif()
+
+project(rnbooscquery LANGUAGES CXX)
+set(PROJECT_VERSION "${RNBO_VERSION}")
 set(PROJECT_APP "rnbooscquery")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -57,7 +56,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 #dbus on linux
-if (LINUX)
+if (WITH_DBUS)
 	#handle sdbus for linux, common between this and the update lib
 	include("${CMAKE_CURRENT_SOURCE_DIR}/common/sdbus.cmake")
 	add_definitions(-DRNBO_USE_DBUS)
