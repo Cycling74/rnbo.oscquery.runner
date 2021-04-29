@@ -21,13 +21,12 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
 
+#libossia and sdbus require c++17
+set(CMAKE_CXX_STANDARD 17)
+
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
 	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
-	#sdbus requires 17, so we're just requiring it for all Linux for now
-	set(CMAKE_CXX_STANDARD 17)
-else()
-	set(CMAKE_CXX_STANDARD 11)
 endif()
 
 project(rnbooscquery LANGUAGES CXX)
@@ -44,7 +43,6 @@ set(PROJECT_SRC
 	src/EventHandler.cpp
 	src/JackAudio.cpp
 	src/PatcherFactory.cpp
-	src/ValueCallbackHelper.cpp
 	common/RunnerUpdateState.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
@@ -80,7 +78,7 @@ conan_cmake_install(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/1.2.1@xnor/testing
+	REQUIRES libossia/1.2.1@xnor/oscout
 	GENERATORS cmake_find_package
 	KEEP_RPATHS
 	IMPORTS "bin, *.dll -> ./bin"

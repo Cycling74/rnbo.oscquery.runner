@@ -22,8 +22,6 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
-class ValueCallbackHelper;
-
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
@@ -45,12 +43,12 @@ class ProcessAudioJack : public ProcessAudio {
 
 		std::atomic<jack_uuid_t> mBPMClientUUID;
 
-		opp::node mInfo;
-		opp::node mTransportBPMNode;
+		ossia::net::node_base * mInfoNode;
+		ossia::net::parameter_base * mTransportBPMParam;
 		float mTransportBPMLast = 0.0;
 		std::atomic<float> mTransportBPMPropLast;
 
-		opp::node mTransportRollingNode;
+		ossia::net::parameter_base * mTransportRollingParam;
 		bool mTransportRollingLast = false;
 
 
@@ -59,17 +57,15 @@ class ProcessAudioJack : public ProcessAudio {
 		std::vector<std::string> mCardNames;
 
 		double mSampleRate = 44100;
-		opp::node mSampleRateNode;
+		ossia::net::parameter_base * mSampleRateParam;
 		int mPeriodFrames = 256;
-		opp::node mPeriodFramesNode;
+		ossia::net::parameter_base * mPeriodFramesParam;
 
 #ifndef __APPLE__
 		int mNumPeriods = 2;
-		opp::node mNumPeriodsNode;
+		ossia::net::parameter_base * mNumPeriodsParam;
 		std::string mCardName;
 #endif
-
-		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 };
 
 //Processing and handling for a specific rnbo instance.

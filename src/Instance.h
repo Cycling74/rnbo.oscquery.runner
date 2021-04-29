@@ -10,16 +10,17 @@
 #include <functional>
 
 #include <boost/optional.hpp>
-#include <ossia-cpp/ossia-cpp98.hpp>
+
+#include <ossia/network/value/value.hpp>
 
 #include "RNBO.h"
 #include "EventHandler.h"
 #include "InstanceAudio.h"
 #include "Defines.h"
 #include "Queue.h"
+#include "Defines.h"
 
 class PatcherFactory;
-class ValueCallbackHelper;
 namespace moodycamel {
 template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
@@ -60,7 +61,7 @@ class Instance {
 		void queueConfigChangeSignal();
 		//only called at startup or in the processDataRefCommands thread
 		bool loadDataRef(const std::string& id, const std::string& fileName);
-		void handleInportMessage(RNBO::MessageTag tag, const opp::value& value);
+		void handleInportMessage(RNBO::MessageTag tag, const ossia::value& value);
 		void handleOutportMessage(RNBO::MessageEvent e);
 		void handleMidiCallback(RNBO::MidiEvent e);
 
@@ -71,19 +72,16 @@ class Instance {
 		std::shared_ptr<PatcherFactory> mPatcherFactory;
 		std::shared_ptr<RNBO::CoreObject> mCore;
 
-		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
-
 		//parameter index -> (node and optional int -> string for enum lookups)
-		std::map<RNBO::ParameterIndex, std::pair<opp::node, boost::optional<std::unordered_map<int, std::string>>>> mIndexToNode;
+		std::map<RNBO::ParameterIndex, std::pair<ossia::net::parameter_base*, boost::optional<std::unordered_map<int, std::string>>>> mIndexToParam;
 
-		opp::node mActiveNode;
-		opp::node mMIDIOutNode;
+		ossia::net::parameter_base* mActiveParam;
+		ossia::net::parameter_base* mMIDIOutParam;
 
 		//queue for loading or unloading data refs
 		Queue<DataRefCommand> mDataRefCommandQueue;
 		//only accessed in the data ref thread
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;
-		std::unordered_map<std::string, opp::node> mDataRefNodes;
 		std::thread mDataRefThread;
 		std::atomic<bool> mDataRefProcessCommands;
 
@@ -92,7 +90,7 @@ class Instance {
 		std::unordered_map<std::string, std::string> mDataRefFileNameMap;
 
 		//presets
-		opp::node mPresetEntires;
+		ossia::net::parameter_base * mPresetEntires;
 		std::unordered_map<std::string, RNBO::ConstPresetPtr> mPresets;
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
@@ -103,5 +101,5 @@ class Instance {
 
 		//simply the names of imports and outports, for building up OSCQuery and seralization
 		std::vector<std::string> mInportTags;
-		std::unordered_map<std::string, opp::node> mOutportNodes;
+		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
 };

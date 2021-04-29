@@ -6,11 +6,13 @@
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <boost/filesystem.hpp>
 
+#include <ossia/network/generic/generic_device.hpp>
+#include <ossia/network/generic/generic_parameter.hpp>
+
 #include "Config.h"
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
-#include "ValueCallbackHelper.h"
 
 using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
@@ -88,10 +90,10 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
-	builder([this, outportTags, &dataRefMap](opp::node root) {
+	builder([this, outportTags, &dataRefMap](ossia::net::node_base * root) {
 		//setup parameters
-		auto params = root.create_child("params");
-		params.set_description("Parameter get/set");
+		auto params = root->create_child("params");
+		params->set(ossia::net::description_attribute{}, "Parameter get/set");
 		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
 			ParameterInfo info;
 			mCore->getParameterInfo(index, &info);
@@ -104,64 +106,63 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			auto active = std::make_shared<std::mutex>();
 
 			//create normalized version
-			auto cnorm = [this, info, index, active](opp::node & param) -> opp::node {
-				auto n = param.create_float("normalized");
-				n.set_access(opp::access_mode::Bi);
-				n.set_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
-				n.set_min(0.);
-				n.set_max(1.);
-				n.set_bounding(opp::bounding_mode::Clip);
+			auto cnorm = [this, info, index, active](ossia::net::node_base * param) -> ossia::net::parameter_base * {
+				auto n = param->create_child("normalized");
+				auto p = n->create_parameter(ossia::val_type::FLOAT);
+
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				n->set(ossia::net::domain_attribute{}, ossia::make_domain(0., 1.));
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				p->push_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
 
 				//normalized callback
-				ValueCallbackHelper::setCallback(
-					n, mValueCallbackHelpers,
-					[this, index, active](const opp::value& val) mutable {
-						if (val.is_float()) {
-							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-								double f = static_cast<double>(val.to_float());
-								f = mCore->convertFromNormalizedParameterValue(index, f);
-								mCore->setParameterValue(index, f);
-								handleParamUpdate(index, f);
-							}
+				p->add_callback([this, index, active](const ossia::value& val) mutable {
+					if (val.get_type() == ossia::val_type::FLOAT) {
+						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+							double f = static_cast<double>(val.get<float>());
+							f = mCore->convertFromNormalizedParameterValue(index, f);
+							mCore->setParameterValue(index, f);
+							handleParamUpdate(index, f);
 						}
-					});
+					}
+				});
 
-				return n;
+				return p;
 			};
 
 			if (info.enumValues == nullptr) {
 				//numerical parameters
 				//set parameter access, range, etc etc
-				auto p = params.create_float(mCore->getParameterId(index));
-				p.set_access(opp::access_mode::Bi);
-				p.set_value(info.initialValue);
-				p.set_min(info.min);
-				p.set_max(info.max);
-				p.set_bounding(opp::bounding_mode::Clip);
+				auto n = params->create_child(mCore->getParameterId(index));
+				auto p = n->create_parameter(ossia::val_type::FLOAT);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				n->set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+				p->push_value(info.initialValue);
+
 
 				//normalized
-				auto norm = cnorm(p);
+				auto norm = cnorm(n);
 
 				//param callback, set norm
-				ValueCallbackHelper::setCallback(
-					p, mValueCallbackHelpers,
-					[this, index, norm, active](const opp::value& val) mutable {
-						if (val.is_float()) {
-							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-								double f = static_cast<double>(val.to_float());
-								mCore->setParameterValue(index, f);
-								f = mCore->convertToNormalizedParameterValue(index, f);
-								norm.set_value(static_cast<float>(f));
-							}
+				p->add_callback([this, index, active, norm](const ossia::value& val) mutable {
+					if (val.get_type() == ossia::val_type::FLOAT) {
+						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+							double f = static_cast<double>(val.get<float>());
+							mCore->setParameterValue(index, f);
+							f = mCore->convertToNormalizedParameterValue(index, f);
+							norm->push_value(static_cast<float>(f));
 						}
-					});
+					}
+				});
 
 				//setup lookup, no enum
-				mIndexToNode[index] = std::make_pair(p, boost::none);
+				mIndexToParam[index] = std::make_pair(p, boost::none);
 
 			} else {
 				//enumerated parameters
-				std::vector<opp::value> values;
+				std::vector<ossia::value> values;
 
 				//build out lookup maps between strings and numbers
 				std::unordered_map<std::string, ParameterValue> nameToVal;
@@ -173,160 +174,171 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					valToName[e] = s;
 				}
 
-				auto p = params.create_string(mCore->getParameterId(index));
-				p.set_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
+				auto n = params->create_child(mCore->getParameterId(index));
+				auto p = n->create_parameter(ossia::val_type::STRING);
 
-				//XXX you have to set min and or max before accepted values takes, will file bug report
-				p.set_bounding(opp::bounding_mode::Clip);
-				p.set_min(values.front());
-				p.set_max(values.back());
-				p.set_accepted_values(values);
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, values);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+				p->push_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
 
 				//normalized
-				auto norm = cnorm(p);
+				auto norm = cnorm(n);
 
-				ValueCallbackHelper::setCallback(
-					p, mValueCallbackHelpers,
-					[this, index, nameToVal, active, norm](const opp::value& val) mutable {
-						if (val.is_string()) {
-							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-								auto f = nameToVal.find(val.to_string());
-								if (f != nameToVal.end()) {
-									mCore->setParameterValue(index, f->second);
-									norm.set_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second)));
-								}
+				p->add_callback([this, index, nameToVal, active, norm](const ossia::value& val) mutable {
+					if (val.get_type() == ossia::val_type::STRING) {
+						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+							auto f = nameToVal.find(val.get<std::string>());
+							if (f != nameToVal.end()) {
+								mCore->setParameterValue(index, f->second);
+								norm->push_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second)));
 							}
 						}
-					});
+					}
+				});
 				//set lookup with enum lookup
-				mIndexToNode[index] = std::make_pair(p, valToName);
+				mIndexToParam[index] = std::make_pair(p, valToName);
 			}
 
 		}
 
-		auto dataRefs = root.create_child("data_refs");
+		auto dataRefs = root->create_child("data_refs");
 		for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
 			auto id = mCore->getExternalDataId(index);
 			std::string name(id);
-			auto d = dataRefs.create_string(name);
+			auto n = dataRefs->create_child(name);
+			auto d = n->create_parameter(ossia::val_type::STRING);
 			auto it = dataRefMap.find(name);
 			if (it != dataRefMap.end()) {
-				d.set_value(it->second);
+				d->push_value(it->second);
 			}
-			ValueCallbackHelper::setCallback(
-				d, mValueCallbackHelpers,
-					[this, id](const opp::value& val) {
-						if (val.is_string())
-							mDataRefCommandQueue.push(DataRefCommand(val.to_string(), id));
-				});
-			mDataRefNodes[id] = d;
+			d->add_callback(
+				[this, id](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING)
+						mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
+			});
 		}
 
-		//indicate the presets
-		auto presets = root.create_child("presets");
-		mPresetEntires = presets.create_list("entries");
-		mPresetEntires.set_description("A list of presets that can be loaded");
-		mPresetEntires.set_access(opp::access_mode::Get);
-		updatePresetEntries();
+		{
+			//indicate the presets
+			auto presets = root->create_child("presets");
+			{
+				auto n = presets->create_child("entries");
+				mPresetEntires = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::description_attribute{}, "A list of presets that can be loaded");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				updatePresetEntries();
+			}
 
-		//save preset, pass name
-		auto save = presets.create_string("save");
-		save.set_description("Save the current settings as a preset with the given name");
-		save.set_access(opp::access_mode::Set);
-		ValueCallbackHelper::setCallback(
-			save, mValueCallbackHelpers,
-			[this](const opp::value& val) {
-				if (val.is_string()) {
-					std::string name = val.to_string();
-					mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
-							mPresetSavedQueue->try_enqueue(std::make_pair(name, preset));
-					});
-				}
-			});
+			//save preset, pass name
+			{
+				auto n = presets->create_child("save");
+				auto save = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::description_attribute{}, "Save the current settings as a preset with the given name");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 
-		auto load = presets.create_string("load");
-		load.set_description("Load a preset with the given name");
-		load.set_access(opp::access_mode::Set);
-		ValueCallbackHelper::setCallback(
-			load, mValueCallbackHelpers,
-			[this](const opp::value& val) {
-				//TODO do we want to move this to another thread?
-				if (val.is_string()) {
-					loadPreset(val.to_string());
-				}
-			});
+				save->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						std::string name = val.get<std::string>();
+						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
+								mPresetSavedQueue->try_enqueue(std::make_pair(name, preset));
+						});
+					}
+				});
+			}
 
-		auto init = presets.create_string("initial");
-		init.set_description("Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the loaded preset instead");
-		if (!mPresetInitial.empty())
-			init.set_value(mPresetInitial);
-		ValueCallbackHelper::setCallback(
-			init, mValueCallbackHelpers,
-			[this](const opp::value& val) {
-				if (val.is_string()) {
-					std::lock_guard<std::mutex> guard(mPresetMutex);
-					//TODO validate?
-					mPresetInitial = val.to_string();
-					queueConfigChangeSignal();
-				}
-			});
+			{
+				auto n = presets->create_child("load");
+				auto load = n->create_parameter(ossia::val_type::STRING);
+
+				n->set(ossia::net::description_attribute{}, "Load a preset with the given name");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				load->add_callback([this](const ossia::value& val) {
+					//TODO do we want to move this to another thread?
+					if (val.get_type() == ossia::val_type::STRING) {
+						loadPreset(val.get<std::string>());
+					}
+				});
+			}
+
+			{
+				auto n = presets->create_child("initial");
+				auto init = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::description_attribute{}, "Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the loaded preset instead");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+
+				init->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						//TODO validate?
+						mPresetInitial = val.get<std::string>();
+						queueConfigChangeSignal();
+					}
+				});
+				if (!mPresetInitial.empty())
+					init->push_value(mPresetInitial);
+			}
+		}
 
 		if (mInportTags.size() > 0 || outportTags.size() > 0) {
-			auto msgs = root.create_child("messages");
+			auto msgs = root->create_child("messages");
 			if (mInportTags.size()) {
-				auto n = msgs.create_child("in");
+				auto in = msgs->create_child("in");
 				for (auto i: mInportTags) {
-					auto p = n.create_list(i);
-					p.set_access(opp::access_mode::Set);
+					auto n = in->create_child(i);
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 					auto tag = RNBO::TAG(i.c_str());
-					ValueCallbackHelper::setCallback(
-						p, mValueCallbackHelpers,
-						[this, tag](const opp::value& val) {
-							handleInportMessage(tag, val);
-						});
+					p->add_callback([this, tag](const ossia::value& val) {
+						handleInportMessage(tag, val);
+					});
 				}
 			}
 			if (outportTags.size()) {
-				auto n = msgs.create_child("out");
+				auto o = msgs->create_child("out");
 				for (auto i: outportTags) {
-					auto p = n.create_list(i);
-					p.set_access(opp::access_mode::Get);
-					mOutportNodes[i] = p;
+					auto n = o->create_child(i);
+					auto p = o->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					mOutportParams[i] = p;
 				}
 			}
 		}
 
 		//setup virtual midi
 		{
-			auto vmidi = root.create_child("midi");
-			auto in = vmidi.create_list("in");
-			in.set_description("midi events in to your RNBO patch");
-			in.set_access(opp::access_mode::Set);
+			auto vmidi = root->create_child("midi");
+			auto n = vmidi->create_child("in");
+			auto in = n->create_parameter(ossia::val_type::LIST);
+			n->set(ossia::net::description_attribute{}, "midi events in to your RNBO patch");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 			//handle a virtual midi input, route into RNBO object
-			ValueCallbackHelper::setCallback(
-					in, mValueCallbackHelpers,
-					[this](const opp::value& val) {
-						if (val.is_list()) {
-							auto l = val.to_list();
-							std::vector<uint8_t> bytes;
-							for (auto v: l) {
-								if (v.is_int()) {
-									bytes.push_back(static_cast<uint8_t>(v.to_int()));
-								} else if (v.is_float()) {
-									//shouldn't get float but just in case?
-									bytes.push_back(static_cast<uint8_t>(floorf(v.to_float())));
-								} else {
-									//XXX cerr
-									return;
-								}
-							}
-							mCore->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
+			in->add_callback( [this](const ossia::value& val) {
+				if (val.get_type() == ossia::val_type::LIST) {
+					auto l = val.get<std::vector<ossia::value>>();
+					std::vector<uint8_t> bytes;
+					for (auto v: l) {
+						if (v.get_type() == ossia::val_type::INT) {
+							bytes.push_back(static_cast<uint8_t>(v.get<int>()));
+						} else if (v.get_type() == ossia::val_type::FLOAT) {
+							//shouldn't get float but just in case?
+							bytes.push_back(static_cast<uint8_t>(floorf(v.get<float>())));
+						} else {
+							//XXX cerr
+							return;
 						}
-					});
+					}
+					mCore->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
+				}
+			});
 
-			mMIDIOutNode = vmidi.create_list("out");
-			mMIDIOutNode.set_description("midi events out of your RNBO patch");
-			mMIDIOutNode.set_access(opp::access_mode::Get);
+			{
+				auto n = vmidi->create_child("out");
+				mMIDIOutParam = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::description_attribute{}, "midi events out of your RNBO patch");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			}
 		}
 	});
 
@@ -433,7 +445,7 @@ RNBO::Json Instance::currentConfig() {
 	config["inports"] = ports;
 
 	//outports
-	for (auto& kv: mOutportNodes)
+	for (auto& kv: mOutportParams)
 		ports.push_back(kv.first);
 	ports = RNBO::Json::array();
 	config["outports"] = ports;
@@ -463,11 +475,11 @@ RNBO::Json Instance::currentConfig() {
 }
 void Instance::updatePresetEntries() {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
-	std::vector<opp::value> names;
+	std::vector<ossia::value> names;
 	for (auto &kv : mPresets) {
-		names.push_back(opp::value(kv.first));
+		names.push_back(ossia::value(kv.first));
 	}
-	mPresetEntires.set_value(opp::value(names));
+	mPresetEntires->push_value(ossia::value(names));
 }
 
 void Instance::queueConfigChangeSignal() {
@@ -562,24 +574,24 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 	return false;
 }
 
-void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) {
-	if (val.is_impulse()) {
+void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val) {
+	if (val.get_type() == ossia::val_type::IMPULSE) {
 		mCore->sendMessage(tag);
-	} else if (val.is_float()) {
-		mCore->sendMessage(tag, static_cast<RNBO::number>(val.to_float()));
-	} else if (val.is_int()) {
-		mCore->sendMessage(tag, static_cast<RNBO::number>(val.to_int()));
-	} else if (val.is_list()) {
-		auto list = val.to_list();
+	} else if (val.get_type() == ossia::val_type::FLOAT) {
+		mCore->sendMessage(tag, static_cast<RNBO::number>(val.get<float>()));
+	} else if (val.get_type() == ossia::val_type::INT) {
+		mCore->sendMessage(tag, static_cast<RNBO::number>(val.get<int>()));
+	} else if (val.get_type() == ossia::val_type::LIST) {
+		auto list = val.get<std::vector<ossia::value>>();
 		//empty list, bang
-		if (list.size() == 0 || (list.size() == 1 && list[0].is_impulse())) {
+		if (list.size() == 0 || (list.size() == 1 && list[0].get_type() == ossia::val_type::IMPULSE)) {
 			mCore->sendMessage(tag);
 		} else if (list.size() == 1) {
 			RNBO::number v = 0.0;
-			if (list[0].is_int()) {
-				v = static_cast<RNBO::number>(list[0].to_int());
-			} else if (list[0].is_float()) {
-				v = static_cast<RNBO::number>(list[0].to_float());
+			if (list[0].get_type() == ossia::val_type::INT) {
+				v = static_cast<RNBO::number>(list[0].get<int>());
+			} else if (list[0].get_type() == ossia::val_type::FLOAT) {
+				v = static_cast<RNBO::number>(list[0].get<float>());
 			} else {
 				std::cerr << "only numeric items are allowed in lists, aborting message" << std::endl;
 			}
@@ -588,10 +600,10 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) 
 			//construct and send list
 			auto l = RNBO::make_unique<RNBO::list>();
 			for (auto v: list) {
-				if (v.is_int())
-					l->push(static_cast<RNBO::number>(v.to_int()));
-				else if (v.is_float())
-					l->push(static_cast<RNBO::number>(v.to_float()));
+				if (v.get_type() == ossia::val_type::INT)
+					l->push(static_cast<RNBO::number>(v.get<int>()));
+				else if (v.get_type() == ossia::val_type::FLOAT)
+					l->push(static_cast<RNBO::number>(v.get<float>()));
 				else {
 					std::cerr << "only numeric values are allowed in lists, aborting message" << std::endl;
 					return;
@@ -604,26 +616,26 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const opp::value& val) 
 
 void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 	auto tag = std::string(mCore->resolveTag(e.getTag()));
-	auto it = mOutportNodes.find(tag);
-	if (it == mOutportNodes.end()) {
+	auto it = mOutportParams.find(tag);
+	if (it == mOutportParams.end()) {
 		std::cerr << "couldn't find outport node with tag " << tag << std::endl;
 		return;
 	}
-	auto node = it->second;
+	auto p = it->second;
 	switch(e.getType()) {
 		case MessageEvent::Type::Number:
-			node.set_value(e.getNumValue());
+			p->push_value(e.getNumValue());
 			break;
 		case MessageEvent::Type::Bang:
-			node.set_value(opp::value::impulse {});
+			p->push_value(ossia::impulse {});
 			break;
 		case MessageEvent::Type::List:
 			{
-				std::vector<opp::value> values;
+				std::vector<ossia::value> values;
 				std::shared_ptr<const RNBO::list> elist = e.getListValue();
 				for (size_t i = 0; i < elist->length; i++)
-					values.push_back(opp::value(elist->operator[](i)));
-				node.set_value(values);
+					values.push_back(ossia::value(elist->operator[](i)));
+				p->push_value(values);
 			}
 			break;
 		case MessageEvent::Type::Invalid:
@@ -635,29 +647,29 @@ void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 
 //from RNBO, report via OSCQuery
 void Instance::handleMidiCallback(RNBO::MidiEvent e) {
-	if (mMIDIOutNode) {
+	if (mMIDIOutParam) {
 		auto in = e.getData();
-		std::vector<opp::value> bytes;
+		std::vector<ossia::value> bytes;
 		for (int i = 0; i < e.getLength(); i++) {
-			bytes.push_back(opp::value(static_cast<int>(in[i])));
+			bytes.push_back(ossia::value(static_cast<int>(in[i])));
 		}
-		mMIDIOutNode.set_value(bytes);
+		mMIDIOutParam->push_value(bytes);
 	}
 }
 
 //from RNBO
 void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 	//RNBO is telling us we have a parameter update, tell ossia
-	auto it = mIndexToNode.find(index);
-	if (it != mIndexToNode.end()) {
+	auto it = mIndexToParam.find(index);
+	if (it != mIndexToParam.end()) {
 		//enumerated value
 		if (it->second.second) {
 			auto it2 = it->second.second->find(static_cast<int>(value));
 			if (it2 != it->second.second->end()) {
-				it->second.first.set_value(it2->second);
+				it->second.first->push_value(it2->second);
 			}
 		} else {
-			it->second.first.set_value(value);
+			it->second.first->push_value(value);
 		}
 	}
 }

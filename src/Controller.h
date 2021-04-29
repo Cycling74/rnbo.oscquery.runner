@@ -6,7 +6,7 @@
 #include <atomic>
 #include <optional>
 
-#include <ossia-cpp/ossia-cpp98.hpp>
+
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
 
@@ -15,7 +15,6 @@
 #include "Queue.h"
 
 //forward declarations
-class ValueCallbackHelper;
 
 #ifdef RNBO_USE_DBUS
 class RnboUpdateServiceProxy;
@@ -50,20 +49,22 @@ class Controller {
 		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
-		opp::oscquery_server mServer;
-		opp::node mInstancesNode;
-		opp::node mResponseNode;
+		std::unique_ptr<ossia::net::generic_device> mServer;
+
+		//TODO
+		ossia::net::node_base * mInstancesNode;
+		ossia::net::parameter_base * mResponseParam = nullptr;
 
 		//instance and path to SO
 		std::vector<std::pair<std::unique_ptr<Instance>, boost::filesystem::path>> mInstances;
 
-		opp::node mDiskSpaceNode;
+		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
 		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
 		std::chrono::time_point<std::chrono::system_clock> mDiskSpacePollNext;
 
 		std::unique_ptr<ProcessAudio> mProcessAudio;
-		opp::node mAudioActive;
+		ossia::net::parameter_base * mAudioActive;
 		std::mutex mBuildMutex;
 		std::mutex mInstanceMutex;
 
@@ -76,8 +77,6 @@ class Controller {
 		bool mSave = false;
 		//a timeout for when to save, debouncing
 		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
-
-		std::vector<std::shared_ptr<ValueCallbackHelper>> mValueCallbackHelpers;
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;

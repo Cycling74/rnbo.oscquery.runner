@@ -1,12 +1,14 @@
 #include "JackAudio.h"
 #include "Config.h"
-#include "ValueCallbackHelper.h"
 
 #include <jack/midiport.h>
 #include <jack/uuid.h>
 #include <jack/jslist.h>
 
 #include <readerwriterqueue/readerwriterqueue.h>
+
+#include <ossia/network/generic/generic_device.hpp>
+#include <ossia/network/generic/generic_parameter.hpp>
 
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
@@ -85,11 +87,11 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 #endif
 	}
 
-	mBuilder([this](opp::node root) {
-			mInfo = root.create_child("info");
+	mBuilder([this](ossia::net::node_base * root) {
+			mInfoNode = root->create_child("info");
 
-			auto conf = root.create_child("config");
-			conf.set_description("Jack configuration parameters");
+			auto conf = root->create_child("config");
+			conf->set(ossia::net::description_attribute{}, "Jack configuration parameters");
 
 #ifndef __APPLE__
 			//read info about alsa cards if it exists
@@ -105,7 +107,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				}
 				value += ";";
 
-				auto cards = mInfo.create_child("alsa_cards");
+				auto cards = mInfoNode->create_child("alsa_cards");
 				std::smatch m;
 				while (std::regex_search(value, m, alsa_card_regex)) {
 
@@ -129,111 +131,117 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 					//hw:NAME
 					{
 						mCardNames.push_back(name);
-						auto c = cards.create_string(name);
-						c.set_value(v);
-						c.set_access(opp::access_mode::Get);
+						auto n = cards->create_child(name);
+						auto c = n->create_parameter(ossia::val_type::STRING);
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+						c->push_value(v);
 					}
 
 					//hw:Index
 					{
 						mCardNames.push_back(index);
-						auto c = cards.create_string(index);
-						c.set_value(v);
-						c.set_access(opp::access_mode::Get);
+						auto n = cards->create_child(index);
+						auto c = n->create_parameter(ossia::val_type::STRING);
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+						c->push_value(v);
 					}
 
 				}
 			}
 
 			{
-				auto card = conf.create_string("card");
-				card.set_description("ALSA device name");
+				auto n = conf->create_child("card");
+				auto card = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				n->set(ossia::net::description_attribute{}, "ALSA device name");
 
 				if (mCardNames.size() != 0) {
-					std::vector<opp::value> accepted;
-					for (auto n: mCardNames) {
-						accepted.push_back(n);
+					std::vector<ossia::value> accepted;
+					for (auto name: mCardNames) {
+						accepted.push_back(name);
 					}
 
-					//XXX you have to set min and or max before accepted values takes, will file bug report
-					card.set_bounding(opp::bounding_mode::Clip);
-					card.set_min(accepted.front());
-					card.set_max(accepted.back());
-					card.set_accepted_values(accepted);
+					auto dom = ossia::init_domain(ossia::val_type::STRING);
+					ossia::set_values(dom, accepted);
+					n->set(ossia::net::domain_attribute{}, dom);
+					n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
 					if (!mCardName.empty()) {
-						card.set_value(mCardName);
+						card->push_value(mCardName);
 					}
 				}
 
-				ValueCallbackHelper::setCallback(
-						card, mValueCallbackHelpers,
-						[this](const opp::value& val) {
-							if (val.is_string()) {
-								mCardName = val.to_string();
-								jconfig_set(mCardName, "card_name");
-							}
-						});
+				card->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						mCardName = val.get<std::string>();
+						jconfig_set(mCardName, "card_name");
+					}
+				});
 			}
 
 			{
-				mNumPeriodsNode = conf.create_int("num_periods");
-				mNumPeriodsNode.set_description("Number of periods of playback latency");
-				mNumPeriodsNode.set_value(mNumPeriods);
-				std::vector<opp::value> accepted = { 1, 2, 3, 4};
-				mNumPeriodsNode.set_min(accepted.front());
-				mNumPeriodsNode.set_max(accepted.back());
-				mNumPeriodsNode.set_accepted_values(accepted);
-				mNumPeriodsNode.set_bounding(opp::bounding_mode::Clip);
-				ValueCallbackHelper::setCallback(
-						mNumPeriodsNode, mValueCallbackHelpers,
-						[this](const opp::value& val) {
-							//TODO clamp?
-							if (val.is_int()) {
-								mNumPeriods = val.to_int();
-								jconfig_set(mNumPeriods, "num_periods");
-							}
-						});
+				auto n = conf->create_child("num_periods");
+				mNumPeriodsParam = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::description_attribute{}, "Number of periods of playback latency");
+				mNumPeriodsParam->push_value(mNumPeriods);
+
+				auto dom = ossia::init_domain(ossia::val_type::INT);
+				ossia::set_values(dom, { 1, 2, 3, 4});
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mNumPeriodsParam->add_callback([this](const ossia::value& val) {
+					//TODO clamp?
+					if (val.get_type() == ossia::val_type::INT) {
+						mNumPeriods = val.get<int>();
+						jconfig_set(mNumPeriods, "num_periods");
+					}
+				});
 			}
 #endif
 			{
 				//accepted is a list of 2**n (32,... 1024)
-				std::vector<opp::value> accepted;
+				std::vector<ossia::value> accepted;
 				for (int i = 5; i <= 10; i++) {
 					accepted.push_back(1 << i);
 				}
-				mPeriodFramesNode = conf.create_int("period_frames");
-				mPeriodFramesNode.set_description("Frames per period");
-				mPeriodFramesNode.set_value(mPeriodFrames);
-				mPeriodFramesNode.set_min(accepted.front());
-				mPeriodFramesNode.set_max(accepted.back());
-				mPeriodFramesNode.set_accepted_values(accepted);
-				mPeriodFramesNode.set_bounding(opp::bounding_mode::Clip);
-				ValueCallbackHelper::setCallback(
-						mPeriodFramesNode, mValueCallbackHelpers,
-						[this](const opp::value& val) {
-							//TODO clamp?
-							if (val.is_int()) {
-								mPeriodFrames = val.to_int();
-								jconfig_set(mPeriodFrames, "period_frames");
-							}
-						});
+				auto n = conf->create_child("period_frames");
+				mPeriodFramesParam = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::description_attribute{}, "Frames per period");
+				mPeriodFramesParam->push_value(mPeriodFrames);
+
+				auto dom = ossia::init_domain(ossia::val_type::INT);
+				ossia::set_values(dom, accepted);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mPeriodFramesParam->add_callback([this](const ossia::value& val) {
+					//TODO clamp?
+					if (val.get_type() == ossia::val_type::INT) {
+						mPeriodFrames = val.get<int>();
+						jconfig_set(mPeriodFrames, "period_frames");
+					}
+				});
 			}
 
 			{
-				mSampleRateNode = conf.create_float("sample_rate");
-				mSampleRateNode.set_description("Sample rate");
-				mSampleRateNode.set_value(mSampleRate);
-				mSampleRateNode.set_min(44100.0 / 2);
-				mSampleRateNode.set_bounding(opp::bounding_mode::Clip);
-				ValueCallbackHelper::setCallback(
-						mSampleRateNode, mValueCallbackHelpers,
-						[this](const opp::value& val) {
-							//TODO clamp?
-							if (val.is_float()) {
-								mSampleRate = val.to_float();
-								jconfig_set(mSampleRate, "sample_rate");
-							}
-						});
+				auto n = conf->create_child("sample_rate");
+				mSampleRateParam = n->create_parameter(ossia::val_type::FLOAT);
+				n->set(ossia::net::description_attribute{}, "Sample rate");
+				mSampleRateParam->push_value(mSampleRate);
+
+				auto dom = ossia::init_domain(ossia::val_type::FLOAT);
+				dom.set_min(44100.0 / 2);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mSampleRateParam->add_callback( [this](const ossia::value& val) {
+					//TODO clamp?
+					if (val.get_type() == ossia::val_type::FLOAT) {
+						mSampleRate = val.get<float>();
+						jconfig_set(mSampleRate, "sample_rate");
+					}
+				});
 			}
 	});
 	createClient(false);
@@ -279,8 +287,8 @@ void ProcessAudioJack::processEvents() {
 
 	//manage BPM between 2 incoming async sources, prefer OSCQuery
 	//OSCQuery and Jack Properties
-	auto v = mTransportBPMNode.get_value();
-	float bpm = v.is_float() ? v.to_float() : 100.0;
+	auto v = mTransportBPMParam->value();
+	float bpm = (v.get_type() == ossia::val_type::FLOAT) ? v.get<float>() : 100.0;
 
 	//if the incoming OSCQuery value has changed, report the property
 	if (mTransportBPMLast != bpm) {
@@ -295,7 +303,7 @@ void ProcessAudioJack::processEvents() {
 		bpm = mTransportBPMPropLast.load();
 		if (mTransportBPMLast != bpm) {
 			mTransportBPMLast = bpm;
-			mTransportBPMNode.set_value(bpm);
+			mTransportBPMParam->push_value(bpm);
 		}
 	}
 }
@@ -312,47 +320,52 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		jack_status_t status;
 		mJackClient = jack_client_open("rnbo-info", JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
-			mBuilder([this](opp::node root) {
+			mBuilder([this](ossia::net::node_base * root) {
 				{
-					auto p = mInfo.create_bool("is_realtime");
-					p.set_description("indicates if jack is running in realtime mode or not");
-					p.set_access(opp::access_mode::Get);
-					p.set_value(jack_is_realtime(mJackClient) != 0);
+					auto n = mInfoNode->create_child("is_realtime");
+					auto p = n->create_parameter(ossia::val_type::BOOL);
+					n->set(ossia::net::description_attribute{}, "indicates if jack is running in realtime mode or not");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					p->push_value(jack_is_realtime(mJackClient) != 0);
 				}
 
 				double sr = jack_get_sample_rate(mJackClient);
 				jack_nframes_t bs = jack_get_buffer_size(mJackClient);
 				if (sr != mSampleRate) {
-					mSampleRateNode.set_value(static_cast<float>(sr));
+					mSampleRateParam->push_value(static_cast<float>(sr));
 				}
 				if (bs != mPeriodFrames) {
-					mPeriodFramesNode.set_value(static_cast<int>(bs));
+					mPeriodFramesParam->push_value(static_cast<int>(bs));
 				}
 
-				auto transport = root.create_child("transport");
-				mTransportBPMNode = transport.create_float("bpm");
-				mTransportBPMNode.set_value(100.0); //default
+				auto transport = root->create_child("transport");
+				{
+					auto n = transport->create_child("bpm");
+					mTransportBPMParam = n->create_parameter(ossia::val_type::FLOAT);
+					mTransportBPMParam->push_value(100.0); //default
+				}
 
-				mTransportRollingNode = transport.create_bool("rolling");
-				auto state = jack_transport_query(mJackClient, nullptr);
-				mTransportRollingLast = state != jack_transport_state_t::JackTransportStopped;
-				mTransportRollingNode.set_value(mTransportRollingLast);
+				{
+					auto n = transport->create_child("rolling");
+					mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
+					auto state = jack_transport_query(mJackClient, nullptr);
+					mTransportRollingLast = state != jack_transport_state_t::JackTransportStopped;
+					mTransportRollingParam->push_value(mTransportRollingLast);
 
-				ValueCallbackHelper::setCallback(
-						mTransportRollingNode, mValueCallbackHelpers,
-						[this](const opp::value& val) {
-							if (val.is_bool()) {
-								bool rolling = val.to_bool();
-								if (mTransportRollingLast != rolling) {
-									mTransportRollingLast = rolling;
-									if (rolling) {
-										jack_transport_start(mJackClient);
-									} else {
-										jack_transport_stop(mJackClient);
-									}
+					mTransportRollingParam->add_callback([this](const ossia::value& val) {
+						if (val.get_type() == ossia::val_type::BOOL) {
+							bool rolling = val.get<bool>();
+							if (mTransportRollingLast != rolling) {
+								mTransportRollingLast = rolling;
+								if (rolling) {
+									jack_transport_start(mJackClient);
+								} else {
+									jack_transport_stop(mJackClient);
 								}
 							}
-						});
+						}
+					});
+				}
 
 				//set property change callback, if we can
 				{
@@ -380,7 +393,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 											bpmClient = des.subject;
 											//update all the values
 											mTransportBPMPropLast.store(bpm);
-											mTransportBPMNode.set_value(bpm);
+											mTransportBPMParam->push_value(bpm);
 											mTransportBPMLast = bpm;
 										}
 									}
@@ -538,13 +551,13 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 	//zero out transport position
 	std::memset(&mTransportPosLast, 0, sizeof(jack_position_t));
 
-	builder([this](opp::node root) {
+	builder([this](ossia::net::node_base * root) {
 		//setup jack
-		auto jack = root.create_child("jack");
+		auto jack = root->create_child("jack");
 
 		//create i/o
 		{
-			std::vector<opp::value> names;
+			std::vector<ossia::value> names;
 			for (auto i = 0; i < mCore->getNumInputChannels(); i++) {
 				auto port = jack_port_register(mJackClient,
 						("in" + std::to_string(i + 1)).c_str(),
@@ -557,12 +570,15 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 				mJackAudioPortIn.push_back(port);
 			}
 
-			auto audio_ins = jack.create_list("audio_ins");
-			audio_ins.set_access(opp::access_mode::Get);
-			audio_ins.set_value(names);
+			{
+				auto n = jack->create_child("audio_ins");
+				auto audio_ins = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				audio_ins->push_value(names);
+			}
 		}
 		{
-			std::vector<opp::value> names;
+			std::vector<ossia::value> names;
 			for (auto i = 0; i < mCore->getNumOutputChannels(); i++) {
 				auto port = jack_port_register(mJackClient,
 						("out" + std::to_string(i + 1)).c_str(),
@@ -574,9 +590,12 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 				mSampleBufferPtrOut.push_back(nullptr);
 				mJackAudioPortOut.push_back(port);
 			}
-			auto audio_outs = jack.create_list("audio_outs");
-			audio_outs.set_access(opp::access_mode::Get);
-			audio_outs.set_value(names);
+			{
+				auto n = jack->create_child("audio_outs");
+				auto audio_outs = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				audio_outs->push_value(names);
+			}
 		}
 
 		{
@@ -586,9 +605,10 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 					JackPortFlags::JackPortIsInput,
 					0
 			);
-			auto midi_ins = jack.create_list("midi_ins");
-			midi_ins.set_access(opp::access_mode::Get);
-			midi_ins.set_value(opp::value({opp::value(std::string(jack_port_name(mJackMidiIn)))}));
+			auto n = jack->create_child("midi_ins");
+			auto midi_ins = n->create_parameter(ossia::val_type::LIST);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			midi_ins->push_value(ossia::value({ossia::value(std::string(jack_port_name(mJackMidiIn)))}));
 		}
 		{
 			mJackMidiOut = jack_port_register(mJackClient,
@@ -597,9 +617,10 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 					JackPortFlags::JackPortIsOutput,
 					0
 			);
-			auto midi_outs = jack.create_list("midi_outs");
-			midi_outs.set_access(opp::access_mode::Get);
-			midi_outs.set_value(opp::value({opp::value(std::string(jack_port_name(mJackMidiOut)))}));
+			auto n = jack->create_child("midi_outs");
+			auto midi_outs = n->create_parameter(ossia::val_type::LIST);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			midi_outs->push_value(ossia::value({ossia::value(std::string(jack_port_name(mJackMidiOut)))}));
 		}
 	});
 

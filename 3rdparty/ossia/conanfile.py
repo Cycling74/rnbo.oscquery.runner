@@ -1,5 +1,5 @@
+# vim: set expandtab ts=4 sw=4:
 from conans import ConanFile, CMake, tools
-
 
 class LibossiaConan(ConanFile):
     name = "libossia"
@@ -10,7 +10,7 @@ class LibossiaConan(ConanFile):
     topics = ("creative-coding", "osc", "open-sound-control", "ossia", "oscquery")
     settings = "os", "compiler", "build_type", "arch"
     options = {"fPIC": [True, False], "shared": [True, False]}
-    default_options = {"fPIC": True, "shared": False}
+    default_options = {"fPIC": True, "shared": True}
     exports_sources = ["CMakeLists.txt"]
     generators = "cmake"
 
@@ -23,11 +23,16 @@ class LibossiaConan(ConanFile):
             del self.options.fPIC
 
     def source(self):
-        self.run("git clone --branch master https://github.com/ossia/libossia.git")
+        #self.run("git clone --branch master https://github.com/ossia/libossia.git")
+        self.run("git clone --branch c74 https://github.com/Cycling74/libossia.git")
 
     def configure_cmake(self):
         cmake = CMake(self)
 
+        #configurables
+        cmake.definitions["OSSIA_STATIC"] = not self.options.shared
+
+        #targets
         cmake.definitions["OSSIA_DATAFLOW"] = False
         cmake.definitions["OSSIA_EDITOR"] = False
         cmake.definitions["OSSIA_GFX"] = False
@@ -45,6 +50,7 @@ class LibossiaConan(ConanFile):
         cmake.definitions["OSSIA_DISABLE_QT_PLUGIN"] = True
         cmake.definitions["OSSIA_DNSSD"] = True
 
+        #protocols
         cmake.definitions["OSSIA_PROTOCOL_AUDIO"] = False
         cmake.definitions["OSSIA_PROTOCOL_MIDI"] = False
         cmake.definitions["OSSIA_PROTOCOL_OSC"] = True

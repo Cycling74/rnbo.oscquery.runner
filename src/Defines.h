@@ -1,13 +1,20 @@
 #pragma once
 
-#include <ossia-cpp/ossia-cpp98.hpp>
 #include <functional>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
+namespace ossia {
+	namespace net {
+		class generic_device;
+		class node_base;
+		class parameter_base;
+	}
+}
+
 //a callback function that lets you safely alter the tree of nodes, passes your root
-typedef std::function<void(std::function<void(opp::node)>)> NodeBuilder;
+typedef std::function<void(std::function<void(ossia::net::node_base*)>)> NodeBuilder;
 
 
 enum class CompileLoadStatus : unsigned int {

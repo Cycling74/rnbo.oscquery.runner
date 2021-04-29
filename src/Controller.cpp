@@ -11,9 +11,15 @@
 #include "Defines.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
-#include "ValueCallbackHelper.h"
 
 #include <boost/algorithm/string/predicate.hpp>
+
+#include <ossia/detail/config.hpp>
+#include <ossia/context.hpp>
+#include <ossia/network/oscquery/oscquery_server.hpp>
+#include <ossia/network/local/local.hpp>
+#include <ossia/network/generic/generic_device.hpp>
+#include <ossia/network/generic/generic_parameter.hpp>
 
 #ifdef RNBO_USE_DBUS
 #include "RunnerUpdateState.h"
@@ -53,80 +59,96 @@ namespace {
 }
 
 
-Controller::Controller(std::string server_name) : mServer(server_name), mProcessCommands(true) {
-	//tell the ossia server to echo updates sent from remote clients (so other clients seem them)
-	mServer.set_echo(true);
-	auto r = mServer.get_root_node().create_child("rnbo");
+Controller::Controller(std::string server_name) : mProcessCommands(true) {
+	auto multi = new ossia::net::multiplex_protocol();
+
+  auto serv_proto = new ossia::oscquery::oscquery_server_protocol(1234, 5678);
+	serv_proto->set_echo(true);
+
+	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(multi), server_name));
+
+	multi->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
+
+	auto root = mServer->create_child("rnbo");
 
 	//expose some information
-	auto info = r.create_child("info");
-	info.set_description("information about RNBO and the running system");
+	auto info = root->create_child("info");
+  info->set(ossia::net::description_attribute{}, "information about RNBO and the running system");
+
 	for (auto it: {
 			std::make_pair("version", rnbo_version),
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			}) {
-		auto n = info.create_string(it.first);
-		n.set_access(opp::access_mode::Get);
-		n.set_value(it.second);
+		auto n = info->create_child(it.first);
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		p->push_value(it.second);
 	}
 	{
-		auto n = info.create_string("system_id");
-		n.set_description("a unique, one time generated id for this system");
-		n.set_access(opp::access_mode::Get);
-		n.set_value(config::get_system_id());
+		auto n = info->create_child("system_id");
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		n->set(ossia::net::description_attribute{}, "a unique, one time generated id for this system");
+		p->push_value(config::get_system_id());
 	}
 
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
 		//might not be enough to indicate disk space
-		mDiskSpaceNode = info.create_string("disk_bytes_available");
+		auto n = info->create_child("disk_bytes_available");
+		mDiskSpaceParam = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		updateDiskSpace();
 	}
 
 	{
-		auto c = r.create_string("cmd");
-		c.set_description("command handler");
-		c.set_access(opp::access_mode::Set);
-		ValueCallbackHelper::setCallback(
-				c, mValueCallbackHelpers,
-				[this](const opp::value& val) {
-					if (val.is_string()) {
-						mCommandQueue.push(val.to_string());
-					}
-			});
+		auto n = root->create_child("cmd");
+		auto p = n->create_parameter(ossia::val_type::STRING);
 
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+		n->set(ossia::net::description_attribute{}, "command handler");
+
+		p->add_callback([this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					mCommandQueue.push(v.get<std::string>());
+				}
+		});
 	}
 	{
-		mResponseNode = r.create_string("resp");
-		mResponseNode.set_description("command response");
-		mResponseNode.set_access(opp::access_mode::Get);
+		auto n = root->create_child("resp");
+		mResponseParam = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		n->set(ossia::net::description_attribute{}, "command response");
 	}
 
-	auto j = r.create_child("jack");
-	NodeBuilder builder = [j, this](std::function<void(opp::node)> f) {
+	auto j = root->create_child("jack");
+	NodeBuilder builder = [j, this](std::function<void(ossia::net::node_base *)> f) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		f(j);
 	};
 
 	mProcessAudio = std::unique_ptr<ProcessAudio>(new ProcessAudioJack(builder));
-	mAudioActive = j.create_bool("active");
-	mAudioActive.set_access(opp::access_mode::Bi);
-	mAudioActive.set_value(mProcessAudio->isActive());
-	ValueCallbackHelper::setCallback(
-			mAudioActive, mValueCallbackHelpers,
-			[this](const opp::value& val) {
-				if (val.is_bool()) {
-					handleActive(val.to_bool());
+
+	{
+		auto n = j->create_child("active");
+		mAudioActive = n->create_parameter(ossia::val_type::BOOL);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		mAudioActive->push_value(mProcessAudio->isActive());
+
+		mAudioActive->add_callback([this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					handleActive(v.get<bool>());
 				}
 		});
+	}
 
-	mInstancesNode = r.create_child("inst");
-	mInstancesNode.set_description("RNBO codegen instances");
+	mInstancesNode = root->create_child("inst");
+	mInstancesNode->set(ossia::net::description_attribute{}, "command response");
 
 	bool supports_install = false;
-	auto update = info.create_child("update");
-	update.set_description("Self upgrade/downgrade");
+	auto update = info->create_child("update");
+	update->set(ossia::net::description_attribute{}, "Self upgrade/downgrade");
 
 #if RNBO_USE_DBUS
 	mUpdateServiceProxy = std::make_shared<RnboUpdateServiceProxy>();
@@ -138,27 +160,31 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 			std::string status = mUpdateServiceProxy->Status();
 
 			{
-				auto n = update.create_string("state");
-				n.set_access(opp::access_mode::Get);
-				n.set_description("Update state");
-				n.set_value(runner_update::into(state));
-				std::vector<opp::value> accepted;
+				auto n = update->create_child("state");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Update state");
+				p->push_value(runner_update::into(state));
+
+				std::vector<ossia::value> accepted;
 				for (auto v: runner_update::all()) {
 					accepted.push_back(v);
 				}
-				n.set_bounding(opp::bounding_mode::Clip);
-				n.set_min(accepted.front());
-				n.set_max(accepted.back());
-				n.set_accepted_values(accepted);
-				mUpdateServiceProxy->setStateCallback([n](RunnerUpdateState state) mutable { n.set_value(runner_update::into(state)); });
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, accepted);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mUpdateServiceProxy->setStateCallback([p](RunnerUpdateState state) mutable { p->push_value(runner_update::into(state)); });
 			}
 
 			{
-				auto n = update.create_string("status");
-				n.set_access(opp::access_mode::Get);
-				n.set_description("Latest update status");
-				n.set_value(status);
-				mUpdateServiceProxy->setStatusCallback([n](std::string status) mutable { n.set_value(status); });
+				auto n = update->create_child("status");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Latest update status");
+				p->push_value(status);
+				mUpdateServiceProxy->setStatusCallback([p](std::string status) mutable { p->push_value(status); });
 			}
 			supports_install = true;
 		} catch (const std::exception& e) {
@@ -174,10 +200,11 @@ Controller::Controller(std::string server_name) : mServer(server_name), mProcess
 
 	//let the outside know if this instance supports up/downgrade
 	{
-		auto n = update.create_bool("supported");
-		n.set_description("Does this runner support remote upgrade/downgrade");
-		n.set_access(opp::access_mode::Get);
-		n.set_value(supports_install);
+		auto n = update->create_child("supported");
+		auto p = n->create_parameter(ossia::val_type::BOOL);
+		n->set(ossia::net::description_attribute{}, "Does this runner support remote upgrade/downgrade");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		p->push_value(supports_install);
 	}
 
 	mCommandThread = std::thread(&Controller::processCommands, this);
@@ -218,15 +245,15 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		//make sure that no other instances can be created while this is active
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
 		auto factory = PatcherFactory::CreateFactory(path);
-		opp::node instNode;
+		ossia::net::node_base * instNode = nullptr;
 		std::string instIndex;
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			clearInstances(guard);
 			instIndex = std::to_string(mInstances.size());
-			instNode = mInstancesNode.create_child(instIndex);
+			instNode = mInstancesNode->create_child(instIndex);
 		}
-		auto builder = [instNode, this](std::function<void(opp::node)> f) {
+		auto builder = [instNode, this](std::function<void(ossia::net::node_base*)> f) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			f(instNode);
 		};
@@ -310,15 +337,15 @@ bool Controller::loadBuiltIn() {
 			//make sure that no other instances can be created while this is active
 			std::lock_guard<std::mutex> iguard(mInstanceMutex);
 			auto factory = PatcherFactory::CreateBuiltInFactory();
-			opp::node instNode;
+			ossia::net::node_base * instNode;
 			std::string instIndex;
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				clearInstances(guard);
 				instIndex = std::to_string(mInstances.size());
-				instNode = mInstancesNode.create_child(instIndex);
+				instNode = mInstancesNode->create_child(instIndex);
 			}
-			auto builder = [instNode, this](std::function<void(opp::node)> f) {
+			auto builder = [instNode, this](std::function<void(ossia::net::node_base *)> f) {
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				f(instNode);
 			};
@@ -413,12 +440,12 @@ void Controller::handleActive(bool active) {
 
 bool Controller::tryActivateAudio() {
 	if (!mProcessAudio->isActive())
-		mAudioActive.set_value(mProcessAudio->setActive(true));
+		mAudioActive->push_value(mProcessAudio->setActive(true));
 	return mProcessAudio->isActive();
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
-	mInstancesNode.remove_children();
+	mInstancesNode->clear_children();
 	mInstances.clear();
 }
 
@@ -654,7 +681,7 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 	obj["jsonrpc"] = "2.0";
 	obj["id"] = id;
 	std::string status = obj.dump();
-	mResponseNode.set_value(status);
+	mResponseParam->push_value(status);
 }
 
 void Controller::updateDiskSpace() {
@@ -663,7 +690,8 @@ void Controller::updateDiskSpace() {
 		auto available = compileCacheSpace.available;
 		if (mDiskSpaceLast != available) {
 			mDiskSpaceLast = available;
-			mDiskSpaceNode.set_value(std::to_string(mDiskSpaceLast));
+			if (mDiskSpaceParam)
+				mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
 		}
 		mDiskSpacePollNext = system_clock::now() + mDiskSpacePollPeriod;
 }
