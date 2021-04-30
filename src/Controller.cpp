@@ -109,9 +109,15 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		n->set(ossia::net::description_attribute{}, "command handler");
 
-		p->add_callback([this](const ossia::value& v) {
+		p->add_callback([this, p](const ossia::value& v) {
+				//libossia reports the value of SET only parameters, so silently set
+				//the value to empty when we get an update
 				if (v.get_type() == ossia::val_type::STRING) {
-					mCommandQueue.push(v.get<std::string>());
+					auto s = v.get<std::string>();
+					if (s.size() > 0) {
+						mCommandQueue.push(s);
+						p->set_value_quiet(std::string());
+					}
 				}
 		});
 	}
