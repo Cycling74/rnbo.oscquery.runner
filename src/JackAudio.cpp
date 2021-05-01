@@ -282,28 +282,33 @@ bool ProcessAudioJack::setActive(bool active) {
 }
 
 void ProcessAudioJack::processEvents() {
-	auto bpmClient = mBPMClientUUID.load();
-	bool hasProperty = !jack_uuid_empty(bpmClient);
-
-	//manage BPM between 2 incoming async sources, prefer OSCQuery
-	//OSCQuery and Jack Properties
-	auto v = mTransportBPMParam->value();
-	float bpm = (v.get_type() == ossia::val_type::FLOAT) ? v.get<float>() : 100.0;
-
-	//if the incoming OSCQuery value has changed, report the property
-	if (mTransportBPMLast != bpm) {
-		mTransportBPMLast = bpm;
-		if (hasProperty) {
-			std::string bpms = std::to_string(bpm);
-			mTransportBPMPropLast.store(bpm);
-			jack_set_property(mJackClient, bpmClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+	if (auto _lock = std::unique_lock<std::mutex> (mMutex, std::try_to_lock)) {
+		if (!mTransportBPMParam || !mJackClient) {
+			return;
 		}
-	} else if (hasProperty) {
-		//property value changed, report out
-		bpm = mTransportBPMPropLast.load();
+
+		auto bpmClient = mBPMClientUUID.load();
+		bool hasProperty = !jack_uuid_empty(bpmClient);
+		//manage BPM between 2 incoming async sources, prefer OSCQuery
+		//OSCQuery and Jack Properties
+		auto v = mTransportBPMParam->value();
+		float bpm = (v.get_type() == ossia::val_type::FLOAT) ? v.get<float>() : 100.0;
+
+		//if the incoming OSCQuery value has changed, report the property
 		if (mTransportBPMLast != bpm) {
 			mTransportBPMLast = bpm;
-			mTransportBPMParam->push_value(bpm);
+			if (hasProperty) {
+				std::string bpms = std::to_string(bpm);
+				mTransportBPMPropLast.store(bpm);
+				jack_set_property(mJackClient, bpmClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+			}
+		} else if (hasProperty) {
+			//property value changed, report out
+			bpm = mTransportBPMPropLast.load();
+			if (mTransportBPMLast != bpm) {
+				mTransportBPMLast = bpm;
+				mTransportBPMParam->push_value(bpm);
+			}
 		}
 	}
 }
