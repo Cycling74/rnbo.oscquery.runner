@@ -394,8 +394,8 @@ bool ProcessAudioJack::createClient(bool startServer) {
 				}
 			});
 			//TODO build up i/o dynamically
+			jack_activate(mJackClient);
 		}
-		jack_activate(mJackClient);
 	}
 	return mJackClient != nullptr;
 }
