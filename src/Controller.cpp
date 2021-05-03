@@ -62,7 +62,7 @@ namespace {
 Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	auto multi = new ossia::net::multiplex_protocol();
 
-  auto serv_proto = new ossia::oscquery::oscquery_server_protocol(1234, 5678);
+	auto serv_proto = new ossia::oscquery::oscquery_server_protocol(1234, 5678);
 	serv_proto->set_echo(true);
 
 	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(multi), server_name));
@@ -73,7 +73,7 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 
 	//expose some information
 	auto info = root->create_child("info");
-  info->set(ossia::net::description_attribute{}, "information about RNBO and the running system");
+	info->set(ossia::net::description_attribute{}, "information about RNBO and the running system");
 
 	for (auto it: {
 			std::make_pair("version", rnbo_version),
