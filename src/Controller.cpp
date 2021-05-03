@@ -17,6 +17,7 @@
 #include <ossia/detail/config.hpp>
 #include <ossia/context.hpp>
 #include <ossia/network/oscquery/oscquery_server.hpp>
+#include <ossia/network/osc/osc.hpp>
 #include <ossia/network/local/local.hpp>
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
@@ -60,14 +61,14 @@ namespace {
 
 
 Controller::Controller(std::string server_name) : mProcessCommands(true) {
-	auto multi = new ossia::net::multiplex_protocol();
+	mProtocol = new ossia::net::multiplex_protocol();
 
 	auto serv_proto = new ossia::oscquery::oscquery_server_protocol(1234, 5678);
 	serv_proto->set_echo(true);
 
-	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(multi), server_name));
+	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(mProtocol), server_name));
 
-	multi->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
+	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
 
 	auto root = mServer->create_child("rnbo");
 
@@ -126,6 +127,71 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		mResponseParam = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "command response");
+	}
+
+	{
+		auto rep = root->create_child("listeners");
+
+		{
+			auto n = rep->create_child("entries");
+			mListenersListParam = n->create_parameter(ossia::val_type::LIST);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->set(ossia::net::description_attribute{}, "list of OSC listeners");
+		}
+
+		auto cmdBuilder = [](std::string method, const std::string& payload) -> std::string {
+			try {
+				auto p = payload.find(":");
+				if (p != std::string::npos) {
+					RNBO::Json cmd = {
+						{"method", method},
+						{"id", "internal"},
+						{"params",
+							{
+								{"ip", payload.substr(0, p)},
+								{"port", std::stoi(payload.substr(p + 1, std::string::npos))},
+							}
+						}
+					};
+					return cmd.dump();
+				}
+			} catch (...) {
+			}
+			std::cerr << "failed to make " + method + " command for " + payload << std::endl;
+			return {};
+		};
+
+		{
+			auto n = rep->create_child("add");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "add OSC UDP listener: \"ip:port\"");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					auto cmd = cmdBuilder("listener_add", v.get<std::string>());
+					if (cmd.size()) {
+						mCommandQueue.push(cmd);
+					}
+				}
+			});
+		}
+
+		{
+			auto n = rep->create_child("del");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "delete OSC UDP listener: \"ip:port\"");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					auto cmd = cmdBuilder("listener_del", v.get<std::string>());
+					if (cmd.size()) {
+						mCommandQueue.push(cmd);
+					}
+				}
+			});
+		}
 	}
 
 	auto j = root->create_child("jack");
@@ -221,9 +287,11 @@ Controller::~Controller() {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		clearInstances(guard);
 	}
+	mProtocol = nullptr;
 	mProcessCommands.store(false);
 	mCommandThread.join();
 	mProcessAudio.reset();
+	mServer.reset();
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
@@ -478,6 +546,24 @@ void Controller::processCommands() {
 		});
 		return true;
 	};
+
+	//helper to validate and report as there are 2 different commands
+	auto validateListenerCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, std::string& ip, uint16_t& port, std::string& key) -> bool {
+		if (!cmdObj.contains("params") || !params.contains("ip") || !params.contains("port")) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "request object invalid");
+			return false;
+		}
+		reportCommandResult(id, {
+			{"code", static_cast<unsigned int>(ListenerCommandStatus::Received)},
+			{"message", "received"},
+			{"progress", 1}
+		});
+		ip = params["ip"].get<std::string>();
+		port = static_cast<uint16_t>(params["port"].get<int>());
+		key = ip + ":" + std::to_string(port);
+		return true;
+	};
+
 	auto fileCmdDir = [this](std::string& id, std::string filetype) -> boost::optional<fs::path> {
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
@@ -621,6 +707,48 @@ void Controller::processCommands() {
 					{"message", "written"},
 					{"progress", 100}
 				});
+			} else if (method == "listener_add") {
+				std::string ip, key;
+				uint16_t port;
+				if (!validateListenerCmd(id, cmdObj, params, ip, port, key))
+					continue;
+
+				if (mListeners.find(key) == mListeners.end()) {
+					auto protcol = new ossia::net::osc_protocol(ip, port);
+					mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(protcol));
+					mListeners.insert(key);
+				}
+
+				updateListenersList();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
+					{"message", "created"},
+					{"progress", 100}
+				});
+			} else if (method == "listener_del") {
+				std::string ip, key;
+				uint16_t port;
+				if (!validateListenerCmd(id, cmdObj, params, ip, port, key))
+					continue;
+
+				if (mListeners.erase(key) != 0) {
+					for (auto& p: mProtocol->get_protocols()) {
+						auto o = dynamic_cast<ossia::net::osc_protocol*>(p.get());
+						if (o) {
+							if (o->get_ip() == ip && o->get_remote_port() == port) {
+								mProtocol->stop_expose_to(*p);
+								break;
+							}
+						}
+					}
+				}
+
+				updateListenersList();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
+					{"message", "deleted"},
+					{"progress", 100}
+				});
 			} else if (method == "install") {
 #ifndef RNBO_USE_DBUS
 				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
@@ -687,7 +815,11 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 	obj["jsonrpc"] = "2.0";
 	obj["id"] = id;
 	std::string status = obj.dump();
-	mResponseParam->push_value(status);
+	if (id == "internal") {
+		std::cout << status << std::endl;
+	} else {
+		mResponseParam->push_value(status);
+	}
 }
 
 void Controller::updateDiskSpace() {
@@ -701,3 +833,12 @@ void Controller::updateDiskSpace() {
 		}
 		mDiskSpacePollNext = system_clock::now() + mDiskSpacePollPeriod;
 }
+
+void Controller::updateListenersList() {
+	std::vector<ossia::value> l;
+	for (auto e: mListeners) {
+		l.push_back(e);
+	}
+	mListenersListParam->push_value(l);
+}
+

@@ -46,6 +46,11 @@ enum class FileCommandError : unsigned int {
 	DeleteFailed = 4
 };
 
+enum class ListenerCommandStatus : unsigned int {
+	Received = 0,
+	Completed = 1
+};
+
 enum class InstallProgramStatus : unsigned int {
 	Received = 0,
 	Completed = 1

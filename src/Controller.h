@@ -5,7 +5,7 @@
 #include <thread>
 #include <atomic>
 #include <optional>
-
+#include <set>
 
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -15,6 +15,11 @@
 #include "Queue.h"
 
 //forward declarations
+namespace ossia {
+	namespace net {
+		class multiplex_protocol;
+	}
+}
 
 #ifdef RNBO_USE_DBUS
 class RnboUpdateServiceProxy;
@@ -45,11 +50,13 @@ class Controller {
 
 		void handleActive(bool active);
 		void updateDiskSpace();
+		void updateListenersList();
 		void saveLast();
 		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
 		std::unique_ptr<ossia::net::generic_device> mServer;
+		ossia::net::multiplex_protocol * mProtocol;
 
 		//TODO
 		ossia::net::node_base * mInstancesNode;
@@ -77,6 +84,9 @@ class Controller {
 		bool mSave = false;
 		//a timeout for when to save, debouncing
 		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
+
+		std::set<std::string> mListeners;
+		ossia::net::parameter_base * mListenersListParam = nullptr;
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
