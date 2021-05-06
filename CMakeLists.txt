@@ -128,25 +128,6 @@ find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
 
-#set variables so that we can use them later,
-#for conan BOOST_INCLUDE will be empty but CONAN_INCLUDE_DIRS will have what we need
-if(Boost_FOUND)
-	set(BOOST_LIB Boost::filesystem Boost::system)
-	set(BOOST_INCLUDE ${Boost_INCLUDE_DIRS})
-else()
-	conan_cmake_run(REQUIRES boost/1.75.0
-				BASIC_SETUP
-				CMAKE_TARGETS
-				BUILD missing
-				REMOTE cycling-jfrog
-				PROFILE ${CONAN_PROFILE}
-				OPTIONS
-					boost:shared=False
-					boost:without_stacktrace=True
-	)
-	set(BOOST_LIB CONAN_PKG::boost)
-endif()
-
 include_directories(
 	./3rdparty/
 	./common/
