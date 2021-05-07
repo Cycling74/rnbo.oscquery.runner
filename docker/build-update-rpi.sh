@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 cd /build/examples/RNBOOSCQueryRunner/update/
 mkdir build-rpi && cd build-rpi
-cp ../../config/conan-rpi-xcompile ~/.conan/profiles/rpi && \
+cp ../../config/conan-rpi-xcompile ~/.conan/profiles/default && \
 	PATH=/opt/cross-pi-gcc/bin:$PATH \
 	cmake \
 	-DCMAKE_BUILD_TYPE=Release \
