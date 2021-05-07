@@ -580,3 +580,8 @@ modifications:
 
 * [libossia thread safety](https://github.com/ossia/libossia/issues/656)
 * [osc.js](https://github.com/colinbdclark/osc.js)
+
+add a listener
+```
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "foo", "params": {"ip": "localhost", "port": 9999}}'
+```
