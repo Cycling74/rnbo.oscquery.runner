@@ -94,7 +94,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_async_protocols_46b0498cf9d1f33ee065326bbadb2d@xnor/testing
+	REQUIRES libossia/xnor_async_protocols_66dce307636431ef46da8b6888f2f7@xnor/testing
 	#REQUIRES libossia/1.2.1@xnor/oscout
 	GENERATORS cmake_find_package
 	KEEP_RPATHS
