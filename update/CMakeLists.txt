@@ -22,8 +22,26 @@ endif()
 include("${CMAKE_CURRENT_SOURCE_DIR}/../common/conan.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../common/sdbus.cmake")
 
+conan_cmake_configure(
+	REQUIRES boost/1.75.0
+	GENERATORS cmake_find_package
+	OPTIONS boost:shared=False
+)
+conan_cmake_autodetect(settings)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	REMOTE cycling-jfrog
+  SETTINGS ${settings}
+)
+find_package(
+	Boost 1.75
+	COMPONENTS system REQUIRED
+)
+
 include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}/../common/"
+	${Boost_INCLUDE_DIRS}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -40,6 +58,7 @@ add_executable(${PROJECT_APP}
 
 target_link_libraries(${PROJECT_APP}
 	${SDBUS_LIBS}
+	${Boost_LIBRARIES}
 	-lpthread
 	-latomic
 )
