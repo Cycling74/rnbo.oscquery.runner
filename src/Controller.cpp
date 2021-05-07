@@ -192,6 +192,16 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 				}
 			});
 		}
+		{
+			auto n = rep->create_child("clear");
+			auto p = n->create_parameter(ossia::val_type::IMPULSE);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "clear all OSC UDP listeners");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				mCommandQueue.push(cmdBuilder("listener_clear", "0:0"));
+			});
+		}
 	}
 
 	auto j = root->create_child("jack");
@@ -747,6 +757,25 @@ void Controller::processCommands() {
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
 					{"message", "deleted"},
+					{"progress", 100}
+				});
+			} else if (method == "listener_clear") {
+				std::string ip, key;
+				uint16_t port;
+				if (!validateListenerCmd(id, cmdObj, params, ip, port, key))
+					continue;
+
+				mListeners.clear();
+				for (auto& p: mProtocol->get_protocols()) {
+					auto o = dynamic_cast<ossia::net::osc_protocol*>(p.get());
+					if (o) {
+						mProtocol->stop_expose_to(*p);
+					}
+				}
+				updateListenersList();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
+					{"message", "cleared"},
 					{"progress", 100}
 				});
 			} else if (method == "install") {
