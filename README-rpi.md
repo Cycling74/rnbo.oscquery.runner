@@ -147,23 +147,6 @@ Do all the normal use stuff then:
   reboot
   ```
 
-### Install a prebuilt binary
-
-  You're probably better off just using the .deb install.
-
-  ```shell
-  scp examples/RNBOOSCQueryRunner/config/rnbooscquery.service examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery-*-Linux-armv7.tar.gz pi@c74rpi.local:
-  ssh pi@c74rpi.local
-  sudo tar xvf rnbooscquery-0.9.0-Linux-armv7.tar.gz -C /usr/local/
-  sudo ldconfig
-  ```
-
-  Install the service file if you haven't already. If you have, then just restart the service:
-
-  ```shell
-  sudo service rnbooscquery restart
-  ```
-
 ## Troubleshooting
 
   To see the status of the service:
