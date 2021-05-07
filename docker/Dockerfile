@@ -23,11 +23,4 @@ RUN mkdir -p /root/.conan/profiles
 COPY sdbus-0.8.3 /sdbus-0.8.3
 COPY conan-rpi-xcompile /root/.conan/profiles/default
 
-#cache conan
-RUN conan remote add cycling https://api.bintray.com/conan/xnor/cycling74
-RUN conan install -r cycling libossia/1.2.1@xnor/testing
-RUN conan install -r cycling cpp-optparse/cci.20171104@
-RUN conan install -r cycling base64/0.4.0@
-RUN conan install -r cycling sdbus-cpp/0.8.3@
-
 CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build-rpi.sh"]
