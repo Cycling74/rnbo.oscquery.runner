@@ -11,11 +11,12 @@ if (NOT SDBUS_DIR)
 		IMPORTS "bin, sdbus-c++-xml2cpp -> ./"
 		IMPORTS "lib, *.dylib* -> ./lib"
 		)
+	conan_cmake_autodetect(settings)
 	conan_cmake_install(
 		PATH_OR_REFERENCE .
 		BUILD missing
 		REMOTE cycling-jfrog
-		PROFILE ${CONAN_PROFILE}
+		SETTINGS ${settings}
 	)
 	find_package(sdbus-c++ REQUIRED)
 	set(SDBUS_LIBS ${SDBusCpp_LIBRARIES})

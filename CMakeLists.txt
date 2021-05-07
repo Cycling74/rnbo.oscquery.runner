@@ -69,12 +69,13 @@ endif()
 conan_cmake_configure(
 	REQUIRES cpp-optparse/cci.20171104
 	GENERATORS cmake_find_package
-	)
+)
+conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
 	REMOTE cycling-jfrog
-	PROFILE ${CONAN_PROFILE}
+  SETTINGS ${settings}
 )
 
 conan_cmake_configure(
@@ -86,7 +87,7 @@ conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
 	REMOTE cycling-jfrog
-	PROFILE ${CONAN_PROFILE}
+  SETTINGS ${settings}
 )
 find_package(
 	Boost 1.75
@@ -97,16 +98,17 @@ conan_cmake_configure(
 	REQUIRES libossia/xnor_async_protocols_66dce307636431ef46da8b6888f2f7@xnor/testing
 	#REQUIRES libossia/1.2.1@xnor/oscout
 	GENERATORS cmake_find_package
-	KEEP_RPATHS
-	IMPORTS "bin, *.dll -> ./bin"
-	IMPORTS "lib, *.dylib* -> ./lib"
-	IMPORTS "lib, *.so* -> ./lib"
+	#KEEP_RPATHS
+	#IMPORTS "bin, *.dll -> ./bin"
+	#IMPORTS "lib, *.dylib* -> ./lib"
+	#IMPORTS "lib, *.so* -> ./lib"
+	OPTIONS libossia:shared=False
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
 	REMOTE cycling-jfrog
-	PROFILE ${CONAN_PROFILE}
+  SETTINGS ${settings}
 )
 
 conan_cmake_configure(
@@ -117,7 +119,7 @@ conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
 	REMOTE cycling-jfrog
-	PROFILE ${CONAN_PROFILE}
+  SETTINGS ${settings}
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
@@ -206,34 +208,19 @@ if (LINUX)
 	)
 endif()
 
-# add rpath so we can run from the build directory
-if (APPLE)
-	add_custom_command(TARGET ${PROJECT_APP}
-		POST_BUILD COMMAND
-		${CMAKE_INSTALL_NAME_TOOL} -add_rpath "@executable_path/../lib"
-		$<TARGET_FILE:${PROJECT_APP}>)
-endif()
-
-#build an archive so we could install this elsewhere
-add_custom_command(
-	TARGET ${PROJECT_APP}
-	POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E tar czf ${CMAKE_CURRENT_BINARY_DIR}/rnbooscquery-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.tar.gz --
-	bin lib share src
-)
-
 ### INSTALL
 #make sure dirs exist
 install(DIRECTORY DESTINATION share)
 install(DIRECTORY DESTINATION src)
-install(DIRECTORY DESTINATION lib)
 install(DIRECTORY DESTINATION bin)
+install(DIRECTORY DESTINATION lib)
 
 install(TARGETS ${PROJECT_APP} DESTINATION bin)
 
 #libraries
-FILE(GLOB INSTALL_LIBS ${CMAKE_BINARY_DIR}/lib/*)
-install(FILES ${INSTALL_LIBS} TYPE LIB)
+#install(DIRECTORY DESTINATION lib)
+#FILE(GLOB INSTALL_LIBS ${CMAKE_BINARY_DIR}/lib/*)
+#install(FILES ${INSTALL_LIBS} TYPE LIB)
 
 #build script
 INSTALL(FILES
