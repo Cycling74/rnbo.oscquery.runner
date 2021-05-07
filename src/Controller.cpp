@@ -64,9 +64,9 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	mProtocol = new ossia::net::multiplex_protocol();
 
 	auto serv_proto = new ossia::oscquery::oscquery_server_protocol(1234, 5678);
-	serv_proto->set_echo(true);
 
 	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(mProtocol), server_name));
+	mServer->set_echo(true);
 
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
 

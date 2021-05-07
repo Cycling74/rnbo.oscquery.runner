@@ -94,7 +94,8 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/1.2.1@xnor/oscout
+	REQUIRES libossia/xnor_async_protocols_46b0498cf9d1f33ee065326bbadb2d@xnor/testing
+	#REQUIRES libossia/1.2.1@xnor/oscout
 	GENERATORS cmake_find_package
 	KEEP_RPATHS
 	IMPORTS "bin, *.dll -> ./bin"
