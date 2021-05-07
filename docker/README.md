@@ -15,8 +15,8 @@ cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONA
 
 
 ```shell
-docker run -it -v $(pwd):/build xnor/rpi-buster-audio-xpile:0.5
-docker run -it -v $(pwd):/build xnor/rpi-buster-audio-xpile:0.5 /bin/bash
+docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-buster-audio-xpile:0.5
+docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-buster-audio-xpile:0.5 /bin/bash
 ```
 
 ```shell
