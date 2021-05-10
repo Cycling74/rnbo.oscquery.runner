@@ -2,7 +2,7 @@
 
 #derived from https://bitbucket.org/mitchallen/pi-cross-compile/src/master/Dockerfile
 FROM debian:buster-slim
-MAINTAINER Alex Norman "xnor@cylcing74.com"
+MAINTAINER Alex Norman "xnor@cycling.com"
 
 RUN DEBIAN_FRONTEND=noninteractive apt-get -y update && apt-get upgrade -y
 RUN DEBIAN_FRONTEND=noninteractive \
@@ -20,7 +20,6 @@ RUN mkdir -p local/src/ && cd local/src \
 	&& tar xf cmake-3.19.3.tar.gz && cd cmake-3.19.3 && ./bootstrap && make && make install
 COPY rpi-rootfs /rpi-rootfs
 RUN mkdir -p /root/.conan/profiles
-COPY sdbus-0.8.3 /sdbus-0.8.3
 COPY conan-rpi-xcompile /root/.conan/profiles/default
 
 CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build-rpi.sh"]
