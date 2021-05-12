@@ -226,7 +226,7 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	}
 
 	mInstancesNode = root->create_child("inst");
-	mInstancesNode->set(ossia::net::description_attribute{}, "command response");
+	mInstancesNode->set(ossia::net::description_attribute{}, "code export instances");
 
 	bool supports_install = false;
 	auto update = info->create_child("update");
