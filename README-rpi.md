@@ -83,7 +83,7 @@ keep the user name `pi`.
 
 ## Wifi Setup
 
-**TODO**
+See the official documentation [Setting up a wireless LAN via the command line](https://www.raspberrypi.org/documentation/configuration/wireless/wireless-cli.md)
 
 ## Development
 
