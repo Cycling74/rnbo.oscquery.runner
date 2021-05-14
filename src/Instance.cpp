@@ -286,10 +286,12 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (mInportTags.size()) {
 				auto in = msgs->create_child("in");
 				for (auto i: mInportTags) {
+					auto tag = RNBO::TAG(i.c_str());
+
+					//XXX break down slashes
 					auto n = in->create_child(i);
 					auto p = n->create_parameter(ossia::val_type::LIST);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-					auto tag = RNBO::TAG(i.c_str());
 					p->add_callback([this, tag](const ossia::value& val) {
 						handleInportMessage(tag, val);
 					});
@@ -299,7 +301,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				auto o = msgs->create_child("out");
 				for (auto i: outportTags) {
 					auto n = o->create_child(i);
-					auto p = o->create_parameter(ossia::val_type::LIST);
+					auto p = n->create_parameter(ossia::val_type::LIST);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					mOutportParams[i] = p;
 				}
@@ -445,9 +447,9 @@ RNBO::Json Instance::currentConfig() {
 	config["inports"] = ports;
 
 	//outports
+	ports = RNBO::Json::array();
 	for (auto& kv: mOutportParams)
 		ports.push_back(kv.first);
-	ports = RNBO::Json::array();
 	config["outports"] = ports;
 
 	RNBO::Json presets = RNBO::Json::object();
