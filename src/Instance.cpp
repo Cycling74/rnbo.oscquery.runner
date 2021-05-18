@@ -288,10 +288,9 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				for (auto i: mInportTags) {
 					auto tag = RNBO::TAG(i.c_str());
 
-					//XXX break down slashes
-					auto n = in->create_child(i);
-					auto p = n->create_parameter(ossia::val_type::LIST);
-					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					auto& n = ossia::net::create_node(*in, i);
+					auto p = n.create_parameter(ossia::val_type::LIST);
+					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 					p->add_callback([this, tag](const ossia::value& val) {
 						handleInportMessage(tag, val);
 					});
@@ -300,9 +299,9 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (outportTags.size()) {
 				auto o = msgs->create_child("out");
 				for (auto i: outportTags) {
-					auto n = o->create_child(i);
-					auto p = n->create_parameter(ossia::val_type::LIST);
-					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					auto& n = ossia::net::create_node(*o, i);
+					auto p = n.create_parameter(ossia::val_type::LIST);
+					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					mOutportParams[i] = p;
 				}
 			}
