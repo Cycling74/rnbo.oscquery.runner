@@ -134,7 +134,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (info.enumValues == nullptr) {
 				//numerical parameters
 				//set parameter access, range, etc etc
-				auto n = params->create_child(mCore->getParameterId(index));
+				auto n = params->create_child(mCore->getParameterName(index));
 				auto p = n->create_parameter(ossia::val_type::FLOAT);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 				n->set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
@@ -174,7 +174,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					valToName[e] = s;
 				}
 
-				auto n = params->create_child(mCore->getParameterId(index));
+				auto n = params->create_child(mCore->getParameterName(index));
 				auto p = n->create_parameter(ossia::val_type::STRING);
 
 				auto dom = ossia::init_domain(ossia::val_type::STRING);
