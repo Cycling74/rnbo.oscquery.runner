@@ -18,6 +18,7 @@
 namespace ossia {
 	namespace net {
 		class multiplex_protocol;
+		class network_context;
 	}
 }
 
@@ -56,6 +57,7 @@ class Controller {
 		void queueSave();
 
 		std::unique_ptr<ossia::net::generic_device> mServer;
+		std::shared_ptr<ossia::net::network_context> mOssiaContext;
 		ossia::net::multiplex_protocol * mProtocol;
 
 		//TODO
@@ -85,7 +87,7 @@ class Controller {
 		//a timeout for when to save, debouncing
 		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
 
-		std::set<std::string> mListeners;
+		std::set<std::pair<std::string, uint16_t>> mListeners;
 		ossia::net::parameter_base * mListenersListParam = nullptr;
 
 #ifdef RNBO_USE_DBUS

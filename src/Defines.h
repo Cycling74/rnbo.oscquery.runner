@@ -25,7 +25,7 @@ enum class CompileLoadStatus : unsigned int {
 
 enum class CompileLoadError : unsigned int {
 	Unknown = 0,
-	SourceWriteFailed = 1,
+	SourceFileDoesNotExist = 1,
 	CompileFailed = 2,
 	LibraryNotFound = 3,
 	InvalidRequestObject = 4,

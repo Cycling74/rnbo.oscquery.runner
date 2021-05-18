@@ -14,10 +14,13 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
-#include <ossia/detail/config.hpp>
 #include <ossia/context.hpp>
-#include <ossia/network/oscquery/oscquery_server.hpp>
-#include <ossia/network/osc/osc.hpp>
+#include <ossia/detail/config.hpp>
+
+#include <ossia/protocols/oscquery/oscquery_server_asio.hpp>
+#include <ossia/protocols/osc/osc_factory.hpp>
+
+#include <ossia/network/context.hpp>
 #include <ossia/network/local/local.hpp>
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
@@ -35,7 +38,6 @@ using std::chrono::system_clock;
 namespace fs = boost::filesystem;
 
 namespace {
-
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
@@ -62,8 +64,8 @@ namespace {
 
 Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	mProtocol = new ossia::net::multiplex_protocol();
-
-	auto serv_proto = new ossia::oscquery::oscquery_server_protocol(1234, 5678);
+  mOssiaContext = ossia::net::create_network_context();
+	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, 1234, 5678);
 
 	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(mProtocol), server_name));
 	mServer->set_echo(true);
@@ -290,6 +292,8 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	}
 
 	mCommandThread = std::thread(&Controller::processCommands, this);
+	//TODO maybe we want to remove this and just call poll_network_context in our process method?
+	mOssiaContext->run();
 }
 
 Controller::~Controller() {
@@ -558,7 +562,7 @@ void Controller::processCommands() {
 	};
 
 	//helper to validate and report as there are 2 different commands
-	auto validateListenerCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, std::string& ip, uint16_t& port, std::string& key) -> bool {
+	auto validateListenerCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, std::pair<std::string, uint16_t>& key) -> bool {
 		if (!cmdObj.contains("params") || !params.contains("ip") || !params.contains("port")) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "request object invalid");
 			return false;
@@ -568,9 +572,9 @@ void Controller::processCommands() {
 			{"message", "received"},
 			{"progress", 1}
 		});
-		ip = params["ip"].get<std::string>();
-		port = static_cast<uint16_t>(params["port"].get<int>());
-		key = ip + ":" + std::to_string(port);
+		auto ip = params["ip"].get<std::string>();
+		auto port = static_cast<uint16_t>(params["port"].get<int>());
+		key = std::make_pair(ip, port);
 		return true;
 	};
 
@@ -578,6 +582,8 @@ void Controller::processCommands() {
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
 			r = config::get<fs::path>(config::key::DataFileDir);
+		} else if (filetype == "sourcefile") {
+			r = config::get<fs::path>(config::key::SourceCacheDir);
 		} else {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
 			return {};
@@ -586,6 +592,32 @@ void Controller::processCommands() {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::Unknown), "no entry in config for filetype: " + filetype);
 		}
 		return r;
+	};
+
+	//clear all but oscquery
+	auto listeners_clear = [this]() {
+		for (auto& p: mProtocol->get_protocols()) {
+			auto o = dynamic_cast<ossia::oscquery_asio::oscquery_server_protocol*>(p.get());
+			if (!o) {
+				mProtocol->stop_expose_to(*p);
+			}
+		}
+	};
+
+	auto listeners_add = [this](const std::string& ip, uint16_t port) {
+		using conf = ossia::net::osc_protocol_configuration;
+		auto protocol = ossia::net::make_osc_protocol(
+				mOssiaContext,
+				{
+					.mode = conf::MIRROR,
+					.version = conf::OSC1_1,
+					.transport = ossia::net::udp_configuration {{
+						.local = std::nullopt,
+						.remote = ossia::net::send_socket_configuration {{ip, port}}
+					}}
+				}
+			);
+		mProtocol->expose_to(std::move(protocol));
 	};
 
 	//wait for commands, then process them
@@ -612,24 +644,16 @@ void Controller::processCommands() {
 			RNBO::Json params = cmdObj["params"];
 			if (method == "compile") {
 				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-
-				//TODO get from payload
-				std::string fileName = "rnbogenerated." + timeTag + ".cpp";
-
-				if (!cmdObj.contains("params") || !params.contains("code")) {
+				if (!cmdObj.contains("params") || !params.contains("filename")) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
 					continue;
 				}
-				std::string code = params["code"];
+				std::string fileName = params["filename"];
 				fs::path generated = fs::absolute(sourceCache / fileName);
-				std::fstream fs;
-				fs.open(generated.string(), std::fstream::out | std::fstream::trunc);
-				if (!fs.is_open()) {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + generated.string());
+				if (!fs::exists(generated)) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceFileDoesNotExist), "cannot file source file: " + generated.string());
 					continue;
 				}
-				fs << code;
-				fs.close();
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(CompileLoadStatus::Received)},
 					{"message", "received"},
@@ -718,14 +742,12 @@ void Controller::processCommands() {
 					{"progress", 100}
 				});
 			} else if (method == "listener_add") {
-				std::string ip, key;
-				uint16_t port;
-				if (!validateListenerCmd(id, cmdObj, params, ip, port, key))
+				std::pair<std::string, uint16_t> key;
+				if (!validateListenerCmd(id, cmdObj, params, key))
 					continue;
 
 				if (mListeners.find(key) == mListeners.end()) {
-					auto protcol = new ossia::net::osc_protocol(ip, port);
-					mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(protcol));
+					listeners_add(key.first, key.second);
 					mListeners.insert(key);
 				}
 
@@ -736,42 +758,31 @@ void Controller::processCommands() {
 					{"progress", 100}
 				});
 			} else if (method == "listener_del") {
-				std::string ip, key;
-				uint16_t port;
-				if (!validateListenerCmd(id, cmdObj, params, ip, port, key))
+				std::pair<std::string, uint16_t> key;
+				if (!validateListenerCmd(id, cmdObj, params, key))
 					continue;
 
+				//TODO visit listeners and only remove the one we care to remove.
+				//at this point, finding the type is hard so we just remove them all and then add back the ones we care about
 				if (mListeners.erase(key) != 0) {
-					for (auto& p: mProtocol->get_protocols()) {
-						auto o = dynamic_cast<ossia::net::osc_protocol*>(p.get());
-						if (o) {
-							if (o->get_ip() == ip && o->get_remote_port() == port) {
-								mProtocol->stop_expose_to(*p);
-								break;
-							}
-						}
+					listeners_clear();
+					for (auto& kv: mListeners) {
+						listeners_add(kv.first, kv.second);
 					}
+					updateListenersList();
 				}
-
-				updateListenersList();
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
 					{"message", "deleted"},
 					{"progress", 100}
 				});
 			} else if (method == "listener_clear") {
-				std::string ip, key;
-				uint16_t port;
-				if (!validateListenerCmd(id, cmdObj, params, ip, port, key))
+				std::pair<std::string, uint16_t> key;
+				if (!validateListenerCmd(id, cmdObj, params, key))
 					continue;
 
 				mListeners.clear();
-				for (auto& p: mProtocol->get_protocols()) {
-					auto o = dynamic_cast<ossia::net::osc_protocol*>(p.get());
-					if (o) {
-						mProtocol->stop_expose_to(*p);
-					}
-				}
+				listeners_clear();
 				updateListenersList();
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
@@ -865,8 +876,8 @@ void Controller::updateDiskSpace() {
 
 void Controller::updateListenersList() {
 	std::vector<ossia::value> l;
-	for (auto e: mListeners) {
-		l.push_back(e);
+	for (auto& kv: mListeners) {
+		l.push_back(kv.first + ":" + std::to_string(kv.second));
 	}
 	mListenersListParam->push_value(l);
 }
