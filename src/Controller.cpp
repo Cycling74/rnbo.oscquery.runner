@@ -292,8 +292,6 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	}
 
 	mCommandThread = std::thread(&Controller::processCommands, this);
-	//TODO maybe we want to remove this and just call poll_network_context in our process method?
-	mOssiaContext->run();
 }
 
 Controller::~Controller() {
@@ -478,6 +476,8 @@ void Controller::queueSave() {
 }
 
 bool Controller::process() {
+	ossia::net::poll_network_context(*mOssiaContext);
+
 	auto now = system_clock::now();
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
