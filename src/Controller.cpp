@@ -611,6 +611,7 @@ void Controller::processCommands() {
 				{
 					.mode = conf::MIRROR,
 					.version = conf::OSC1_1,
+          .framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
 					.transport = ossia::net::udp_configuration {{
 						.local = std::nullopt,
 						.remote = ossia::net::send_socket_configuration {{ip, port}}
