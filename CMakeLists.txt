@@ -74,19 +74,21 @@ conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	REMOTE cycling-jfrog
+	#REMOTE cycling-public
   SETTINGS ${settings}
 )
 
 conan_cmake_configure(
 	REQUIRES boost/1.75.0
 	GENERATORS cmake_find_package
-	OPTIONS boost:shared=False
+	OPTIONS
+		boost:shared=False
+    boost:without_stacktrace=True
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	REMOTE cycling-jfrog
+	#REMOTE cycling-public
   SETTINGS ${settings}
 )
 find_package(
@@ -95,14 +97,17 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_async_protocols-conan_6f23096bb884cf3e64f6db53@xnor/testing
+	#REQUIRES libossia/xnor_async_protocols-conan_6f23096bb884cf3e64f6db53@xnor/testing
+	#REQUIRES libossia/xnor_async_protocols-conan_35109703c1c560bfc16ef3d0@xnor/testing
+	REQUIRES libossia/xnor_async_protocols-conan_ec72e3ad5f5ceacef47688ad@xnor/testing
+
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	REMOTE cycling-jfrog
+	REMOTE cycling-public
   SETTINGS ${settings}
 )
 
@@ -113,7 +118,7 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	REMOTE cycling-jfrog
+	#REMOTE cycling-public
   SETTINGS ${settings}
 )
 

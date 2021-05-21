@@ -13,8 +13,9 @@ include(${CMAKE_BINARY_DIR}/conan.cmake)
 conan_check(VERSION 1.29.0 REQUIRED)
 
 conan_add_remote(
-	NAME cycling-jfrog
+	NAME cycling-public
 	INDEX 1
-	URL https://xnor.jfrog.io/artifactory/api/conan/cycling74
+	URL https://conan-public.cycling74.com
+	#URL https://xnor.jfrog.io/artifactory/api/conan/cycling74
 	VERIFY_SSL True
 )

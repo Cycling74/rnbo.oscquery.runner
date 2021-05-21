@@ -31,7 +31,7 @@ conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	REMOTE cycling-jfrog
+	#REMOTE cycling-public
   SETTINGS ${settings}
 )
 find_package(
