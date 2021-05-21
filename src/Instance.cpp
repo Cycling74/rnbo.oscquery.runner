@@ -301,7 +301,9 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				for (auto i: outportTags) {
 					auto& n = ossia::net::create_node(*o, i);
 					auto p = n.create_parameter(ossia::val_type::LIST);
-					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					//TODO make GET again once OSC output sends GET instead of SET/BI
+					//n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 					mOutportParams[i] = p;
 				}
 			}
