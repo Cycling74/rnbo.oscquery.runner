@@ -645,14 +645,32 @@ void Controller::processCommands() {
 			RNBO::Json params = cmdObj["params"];
 			if (method == "compile") {
 				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-				if (!cmdObj.contains("params") || !params.contains("filename")) {
+
+				//support either a pre-written file or embedded "code"
+				if (!cmdObj.contains("params") || !(params.contains("filename") || params.contains("code"))) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
 					continue;
 				}
-				std::string fileName = params["filename"];
-				fs::path generated = fs::absolute(sourceCache / fileName);
-				if (!fs::exists(generated)) {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceFileDoesNotExist), "cannot file source file: " + generated.string());
+				//get filename or generate one
+				std::string fileName = params.contains("filename") ? params["filename"].get<std::string>() : ("rnbogen." + timeTag + ".cpp");
+				fs::path sourceFile = fs::absolute(sourceCache / fileName);
+
+				//write code if we have it
+				if (params.contains("code")) {
+					std::string code = params["code"];
+					std::fstream f;
+					f.open(sourceFile.string(), std::fstream::out | std::fstream::trunc);
+					if (!f.is_open()) {
+						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + sourceFile.string());
+						continue;
+					}
+					f << code;
+					f.close();
+				}
+
+				//make sure the source file exists
+				if (!fs::exists(sourceFile)) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceFileDoesNotExist), "cannot file source file: " + sourceFile.string());
 					continue;
 				}
 				reportCommandResult(id, {
@@ -673,7 +691,7 @@ void Controller::processCommands() {
 				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::string buildCmd = build_program;
-				for (auto a: { generated.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string() }) {
+				for (auto a: { sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string() }) {
 					buildCmd += (" \"" + a + "\"");
 				}
 				auto status = std::system(buildCmd.c_str());

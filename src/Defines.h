@@ -25,12 +25,13 @@ enum class CompileLoadStatus : unsigned int {
 
 enum class CompileLoadError : unsigned int {
 	Unknown = 0,
-	SourceFileDoesNotExist = 1,
+	SourceWriteFailed = 1,
 	CompileFailed = 2,
 	LibraryNotFound = 3,
 	InvalidRequestObject = 4,
 	AudioNotActive = 5,
 	VersionMismatch = 6,
+	SourceFileDoesNotExist = 7,
 };
 
 enum class FileCommandStatus : unsigned int {
