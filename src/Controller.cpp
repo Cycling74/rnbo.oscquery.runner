@@ -609,7 +609,7 @@ void Controller::processCommands() {
 		auto protocol = ossia::net::make_osc_protocol(
 				mOssiaContext,
 				{
-					.mode = conf::MIRROR,
+					.mode = conf::HOST,
 					.version = conf::OSC1_1,
           .framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
 					.transport = ossia::net::udp_configuration {{
