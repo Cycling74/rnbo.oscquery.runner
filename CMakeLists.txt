@@ -97,9 +97,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	#REQUIRES libossia/xnor_async_protocols-conan_6f23096bb884cf3e64f6db53@xnor/testing
-	#REQUIRES libossia/xnor_async_protocols-conan_35109703c1c560bfc16ef3d0@xnor/testing
-	REQUIRES libossia/xnor_async_protocols-conan_ec72e3ad5f5ceacef47688ad@xnor/testing
+	REQUIRES libossia/xnor_async_protocols-conan_567d9efe6f6453d5b1ccc0b0@xnor/testing
 
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
