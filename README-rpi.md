@@ -277,6 +277,23 @@ apt-cache madison rnbooscquery
   ```shell
   apt-mark unhold rnbooscquery
   ```
+# To prepare a new image
+
+Assuming the runner version to install is `0.11.0`
+
+Boot into an old image, update the packages, install the new version, mark the package held, upgrade other packages, cleanup.
+
+```shell
+  sudo -s
+  apt-get update
+  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.11.0
+  apt-mark hold rnbooscquery
+  apt-get -y upgrade && apt-get -y autoremove && apt-get -y clean
+  rm -r ~pi/.config/rnbo ~pi/Documents/rnbo/ ~pi/.bash_history
+  shutdown -P -h now
+```
+
+Then remove the SD card and do a backup.
 
 # TODO
 
