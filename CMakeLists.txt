@@ -74,8 +74,7 @@ conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	#REMOTE cycling-public
-  SETTINGS ${settings}
+	SETTINGS ${settings}
 )
 
 conan_cmake_configure(
@@ -83,13 +82,12 @@ conan_cmake_configure(
 	GENERATORS cmake_find_package
 	OPTIONS
 		boost:shared=False
-    boost:without_stacktrace=True
+		boost:without_stacktrace=True
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	#REMOTE cycling-public
-  SETTINGS ${settings}
+	SETTINGS ${settings}
 )
 find_package(
 	Boost 1.75
@@ -105,7 +103,7 @@ conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
 	REMOTE cycling-public
-  SETTINGS ${settings}
+	SETTINGS ${settings}
 )
 
 conan_cmake_configure(
@@ -115,8 +113,7 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	#REMOTE cycling-public
-  SETTINGS ${settings}
+	SETTINGS ${settings}
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
