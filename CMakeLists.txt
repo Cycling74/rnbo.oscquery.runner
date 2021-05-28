@@ -132,6 +132,9 @@ else()
 				BUILD missing
 				REMOTE cycling-jfrog
 				PROFILE ${CONAN_PROFILE}
+				OPTIONS
+					boost:shared=False
+					boost:without_stacktrace=True
 	)
 	set(BOOST_LIB CONAN_PKG::boost)
 endif()
