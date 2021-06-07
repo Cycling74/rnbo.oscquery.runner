@@ -64,7 +64,7 @@ namespace {
 
 Controller::Controller(std::string server_name) : mProcessCommands(true) {
 	mProtocol = new ossia::net::multiplex_protocol();
-  mOssiaContext = ossia::net::create_network_context();
+	mOssiaContext = ossia::net::create_network_context();
 	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, 1234, 5678);
 
 	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(mProtocol), server_name));
@@ -611,7 +611,7 @@ void Controller::processCommands() {
 				{
 					.mode = conf::HOST,
 					.version = conf::OSC1_1,
-          .framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
+					.framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
 					.transport = ossia::net::udp_configuration {{
 						.local = std::nullopt,
 						.remote = ossia::net::send_socket_configuration {{ip, port}}
