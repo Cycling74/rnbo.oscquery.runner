@@ -61,6 +61,8 @@ class Instance {
 		void queueConfigChangeSignal();
 		//only called at startup or in the processDataRefCommands thread
 		bool loadDataRef(const std::string& id, const std::string& fileName);
+		//attempts to load the dataref, clears out the oscquery value if it fails
+		bool loadDataRefCleanup(const std::string& id, const std::string& fileName);
 		void handleInportMessage(RNBO::MessageTag tag, const ossia::value& value);
 		void handleOutportMessage(RNBO::MessageEvent e);
 		void handleMidiCallback(RNBO::MidiEvent e);
@@ -84,6 +86,9 @@ class Instance {
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;
 		std::thread mDataRefThread;
 		std::atomic<bool> mDataRefProcessCommands;
+		//keep the parameters so we can clear out when files don't exist
+		std::unordered_map<std::string, ossia::net::parameter_base *> mDataRefNodes;
+
 
 		//map of dataref name to file name
 		std::mutex mDataRefFileNameMutex;

@@ -213,21 +213,24 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 		}
 
-		auto dataRefs = root->create_child("data_refs");
-		for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
-			auto id = mCore->getExternalDataId(index);
-			std::string name(id);
-			auto n = dataRefs->create_child(name);
-			auto d = n->create_parameter(ossia::val_type::STRING);
-			auto it = dataRefMap.find(name);
-			if (it != dataRefMap.end()) {
-				d->push_value(it->second);
+		{
+			auto dataRefs = root->create_child("data_refs");
+			for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
+				auto id = mCore->getExternalDataId(index);
+				std::string name(id);
+				auto n = dataRefs->create_child(name);
+				auto d = n->create_parameter(ossia::val_type::STRING);
+				auto it = dataRefMap.find(name);
+				if (it != dataRefMap.end()) {
+					d->push_value(it->second);
+				}
+				d->add_callback(
+					[this, id](const ossia::value& val) {
+						if (val.get_type() == ossia::val_type::STRING)
+							mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
+				});
+				mDataRefNodes.emplace(name, d);
 			}
-			d->add_callback(
-				[this, id](const ossia::value& val) {
-					if (val.get_type() == ossia::val_type::STRING)
-						mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
-			});
 		}
 
 		{
@@ -381,7 +384,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 	//auto load data refs
 	for (auto& kv: dataRefMap) {
-		loadDataRef(kv.first, kv.second);
+		loadDataRefCleanup(kv.first, kv.second);
 	}
 
 	//load the initial or last preset, if in the config
@@ -424,8 +427,9 @@ void Instance::processDataRefCommands() {
 		if (!cmdOpt)
 			continue;
 		DataRefCommand cmd = cmdOpt.get();
-		if (loadDataRef(cmd.id, cmd.fileName))
+		if (loadDataRefCleanup(cmd.id, cmd.fileName)) {
 			queueConfigChangeSignal();
+		}
 	}
 }
 
@@ -609,6 +613,19 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 	} catch (std::exception& e) {
 		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
 	}
+	return false;
+}
+
+bool Instance::loadDataRefCleanup(const std::string& id, const std::string& fileName) {
+	if (loadDataRef(id, fileName)) {
+		return true;
+	}
+	auto it = mDataRefNodes.find(id);
+	if (it == mDataRefNodes.end()) {
+		std::cerr << "cannot find dataref node with id: " << id << std::endl;
+		return false;
+	}
+	it->second->push_value("");
 	return false;
 }
 
