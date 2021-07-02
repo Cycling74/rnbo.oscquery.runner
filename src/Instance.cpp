@@ -304,7 +304,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			{
 				auto n = presets->create_child("initial");
 				auto init = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::description_attribute{}, "Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the loaded preset instead");
+				n->set(ossia::net::description_attribute{}, "Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the last loaded preset instead");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 
 				init->add_callback([this](const ossia::value& val) {
