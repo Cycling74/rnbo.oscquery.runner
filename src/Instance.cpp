@@ -322,7 +322,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Initial, val.get<std::string>()));
 					}
 				});
-				if (!mPresetInitial.empty())
+				if (!mPresetInitial.empty() && mPresets.find(mPresetInitial) != mPresets.end())
 					mPresetInitialParam->push_value(mPresetInitial);
 			}
 		}
@@ -461,7 +461,11 @@ void Instance::processEvents() {
 		mPresets[namePreset.first] = namePreset.second;
 		mPresetLatest = namePreset.first;
 	}
+	//only process a few events
+	auto c = 0;
 	while (auto item = mPresetCommandQueue.tryPop()) {
+		if (c++ > 10)
+			break;
 		auto cmd = item.get();
 		switch (cmd.type) {
 			case PresetCommand::CommandType::Load:
@@ -475,11 +479,12 @@ void Instance::processEvents() {
 			case PresetCommand::CommandType::Initial:
 				{
 					std::lock_guard<std::mutex> guard(mPresetMutex);
-					auto it = mPresets.find(cmd.preset);
-					if (it != mPresets.end()) {
-						mPresetInitial = cmd.preset;
-						queueConfigChangeSignal();
-					} else {
+					if (cmd.preset.size() == 0 || mPresets.find(cmd.preset) != mPresets.end()) {
+						if (mPresetInitial != cmd.preset) {
+							mPresetInitial = cmd.preset;
+							queueConfigChangeSignal();
+						}
+					} else if (cmd.preset != mPresetInitial) {
 						mPresetInitialParam->push_value(mPresetInitial);
 					}
 				}
