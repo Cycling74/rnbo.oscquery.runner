@@ -500,9 +500,9 @@ RNBO::Json Instance::currentConfig() {
 		for (auto& kv: mPresets)
 			presets[kv.first] = RNBO::convertPresetToJSONObj(*kv.second);
 		//indicate the initial and latest preset if we loaded this config again
-		if (!mPresetInitial.empty())
+		if (!mPresetInitial.empty() && mPresets.find(mPresetInitial) != mPresets.end())
 			config[initial_preset_key] = mPresetInitial;
-		if (!mPresetLatest.empty())
+		if (!mPresetLatest.empty() && mPresets.find(mPresetLatest) != mPresets.end())
 			config[last_preset_key] = mPresetLatest;
 	}
 	//copy datarefs
