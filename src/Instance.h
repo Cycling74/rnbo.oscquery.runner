@@ -55,6 +55,18 @@ class Instance {
 			std::string id;
 			DataRefCommand(std::string inFileName, RNBO::ExternalDataId inId) : fileName(inFileName), id(inId) {}
 		};
+		struct PresetCommand {
+			enum class CommandType {
+				Delete,
+				Initial,
+				Load,
+				Save
+			};
+			CommandType type;
+			std::string preset;
+			PresetCommand(CommandType t, std::string p) : type(t), preset(p) {}
+		};
+
 		void processDataRefCommands();
 		void updatePresetEntries();
 		//called from various threads
@@ -100,6 +112,10 @@ class Instance {
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
+		ossia::net::parameter_base* mPresetInitialParam;
+
+
+		Queue<PresetCommand> mPresetCommandQueue;
 
 		//callback data from RNBO, a name and a ptr
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;

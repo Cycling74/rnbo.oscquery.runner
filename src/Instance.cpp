@@ -253,10 +253,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 				save->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
-						std::string name = val.get<std::string>();
-						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
-								mPresetSavedQueue->try_enqueue(std::make_pair(name, preset));
-						});
+						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Save, val.get<std::string>()));
 					}
 				});
 			}
@@ -268,9 +265,21 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				n->set(ossia::net::description_attribute{}, "Load a preset with the given name");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 				load->add_callback([this](const ossia::value& val) {
-					//TODO do we want to move this to another thread?
 					if (val.get_type() == ossia::val_type::STRING) {
-						loadPreset(val.get<std::string>());
+						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Load, val.get<std::string>()));
+					}
+				});
+			}
+
+			{
+				auto n = presets->create_child("delete");
+				auto del = n->create_parameter(ossia::val_type::STRING);
+
+				n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				del->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Delete, val.get<std::string>()));
 					}
 				});
 			}
@@ -303,20 +312,18 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 			{
 				auto n = presets->create_child("initial");
-				auto init = n->create_parameter(ossia::val_type::STRING);
+				mPresetInitialParam = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::description_attribute{}, "Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the last loaded preset instead");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 
-				init->add_callback([this](const ossia::value& val) {
+
+				mPresetInitialParam->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
-						std::lock_guard<std::mutex> guard(mPresetMutex);
-						//TODO validate?
-						mPresetInitial = val.get<std::string>();
-						queueConfigChangeSignal();
+						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Initial, val.get<std::string>()));
 					}
 				});
 				if (!mPresetInitial.empty())
-					init->push_value(mPresetInitial);
+					mPresetInitialParam->push_value(mPresetInitial);
 			}
 		}
 
@@ -453,6 +460,50 @@ void Instance::processEvents() {
 		changed = updated = true;
 		mPresets[namePreset.first] = namePreset.second;
 		mPresetLatest = namePreset.first;
+	}
+	while (auto item = mPresetCommandQueue.tryPop()) {
+		auto cmd = item.get();
+		switch (cmd.type) {
+			case PresetCommand::CommandType::Load:
+				loadPreset(cmd.preset);
+				break;
+			case PresetCommand::CommandType::Save:
+				mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
+					mPresetSavedQueue->try_enqueue(std::make_pair(cmd.preset, preset));
+				});
+				break;
+			case PresetCommand::CommandType::Initial:
+				{
+					std::lock_guard<std::mutex> guard(mPresetMutex);
+					auto it = mPresets.find(cmd.preset);
+					if (it != mPresets.end()) {
+						mPresetInitial = cmd.preset;
+						queueConfigChangeSignal();
+					} else {
+						mPresetInitialParam->push_value(mPresetInitial);
+					}
+				}
+				break;
+			case PresetCommand::CommandType::Delete:
+				{
+					std::lock_guard<std::mutex> guard(mPresetMutex);
+					auto it = mPresets.find(cmd.preset);
+					if (it != mPresets.end()) {
+						updated = true;
+						mPresets.erase(it);
+						//clear out initial and latest if they match
+						if (mPresetInitial == cmd.preset) {
+							mPresetInitial.clear();
+							mPresetInitialParam->push_value(mPresetInitial);
+						}
+						if (mPresetLatest == cmd.preset) {
+							mPresetLatest.clear();
+						}
+						queueConfigChangeSignal();
+					}
+				}
+				break;
+		}
 	}
 	if (updated)
 		updatePresetEntries();
