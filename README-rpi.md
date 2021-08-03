@@ -60,9 +60,14 @@ keep the user name `pi`.
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
   ```
 
-  configure jack for realtime
+  Configure jack for realtime
   ```shell
   dpkg-reconfigure jackd2
+  ```
+
+  Optionally, enable the dummy audio interface. This allows for operation without an audio interface, for instance, for MIDI only.
+  ```shell
+  echo snd-dummy >> /etc/modules
   ```
 
   Install a specific verison and hold it there. You'll want to update the
