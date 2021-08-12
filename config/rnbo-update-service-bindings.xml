@@ -8,5 +8,6 @@
         </method>
 				<property name="State" type="u" access="read"/>
 				<property name="Status" type="s" access="read"/>
+				<property name="OutdatedPackages" type="u" access="read"/>
     </interface>
 </node>

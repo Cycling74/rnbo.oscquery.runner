@@ -45,6 +45,11 @@ public:
         return proxy_.getProperty("Status").onInterface(INTERFACE_NAME);
     }
 
+    uint32_t OutdatedPackages()
+    {
+        return proxy_.getProperty("OutdatedPackages").onInterface(INTERFACE_NAME);
+    }
+
 private:
     sdbus::IProxy& proxy_;
 };

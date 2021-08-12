@@ -25,6 +25,7 @@ protected:
         object_.registerMethod("QueueRunnerInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueRunnerInstall(version); });
         object_.registerProperty("State").onInterface(INTERFACE_NAME).withGetter([this](){ return this->State(); });
         object_.registerProperty("Status").onInterface(INTERFACE_NAME).withGetter([this](){ return this->Status(); });
+        object_.registerProperty("OutdatedPackages").onInterface(INTERFACE_NAME).withGetter([this](){ return this->OutdatedPackages(); });
     }
 
     ~rnbo_adaptor() = default;
@@ -35,6 +36,7 @@ private:
 private:
     virtual uint32_t State() = 0;
     virtual std::string Status() = 0;
+    virtual uint32_t OutdatedPackages() = 0;
 
 private:
     sdbus::IObject& object_;
