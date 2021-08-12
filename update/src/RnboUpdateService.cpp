@@ -2,13 +2,14 @@
 #include "Validation.h"
 #include <iostream>
 #include <stdlib.h>
+#include <functional>
 #include <boost/algorithm/string/join.hpp>
 
 namespace {
 	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
 
 	//https://stackoverflow.com/questions/478898/how-do-i-execute-a-command-and-get-the-output-of-the-command-within-c-using-po
-	std::pair<bool, std::vector<std::string>> exec(const std::string cmd) {
+	bool execLineFunc(const std::string cmd, std::function<void(std::string)> lineFunc) {
 		std::array<char, 128> buffer;
 		std::vector<std::string> result;
 		std::string fullCmd = "while fuser /var/{lib/{dpkg,apt/lists},cache/apt/archives}/lock >/dev/null 2>&1; do sleep 1; done && " + cmd + " 2>&1";
@@ -18,9 +19,15 @@ namespace {
 		}
 		while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
 			std::cout << buffer.data() << std::endl;
-			result.push_back(buffer.data());
+			lineFunc(buffer.data());
 		}
-		return std::make_pair(WEXITSTATUS(pclose(pipe)) == 0, result);
+		return WEXITSTATUS(pclose(pipe)) == 0;
+	}
+
+	std::pair<bool, std::vector<std::string>> exec(const std::string cmd) {
+		std::vector<std::string> result;
+		auto ret = execLineFunc(cmd, [&result](std::string line) { result.push_back(line); });
+		return std::make_pair(ret, result);
 	}
 
 }
@@ -36,20 +43,41 @@ RnboUpdateService::~RnboUpdateService()
 	unregisterAdaptor();
 }
 
+bool RnboUpdateService::updatePackages() {
+	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
+	updateState(RunnerUpdateState::Active, "updating package list");
+	bool success = exec("apt-get -y update").first;
+	uint32_t cnt = 0;
+
+	updateStatus("querying outdated package count");
+	execLineFunc("apt-get -q -y -s dist-upgrade", [&cnt](std::string line) {
+			//lines that start with Inst are installations
+			if (line.rfind("Inst", 0) == 0) {
+			cnt++;
+			}
+			});
+	if (cnt != mOutdatedPackages) {
+		mOutdatedPackages = cnt;
+		emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"OutdatedPackages"});
+	}
+	return success;
+}
 
 void RnboUpdateService::evaluateCommands() {
+	if (mInit) {
+		updateState(RunnerUpdateState::Active, "update service init starting");
+		updatePackages();
+		updateState(RunnerUpdateState::Idle, "update service init complete");
+		mInit = false;
+	}
 	auto o = mRunnerInstallQueue.tryPop();
 	if (o) {
-		setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 		std::string packageVersion = RUNNER_PACKAGE_NAME + "=" + o.get();
-		updateState(RunnerUpdateState::Active, "updating package list");
-		auto r = exec("apt-get -y update");
-		if (r.first) {
+		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to install anyway");
 		}
-		//TODO set property for number of packages that need updating
 		updateStatus("installing " + packageVersion);
-		r = exec("apt-get install -y --install-recommends --install-suggests --allow-change-held-packages --allow-downgrades " + packageVersion);
+		auto r = exec("apt-get install -y --install-recommends --install-suggests --allow-change-held-packages --allow-downgrades " + packageVersion);
 		bool success = r.first;
 		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
 		//always mark hold
@@ -85,6 +113,7 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 
 uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }
 std::string RnboUpdateService::Status() { return mStatus; }
+uint32_t RnboUpdateService::OutdatedPackages() { return mOutdatedPackages; }
 
 void RnboUpdateService::updateState(RunnerUpdateState state, const std::string status) {
 	mState = state;
