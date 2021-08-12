@@ -21,6 +21,11 @@ void RnboUpdateServiceProxy::setStatusCallback(std::function<void(std::string)> 
 	mStatusCallback = cb;
 }
 
+void RnboUpdateServiceProxy::setOutdatedPackagesCallback(std::function<void(uint32_t)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mOutdatedPackagesCallback = cb;
+}
+
 void RnboUpdateServiceProxy::onPropertiesChanged(
 		const std::string& interfaceName,
 		const std::map<std::string, sdbus::Variant>& changedProperties,
@@ -37,6 +42,10 @@ void RnboUpdateServiceProxy::onPropertiesChanged(
 			RunnerUpdateState state;
 			if (mStateCallback && var.containsValueOfType<uint32_t>() && runner_update::from(var.get<uint32_t>(), state)) {
 				mStateCallback(state);
+			}
+		} else if (key == "OutdatedPackages") {
+			if (mOutdatedPackagesCallback && var.containsValueOfType<uint32_t>()) {
+				mOutdatedPackagesCallback(var.get<uint32_t>());
 			}
 		}
 	}

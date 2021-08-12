@@ -17,9 +17,11 @@ class RnboUpdateServiceProxy : public sdbus::ProxyInterfaces<com::cycling74::rnb
 
 		void setStateCallback(std::function<void(RunnerUpdateState)> cb);
 		void setStatusCallback(std::function<void(std::string)> cb);
+		void setOutdatedPackagesCallback(std::function<void(uint32_t)> cb);
 	protected:
 		std::function<void(RunnerUpdateState)> mStateCallback;
 		std::function<void(std::string)> mStatusCallback;
+		std::function<void(uint32_t)> mOutdatedPackagesCallback;
 		std::mutex mCallbackMutex;
 
 		virtual void onPropertiesChanged(

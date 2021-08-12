@@ -270,6 +270,15 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 				p->push_value(status);
 				mUpdateServiceProxy->setStatusCallback([p](std::string status) mutable { p->push_value(status); });
 			}
+
+			{
+				auto n = update->create_child("outdated");
+				auto p = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Number of outdated packages detected on the system");
+				p->push_value(-1);
+				mUpdateServiceProxy->setOutdatedPackagesCallback([p](uint32_t cnt) mutable { p->push_value(static_cast<int>(cnt)); });
+			}
 			supports_install = true;
 		} catch (const std::exception& e) {
 			cerr << "exception caught " << e.what() << endl;
