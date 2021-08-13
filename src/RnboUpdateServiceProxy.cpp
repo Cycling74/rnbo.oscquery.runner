@@ -15,15 +15,39 @@ RnboUpdateServiceProxy::~RnboUpdateServiceProxy() { unregisterProxy(); }
 void RnboUpdateServiceProxy::setStateCallback(std::function<void(RunnerUpdateState)> cb) {
 	std::lock_guard<std::mutex> guard(mCallbackMutex);
 	mStateCallback = cb;
+	if (cb) {
+		try {
+			RunnerUpdateState state;
+			uint32_t val = getProxy().getProperty("State").onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			if (runner_update::from(val, state)) {
+				cb(state);
+			}
+		} catch (...) {
+		}
+	}
 }
 void RnboUpdateServiceProxy::setStatusCallback(std::function<void(std::string)> cb) {
 	std::lock_guard<std::mutex> guard(mCallbackMutex);
 	mStatusCallback = cb;
+	if (cb) {
+		try {
+			std::string val = getProxy().getProperty("Status").onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			cb(val);
+		} catch (...) {
+		}
+	}
 }
 
 void RnboUpdateServiceProxy::setOutdatedPackagesCallback(std::function<void(uint32_t)> cb) {
 	std::lock_guard<std::mutex> guard(mCallbackMutex);
 	mOutdatedPackagesCallback = cb;
+	if (cb) {
+		try {
+			uint32_t val = getProxy().getProperty("OutdatedPackages").onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			cb(val);
+		} catch (...) {
+		}
+	}
 }
 
 void RnboUpdateServiceProxy::onPropertiesChanged(
