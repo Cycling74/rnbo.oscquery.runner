@@ -654,6 +654,14 @@ void Controller::processCommands() {
 			RNBO::Json params = cmdObj["params"];
 			if (method == "compile") {
 				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+#if RNBO_USE_DBUS
+				//update the outpdated package list
+				if (mUpdateServiceProxy) {
+					try {
+						mUpdateServiceProxy->UpdateOutdated();
+					} catch (...) { }
+				}
+#endif
 
 				//support either a pre-written file or embedded "code"
 				if (!cmdObj.contains("params") || !(params.contains("filename") || params.contains("code"))) {
