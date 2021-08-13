@@ -47,20 +47,22 @@ bool RnboUpdateService::updatePackages() {
 	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 	updateState(RunnerUpdateState::Active, "updating package list");
 	bool success = exec("apt-get -y update").first;
-	uint32_t cnt = 0;
+	return success;
+}
 
-	updateStatus("querying outdated package count");
+void RnboUpdateService::computeOutdated() {
+	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
+	uint32_t cnt = 0;
 	execLineFunc("apt-get -q -y -s dist-upgrade", [&cnt](std::string line) {
-			//lines that start with Inst are installations
-			if (line.rfind("Inst", 0) == 0) {
+		//lines that start with Inst are installations
+		if (line.rfind("Inst", 0) == 0) {
 			cnt++;
-			}
-			});
+		}
+	});
 	if (cnt != mOutdatedPackages) {
 		mOutdatedPackages = cnt;
 		emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"OutdatedPackages"});
 	}
-	return success;
 }
 
 void RnboUpdateService::evaluateCommands() {
@@ -69,6 +71,12 @@ void RnboUpdateService::evaluateCommands() {
 		updatePackages();
 		updateState(RunnerUpdateState::Idle, "update service init complete");
 		mInit = false;
+	}
+	if (mUpdateOutdated) {
+		updateState(RunnerUpdateState::Active, "querying outdated package count");
+		computeOutdated();
+		updateState(RunnerUpdateState::Idle, "querying outdated package count complete");
+		mUpdateOutdated = false;
 	}
 	auto o = mRunnerInstallQueue.tryPop();
 	if (o) {
@@ -109,6 +117,10 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 		return false;
 	mRunnerInstallQueue.push(version);
 	return true;
+}
+
+void RnboUpdateService::UpdateOutdated() {
+	mUpdateOutdated = true;
 }
 
 uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }

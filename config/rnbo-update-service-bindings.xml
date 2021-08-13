@@ -6,6 +6,7 @@
             <arg type="s" name="version" direction="in"/>
             <arg type="b" name="queued" direction="out"/>
         </method>
+				<method name="UpdateOutdated" />
 				<property name="State" type="u" access="read"/>
 				<property name="Status" type="s" access="read"/>
 				<property name="OutdatedPackages" type="u" access="read"/>

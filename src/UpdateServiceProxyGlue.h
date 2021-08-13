@@ -34,6 +34,11 @@ public:
         return result;
     }
 
+    void UpdateOutdated()
+    {
+        proxy_.callMethod("UpdateOutdated").onInterface(INTERFACE_NAME);
+    }
+
 public:
     uint32_t State()
     {

@@ -16,13 +16,16 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		void evaluateCommands();
 	private:
 		bool mInit = true;
+		bool mUpdateOutdated = true;
 		Queue<std::string> mRunnerInstallQueue;
 
 		//return true on success
 		bool updatePackages();
+		void computeOutdated();
 
 		//methods
 		virtual bool QueueRunnerInstall(const std::string& version);
+		virtual void UpdateOutdated();
 
 		//properties
 		virtual uint32_t State();

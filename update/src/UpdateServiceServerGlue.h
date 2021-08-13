@@ -23,6 +23,7 @@ protected:
         : object_(object)
     {
         object_.registerMethod("QueueRunnerInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueRunnerInstall(version); });
+        object_.registerMethod("UpdateOutdated").onInterface(INTERFACE_NAME).implementedAs([this](){ return this->UpdateOutdated(); });
         object_.registerProperty("State").onInterface(INTERFACE_NAME).withGetter([this](){ return this->State(); });
         object_.registerProperty("Status").onInterface(INTERFACE_NAME).withGetter([this](){ return this->Status(); });
         object_.registerProperty("OutdatedPackages").onInterface(INTERFACE_NAME).withGetter([this](){ return this->OutdatedPackages(); });
@@ -32,6 +33,7 @@ protected:
 
 private:
     virtual bool QueueRunnerInstall(const std::string& version) = 0;
+    virtual void UpdateOutdated() = 0;
 
 private:
     virtual uint32_t State() = 0;
