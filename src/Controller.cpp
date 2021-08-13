@@ -656,7 +656,7 @@ void Controller::processCommands() {
 				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
 #if RNBO_USE_DBUS
 				//update the outpdated package list
-				if (mUpdateServiceProxy) {
+				if (mUpdateServiceProxy && params.contains("update_outdated") && params["update_outdated"].get<bool>()) {
 					try {
 						mUpdateServiceProxy->UpdateOutdated();
 					} catch (...) { }
