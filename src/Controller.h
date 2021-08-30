@@ -59,6 +59,7 @@ class Controller {
 		std::unique_ptr<ossia::net::generic_device> mServer;
 		std::shared_ptr<ossia::net::network_context> mOssiaContext;
 		ossia::net::multiplex_protocol * mProtocol;
+		std::mutex mOssiaContextMutex;
 
 		//TODO
 		ossia::net::node_base * mInstancesNode;

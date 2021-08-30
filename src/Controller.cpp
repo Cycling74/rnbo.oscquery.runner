@@ -485,7 +485,10 @@ void Controller::queueSave() {
 }
 
 bool Controller::process() {
-	ossia::net::poll_network_context(*mOssiaContext);
+	{
+		std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+		ossia::net::poll_network_context(*mOssiaContext);
+	}
 
 	auto now = system_clock::now();
 	{
@@ -783,6 +786,7 @@ void Controller::processCommands() {
 					continue;
 
 				if (mListeners.find(key) == mListeners.end()) {
+					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 					listeners_add(key.first, key.second);
 					mListeners.insert(key);
 				}
@@ -801,6 +805,7 @@ void Controller::processCommands() {
 				//TODO visit listeners and only remove the one we care to remove.
 				//at this point, finding the type is hard so we just remove them all and then add back the ones we care about
 				if (mListeners.erase(key) != 0) {
+					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 					listeners_clear();
 					for (auto& kv: mListeners) {
 						listeners_add(kv.first, kv.second);
@@ -817,6 +822,7 @@ void Controller::processCommands() {
 				if (!validateListenerCmd(id, cmdObj, params, key))
 					continue;
 
+				std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 				mListeners.clear();
 				listeners_clear();
 				updateListenersList();
