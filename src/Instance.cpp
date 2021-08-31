@@ -273,6 +273,32 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			}
 
 			{
+				auto n = presets->create_child("del");
+				auto del = n->create_parameter(ossia::val_type::STRING);
+
+				n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				del->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						{
+							auto ps = val.get<std::string>();
+							std::lock_guard<std::mutex> guard(mPresetMutex);
+							if (mPresets.erase(ps)) {
+								if (mPresetInitial == ps)
+									mPresetInitial.clear();
+								if (mPresetLatest == ps)
+									mPresetLatest.clear();
+							} else {
+								return;
+							}
+						}
+						updatePresetEntries();
+						queueConfigChangeSignal();
+					}
+				});
+			}
+
+			{
 				auto n = presets->create_child("initial");
 				auto init = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::description_attribute{}, "Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the loaded preset instead");
