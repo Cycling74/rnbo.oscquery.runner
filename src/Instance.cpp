@@ -407,18 +407,6 @@ void Instance::processEvents() {
 	mEventHandler->processEvents();
 	mAudio->poll();
 
-	//store any presets that we got
-	std::pair<std::string, RNBO::ConstPresetPtr> namePreset;
-	bool updated = false;
-	while (mPresetSavedQueue->try_dequeue(namePreset)) {
-		std::lock_guard<std::mutex> guard(mPresetMutex);
-		updated = true;
-		mPresets[namePreset.first] = namePreset.second;
-		mPresetLatest = namePreset.first;
-	}
-	if (updated)
-		updatePresetEntries();
-
 	//see if we should signal a change
 	auto changed = false;
 	{
@@ -426,6 +414,19 @@ void Instance::processEvents() {
 		changed = mConfigChanged;
 		mConfigChanged = false;
 	}
+
+	//store any presets that we got, indicate a change if we have one
+	std::pair<std::string, RNBO::ConstPresetPtr> namePreset;
+	bool updated = false;
+	while (mPresetSavedQueue->try_dequeue(namePreset)) {
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		changed = updated = true;
+		mPresets[namePreset.first] = namePreset.second;
+		mPresetLatest = namePreset.first;
+	}
+	if (updated)
+		updatePresetEntries();
+
 	if (changed && mConfigChangeCallback != nullptr) {
 		mConfigChangeCallback();
 	}
