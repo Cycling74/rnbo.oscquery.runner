@@ -37,18 +37,19 @@ class ProcessAudioJack : public ProcessAudio {
 	private:
 		bool createClient(bool startServer);
 		bool createServer();
-		jack_client_t * mJackClient;
+		jack_client_t * mJackClient = nullptr;
 		jackctl_server_t * mJackServer = nullptr;
 		jack_uuid_t mJackClientUUID = 0;
 
 		std::atomic<jack_uuid_t> mBPMClientUUID;
 
-		ossia::net::node_base * mInfoNode;
-		ossia::net::parameter_base * mTransportBPMParam;
+		ossia::net::node_base * mInfoNode = nullptr;
+		ossia::net::node_base * mTransportNode = nullptr;
+		ossia::net::parameter_base * mTransportBPMParam = nullptr;
 		float mTransportBPMLast = 0.0;
 		std::atomic<float> mTransportBPMPropLast;
 
-		ossia::net::parameter_base * mTransportRollingParam;
+		ossia::net::parameter_base * mTransportRollingParam = nullptr;
 		bool mTransportRollingLast = false;
 
 
@@ -57,9 +58,9 @@ class ProcessAudioJack : public ProcessAudio {
 		std::vector<std::string> mCardNames;
 
 		double mSampleRate = 44100;
-		ossia::net::parameter_base * mSampleRateParam;
+		ossia::net::parameter_base * mSampleRateParam = nullptr;
 		int mPeriodFrames = 256;
-		ossia::net::parameter_base * mPeriodFramesParam;
+		ossia::net::parameter_base * mPeriodFramesParam = nullptr;
 
 #ifndef __APPLE__
 		int mNumPeriods = 2;

@@ -260,6 +260,13 @@ bool ProcessAudioJack::setActive(bool active) {
 	if (active) {
 		return createClient(true);
 	} else {
+		mBuilder([this](ossia::net::node_base * root) {
+			if (mTransportNode) {
+				if (root->remove_child("transport")) {
+					mTransportNode = nullptr;
+				}
+			}
+		});
 		std::lock_guard<std::mutex> guard(mMutex);
 		if (mJackClient) {
 			jack_client_close(mJackClient);
@@ -343,33 +350,35 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					mPeriodFramesParam->push_value(static_cast<int>(bs));
 				}
 
-				auto transport = root->create_child("transport");
-				{
-					auto n = transport->create_child("bpm");
-					mTransportBPMParam = n->create_parameter(ossia::val_type::FLOAT);
-					mTransportBPMParam->push_value(100.0); //default
-				}
+				if (!mTransportNode) {
+					auto transport = mTransportNode = root->create_child("transport");
+					{
+						auto n = transport->create_child("bpm");
+						mTransportBPMParam = n->create_parameter(ossia::val_type::FLOAT);
+						mTransportBPMParam->push_value(100.0); //default
+					}
 
-				{
-					auto n = transport->create_child("rolling");
-					mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
-					auto state = jack_transport_query(mJackClient, nullptr);
-					mTransportRollingLast = state != jack_transport_state_t::JackTransportStopped;
-					mTransportRollingParam->push_value(mTransportRollingLast);
+					{
+						auto n = transport->create_child("rolling");
+						mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
+						auto state = jack_transport_query(mJackClient, nullptr);
+						mTransportRollingLast = state != jack_transport_state_t::JackTransportStopped;
+						mTransportRollingParam->push_value(mTransportRollingLast);
 
-					mTransportRollingParam->add_callback([this](const ossia::value& val) {
-						if (val.get_type() == ossia::val_type::BOOL) {
-							bool rolling = val.get<bool>();
-							if (mTransportRollingLast != rolling) {
-								mTransportRollingLast = rolling;
-								if (rolling) {
-									jack_transport_start(mJackClient);
-								} else {
-									jack_transport_stop(mJackClient);
+						mTransportRollingParam->add_callback([this](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::BOOL) {
+								bool rolling = val.get<bool>();
+								if (mTransportRollingLast != rolling) {
+									mTransportRollingLast = rolling;
+									if (rolling) {
+										jack_transport_start(mJackClient);
+									} else {
+										jack_transport_stop(mJackClient);
+									}
 								}
 							}
-						}
-					});
+						});
+					}
 				}
 
 				//set property change callback, if we can
