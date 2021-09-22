@@ -116,8 +116,8 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			auto active = std::make_shared<std::mutex>();
 
 			//create normalized version
-			auto cnorm = [this, info, index, active](ossia::net::node_base * param) -> ossia::net::parameter_base * {
-				auto n = param->create_child("normalized");
+			auto cnorm = [this, info, index, active](ossia::net::node_base& param) -> ossia::net::parameter_base * {
+				auto n = param.create_child("normalized");
 				auto p = n->create_parameter(ossia::val_type::FLOAT);
 
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
@@ -144,11 +144,12 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			if (info.enumValues == nullptr) {
 				//numerical parameters
 				//set parameter access, range, etc etc
-				auto n = params->create_child(mCore->getParameterName(index));
-				auto p = n->create_parameter(ossia::val_type::FLOAT);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-				n->set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
-				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+				auto& n = ossia::net::create_node(*params, mCore->getParameterId(index));
+				auto p = n.create_parameter(ossia::val_type::FLOAT);
+
+				n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				n.set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
+				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 				p->push_value(info.initialValue);
 
 
@@ -184,13 +185,13 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 					valToName[e] = s;
 				}
 
-				auto n = params->create_child(mCore->getParameterName(index));
-				auto p = n->create_parameter(ossia::val_type::STRING);
+				auto& n = ossia::net::create_node(*params, mCore->getParameterId(index));
+				auto p = n.create_parameter(ossia::val_type::STRING);
 
 				auto dom = ossia::init_domain(ossia::val_type::STRING);
 				ossia::set_values(dom, values);
-				n->set(ossia::net::domain_attribute{}, dom);
-				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+				n.set(ossia::net::domain_attribute{}, dom);
+				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 				p->push_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
 
 				//normalized
