@@ -96,6 +96,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 #ifndef __APPLE__
 			//read info about alsa cards if it exists
 			fs::path alsa_cards("/proc/asound/cards");
+			std::vector<std::string> names;
 			if (fs::exists(alsa_cards)) {
 				std::ifstream i(alsa_cards.string());
 
@@ -122,15 +123,10 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 						continue;
 					}
 
-					//set card name to first found non Headphones, it is our best guess
-					if (mCardName.empty()) {
-						mCardName = name;
-						jconfig_set(mCardName, "card_name");
-					}
-
 					//hw:NAME
 					{
 						mCardNames.push_back(name);
+						names.push_back(name);
 						auto n = cards->create_child(name);
 						auto c = n->create_parameter(ossia::val_type::STRING);
 						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
@@ -147,6 +143,21 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 					}
 
 				}
+			}
+
+			//set card name to first found non Headphones, it is our best guess
+			if (mCardName.empty() && names.size()) {
+				mCardName = names.front();
+				//don't pick dummy by default if we can
+				if (names.size() > 1) {
+					for (auto n: names) {
+						if (n != "hw:Dummy") {
+							mCardName = n;
+							break;
+						}
+					}
+				}
+				jconfig_set(mCardName, "card_name");
 			}
 
 			{
