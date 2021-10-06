@@ -485,36 +485,44 @@ void Controller::queueSave() {
 }
 
 bool Controller::process() {
-	{
-		std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-		ossia::net::poll_network_context(*mOssiaContext);
-	}
-
-	auto now = system_clock::now();
-	{
-		std::lock_guard<std::mutex> guard(mBuildMutex);
-		if (mProcessAudio)
-			mProcessAudio->processEvents();
-		for (auto& i: mInstances)
-			i.first->processEvents();
-	}
-	if (mDiskSpacePollNext <= now)
-		updateDiskSpace();
-
-	bool save = false;
-	{
-		//see if we got the save flag set, debounce
-		std::lock_guard<std::mutex> guard(mSaveMutex);
-		if (mSave) {
-			mSave = false;
-			mSaveNext = system_clock::now() + save_debounce_timeout;
-		} else if (mSaveNext && mSaveNext.get() < now) {
-			save = true;
-			mSaveNext.reset();
+	try {
+		{
+			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+			ossia::net::poll_network_context(*mOssiaContext);
 		}
-	}
-	if (save) {
-		saveLast();
+
+		auto now = system_clock::now();
+		{
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			if (mProcessAudio)
+				mProcessAudio->processEvents();
+			for (auto& i: mInstances)
+				i.first->processEvents();
+		}
+		if (mDiskSpacePollNext <= now) {
+			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
+			//using a hammer to make sure that doesn't happen
+			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+			updateDiskSpace();
+		}
+
+		bool save = false;
+		{
+			//see if we got the save flag set, debounce
+			std::lock_guard<std::mutex> guard(mSaveMutex);
+			if (mSave) {
+				mSave = false;
+				mSaveNext = system_clock::now() + save_debounce_timeout;
+			} else if (mSaveNext && mSaveNext.get() < now) {
+				save = true;
+				mSaveNext.reset();
+			}
+		}
+		if (save) {
+			saveLast();
+		}
+	} catch (const std::exception& e) {
+		std::cerr << "exception in Controller::process thread " << e.what() << std::endl;
 	}
 
 	//TODO allow for quitting?
