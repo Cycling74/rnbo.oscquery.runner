@@ -41,6 +41,75 @@ There is an example `runner.json` config file in the config directory.
 If you want some customizations you can edit that and copy it here:
 `~/.config/rnbo/runner.json`
 
+Here is an example of the contents:
+```json
+{
+    "compile_cache_dir": "~/Documents/rnbo/cache/so/",
+    "save_dir": "~/Documents/rnbo/cache/saves/",
+    "source_cache_dir": "~/Documents/rnbo/cache/src/",
+    "datafile_dir": "~/Documents/rnbo/datafiles/",
+
+    "instance_auto_start_last": true,
+    "instance_auto_connect_audio": true,
+    "instance_auto_connect_midi": true,
+    "jack": {
+        "period_frames": 1024,
+        "sample_rate": 44100.0,
+				"card_name": "hw:ES8"
+    }
+}
+```
+
+* `compile_cache_dir`: a path to the directory where compiled shared objects are stored
+* `save_dir`: a path to the directory where save data is stored
+* `source_cache_dir`: a path to the directory where source files are stored before compiling
+* `datafile_dir`: a path to the directory where datafiles are stored, to be loaded as data refs
+  * you can put files directly into this directory and load them via the OSCQuery data ref commands
+* `instance_auto_start_last`: a boolean that indicates if when the runner starts, if it should attempt to load the last patcher it loaded before restart
+* `instance_auto_connect_audio`: a boolean that indicates if the runner should automatically try to connect its audio i/o
+  * disabling this can be useful if you want to have a custom jack signal flow, the commandline `jack_connect` can be useful if you have this set to false
+* `instance_auto_connect_midi`: a boolean that indicates if the runner should automatically connect to MIDI devices that it sees
+  * you can use `jack_connect` on the commandline to connect to specific MIDI devices if you have this set to false
+
+The only file that is currently saved in the `save_dir` is called `last.json`
+
+Here is an example of that file content:
+```json
+{
+    "instances": [
+        {
+            "config": {
+                "datarefs": {
+                    "loop": "jongly.aif"
+                },
+                "inports": [
+                    "foo"
+                ],
+                "outports": [
+                    "bar"
+                ],
+                "presets": {
+                    "muted": {
+                        "baz": {
+                            "value": 0.0
+                        }
+                    },
+                    "snap1": {
+                        "baz": {
+                            "value": 0.9430000185966492
+                        }
+                    }
+                }
+            },
+            "so_path": "/home/pi/Documents/rnbo/cache/so/libRNBORunnerSO1634332529.0.13.0-dev.44.so"
+        }
+    ]
+}
+```
+
+The saves file only supports 1 instance at the time of this writing but eventually might support more.
+If you edit this file you can change values for dataref mappings, presets and also identify which `so` to load on restart.
+
 ## Running
 
 If you haven't run jack before you probably want to set it up with `qjackctl`, you can leave that running while running the runner.
