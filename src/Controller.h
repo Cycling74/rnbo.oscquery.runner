@@ -40,7 +40,7 @@ class Controller {
 #endif
 
 		//returns true until we should quit
-		bool process();
+		bool processEvents();
 	private:
 		bool tryActivateAudio();
 		void clearInstances(std::lock_guard<std::mutex>&);

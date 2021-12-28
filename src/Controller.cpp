@@ -484,7 +484,7 @@ void Controller::queueSave() {
 	mSave = true;
 }
 
-bool Controller::process() {
+bool Controller::processEvents() {
 	try {
 		{
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);

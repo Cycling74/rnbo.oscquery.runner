@@ -54,7 +54,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				std::bind(&Instance::handleParamUpdate, this, std::placeholders::_1, std::placeholders::_2),
 				msgCallback, midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
-	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder));
+	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
 
 	mPresetSavedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
 
@@ -239,7 +239,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			auto presets = root->create_child("presets");
 			{
 				auto n = presets->create_child("entries");
-				mPresetEntires = n->create_parameter(ossia::val_type::LIST);
+				mPresetEntries = n->create_parameter(ossia::val_type::LIST);
 				n->set(ossia::net::description_attribute{}, "A list of presets that can be loaded");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 				updatePresetEntries();
@@ -443,7 +443,7 @@ void Instance::processDataRefCommands() {
 
 void Instance::processEvents() {
 	mEventHandler->processEvents();
-	mAudio->poll();
+	mAudio->processEvents();
 
 	//see if we should signal a change
 	auto changed = false;
@@ -578,7 +578,25 @@ void Instance::updatePresetEntries() {
 	for (auto &kv : mPresets) {
 		names.push_back(ossia::value(kv.first));
 	}
-	mPresetEntires->push_value(ossia::value(names));
+	mPresetEntries->push_value(ossia::value(names));
+}
+
+void Instance::handleProgramChange(ProgramChange p) {
+	//TODO filter channel
+	std::string name;
+	{
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		uint8_t i = 0;
+		for (auto it = mPresets.begin(); it != mPresets.end(); it++, i++) {
+			if (i == p.prog) {
+				name = it->first;
+				break;
+			}
+		}
+	}
+	if (name.size()) {
+		loadPreset(name);
+	}
 }
 
 void Instance::queueConfigChangeSignal() {

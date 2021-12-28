@@ -57,6 +57,7 @@ namespace {
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectMIDI, true},
+		{config::key::PresetMIDIProgramChangeChannel, 0},
 	};
 
 	RNBO::Json config_json = config_default;

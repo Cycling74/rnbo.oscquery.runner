@@ -19,6 +19,8 @@ namespace config {
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
 
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
+
+		const static std::string PresetMIDIProgramChangeChannel = "preset_midi_program_change_channel"; //0 for omni 1..16 for specific, null for none
 	}
 
 	//initialize the configuration system

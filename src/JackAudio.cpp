@@ -559,7 +559,12 @@ bool ProcessAudioJack::createServer() {
 	return true;
 }
 
-InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder) : mCore(core), mRunning(false) {
+InstanceAudioJack::InstanceAudioJack(
+		std::shared_ptr<RNBO::CoreObject> core,
+		std::string name,
+		NodeBuilder builder,
+		std::function<void(ProgramChange)> progChangeCallback
+		) : mCore(core), mRunning(false), mProgramChangeCallback(progChangeCallback) {
 	//get jack client, fail early if we can't
 	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
@@ -567,8 +572,9 @@ InstanceAudioJack::InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std
 
 	jack_set_process_callback(mJackClient, processJack, this);
 
-	//setup command queue
+	//setup queues, these might come from different threads?
 	mPortQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
+	mProgramChangeQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<ProgramChange, 32>>(32);
 
 	//init aliases
 	mJackPortAliases[0] = new char[jack_port_name_size()];
@@ -697,11 +703,17 @@ bool InstanceAudioJack::isActive() {
 	return mRunning;
 }
 
-void InstanceAudioJack::poll() {
+void InstanceAudioJack::processEvents() {
+	//process events from audio thread and notifications
+
 	jack_port_id_t id;
-	//process port registrations
 	while (mPortQueue->try_dequeue(id)) {
 		connectToMidiIf(jack_port_by_id(mJackClient, id));
+	}
+
+	ProgramChange c;
+	while (mProgramChangeQueue->try_dequeue(c)) {
+		mProgramChangeCallback(c);
 	}
 }
 
@@ -834,6 +846,10 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 			//time is in frames since the first frame in this callback
 			RNBO::MillisecondTime off = (RNBO::MillisecondTime)evt.time * mFrameMillis;
 			mMIDIInList.addEvent(RNBO::MidiEvent(nowms + off, 0, evt.buffer, evt.size));
+			//look for program change to change preset
+			if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
+				mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });
+			}
 		}
 	}
 

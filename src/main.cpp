@@ -84,7 +84,7 @@ int main(int argc, const char * argv[]) {
 
 		auto config_timeout = std::chrono::seconds(1);
 		std::chrono::time_point<std::chrono::system_clock> config_poll_next = system_clock::now() + config_timeout;
-		while (c.process() && mRun.load()) {
+		while (c.processEvents() && mRun.load()) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 			if (config_poll_next <= system_clock::now()) {
 				config_poll_next = system_clock::now() + config_timeout;

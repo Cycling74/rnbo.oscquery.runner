@@ -22,6 +22,7 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
@@ -72,16 +73,22 @@ class ProcessAudioJack : public ProcessAudio {
 //Processing and handling for a specific rnbo instance.
 class InstanceAudioJack : public InstanceAudio {
 	public:
-		InstanceAudioJack(std::shared_ptr<RNBO::CoreObject> core, std::string name, NodeBuilder builder);
+		InstanceAudioJack(
+				std::shared_ptr<RNBO::CoreObject> core,
+				std::string name,
+				NodeBuilder builder,
+				std::function<void(ProgramChange)> progChangeCallback
+				);
 		virtual ~InstanceAudioJack();
 		virtual void start() override;
 		virtual void stop() override;
 		virtual bool isActive() override;
-		virtual void poll() override;
+		virtual void processEvents() override;
 		void process(jack_nframes_t frames);
 		//callback that gets called with jack adds or removes client ports
 		void jackPortRegistration(jack_port_id_t id, int reg);
 	private:
+
 		void connectToHardware();
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
@@ -107,8 +114,8 @@ class InstanceAudioJack : public InstanceAudio {
 		std::mutex mMutex;
 		bool mRunning = false;
 
-		//command queue eventually if we have more than just ports
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
 
 		//working buffer for port getting port aliases
 		char * mJackPortAliases[2];
@@ -117,4 +124,6 @@ class InstanceAudioJack : public InstanceAudio {
 		//transport sync info
 		jack_position_t mTransportPosLast;
 		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
+
+		std::function<void(ProgramChange)> mProgramChangeCallback;
 };

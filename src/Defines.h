@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <inttypes.h>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -61,4 +62,9 @@ enum class InstallProgramError : unsigned int {
 	Unknown = 0,
 	InvalidRequestObject = 1,
 	NotEnabled = 2,
+};
+
+struct ProgramChange {
+	uint8_t chan = 0;
+	uint8_t prog = 0;
 };

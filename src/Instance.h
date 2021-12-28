@@ -18,7 +18,6 @@
 #include "InstanceAudio.h"
 #include "Defines.h"
 #include "Queue.h"
-#include "Defines.h"
 
 class PatcherFactory;
 namespace moodycamel {
@@ -69,6 +68,8 @@ class Instance {
 
 		void processDataRefCommands();
 		void updatePresetEntries();
+		void handleProgramChange(ProgramChange);
+
 		//called from various threads
 		void queueConfigChangeSignal();
 		//only called at startup or in the processDataRefCommands thread
@@ -107,13 +108,12 @@ class Instance {
 		std::unordered_map<std::string, std::string> mDataRefFileNameMap;
 
 		//presets
-		ossia::net::parameter_base * mPresetEntires;
-		std::unordered_map<std::string, RNBO::ConstPresetPtr> mPresets;
+		ossia::net::parameter_base * mPresetEntries;
+		std::map<std::string, RNBO::ConstPresetPtr> mPresets;
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
 		ossia::net::parameter_base* mPresetInitialParam;
-
 
 		Queue<PresetCommand> mPresetCommandQueue;
 
