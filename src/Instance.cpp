@@ -607,6 +607,17 @@ void Instance::loadPreset(std::string name) {
 	queueConfigChangeSignal();
 }
 
+void Instance::loadPreset(RNBO::UniquePresetPtr preset) {
+	mCore->setPreset(std::move(preset));
+}
+
+RNBO::UniquePresetPtr Instance::getPresetSync() {
+	RNBO::UniquePresetPtr preset = RNBO::make_unique<RNBO::Preset>();
+	auto shared = mCore->getPresetSync();
+	RNBO::copyPreset(*shared, *preset);
+	return preset;
+}
+
 RNBO::Json Instance::currentConfig() {
 	RNBO::Json config = RNBO::Json::object();
 

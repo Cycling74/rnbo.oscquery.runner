@@ -78,6 +78,9 @@ class Controller {
 		std::mutex mBuildMutex;
 		std::mutex mInstanceMutex;
 
+		//for saving/restoring while toggling audio settings
+		RNBO::UniquePresetPtr mInstanceLastPreset;
+
 		std::atomic<bool> mProcessCommands;
 		std::thread mCommandThread;
 

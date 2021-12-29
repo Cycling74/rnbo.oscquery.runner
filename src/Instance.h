@@ -37,6 +37,10 @@ class Instance {
 
 		void loadPreset(std::string name);
 
+		//does not save "latest".. used for loading between audio sessions
+		void loadPreset(RNBO::UniquePresetPtr preset);
+		RNBO::UniquePresetPtr getPresetSync();
+
 		// get the current configuration for this instance:
 		//  last loaded preset
 		//  sample mapping

@@ -316,6 +316,9 @@ Controller::~Controller() {
 }
 
 bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
+	//clear out our last instance preset, loadLast should already have it if there is one
+	mInstanceLastPreset.reset();
+
 	auto fname = fs::path(path).filename().string();
 	try {
 		//make sure that the version numbers match in the name of the library
@@ -382,10 +385,16 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 
 bool Controller::loadLast() {
 	try {
+		RNBO::UniquePresetPtr preset;
+
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			clearInstances(guard);
+			//get the last preset (saved before clearing);
+			std::swap(preset, mInstanceLastPreset);
 		}
+
+
 		//try to start the last
 		auto lastFile = lastFilePath();
 		if (!fs::exists(lastFile))
@@ -409,6 +418,14 @@ bool Controller::loadLast() {
 			if (!loadLibrary(so, std::string(), i[last_config_key], false)) {
 				cerr << "failed to load so " << so << endl;
 				return false;
+			}
+		}
+
+		//load last preset if we have it
+		if (preset) {
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			if (mInstances.size()) {
+				mInstances.front().first->loadPreset(std::move(preset));
 			}
 		}
 	} catch (const std::exception& e) {
@@ -534,8 +551,17 @@ void Controller::handleActive(bool active) {
 	//clear out instances if we're deactivating
 	if (!active) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
+		//save preset to reload on activation
+		//might cause a glitch?
+		if (mInstances.size()) {
+			mInstanceLastPreset = mInstances.front().first->getPresetSync();
+		} else {
+			mInstanceLastPreset.reset();
+		}
 		clearInstances(guard);
 	}
+
+
 	bool wasActive = mProcessAudio->isActive();
 	if (mProcessAudio->setActive(active) != active) {
 		cerr << "couldn't set active" << endl;
