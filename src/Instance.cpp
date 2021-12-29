@@ -26,6 +26,27 @@ namespace {
 	static const std::chrono::milliseconds command_wait_timeout(10);
 	static const std::string initial_preset_key = "preset_initial";
 	static const std::string last_preset_key = "preset_last";
+	static const std::string preset_midi_channel_key = "preset_midi_channel";
+	static const std::map<std::string, int> preset_midi_channel_values = {
+		{"omni", 0},
+		{"1", 1},
+		{"2", 2},
+		{"3", 3},
+		{"4", 4},
+		{"5", 5},
+		{"6", 6},
+		{"7", 7},
+		{"8", 8},
+		{"9", 9},
+		{"10", 10},
+		{"11", 11},
+		{"12", 12},
+		{"13", 13},
+		{"14", 14},
+		{"15", 15},
+		{"16", 16},
+		{"none", 17} //17 will never be valid
+	};
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
@@ -38,6 +59,23 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
 			dataRefMap[it.key()] = it.value();
 		}
+	}
+
+	//setup initial preset channel mapping
+	try {
+		std::string chanName = "omni";
+		auto chan = conf[preset_midi_channel_key];
+		if (chan.is_string()) {
+			chanName = chan.get<std::string>();
+		} else if (auto o = config::get<std::string>(config::key::PresetMIDIProgramChangeChannel)) {
+			chanName = *o;
+		}
+		auto it = preset_midi_channel_values.find(chanName);
+		if (it != preset_midi_channel_values.end()) {
+			mPresetProgramChangeChannel = it->second;
+		}
+	} catch (const std::exception& e) {
+		std::cerr << e.what() << std::endl;
 	}
 
 	auto msgCallback =
@@ -326,6 +364,41 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				if (!mPresetInitial.empty() && mPresets.find(mPresetInitial) != mPresets.end())
 					mPresetInitialParam->push_value(mPresetInitial);
 			}
+
+			{
+				auto n = presets->create_child("midi_channel");
+
+				std::vector<ossia::value> values;
+				for (auto& kv: preset_midi_channel_values) {
+					values.push_back(kv.first);
+				}
+
+				mPresetProgramChangeChannelParam = n->create_parameter(ossia::val_type::STRING);
+
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, values);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::description_attribute{}, "Indicate MIDI channel, none or omni (all) that should be used for changing presets via Program Changes.");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				for (auto& kv: preset_midi_channel_values) {
+					if (kv.second == mPresetProgramChangeChannel) {
+						mPresetProgramChangeChannelParam->push_value(kv.first);
+						break;
+					}
+				}
+
+				mPresetProgramChangeChannelParam->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						auto it = preset_midi_channel_values.find(val.get<std::string>());
+						if (it != preset_midi_channel_values.end()) {
+							mPresetProgramChangeChannel = it->second;
+							queueConfigChangeSignal();
+						}
+					}
+				});
+			}
 		}
 
 		if (mInportTags.size() > 0 || outportTags.size() > 0) {
@@ -561,6 +634,11 @@ RNBO::Json Instance::currentConfig() {
 			config[initial_preset_key] = mPresetInitial;
 		if (!mPresetLatest.empty() && mPresets.find(mPresetLatest) != mPresets.end())
 			config[last_preset_key] = mPresetLatest;
+		for (auto& kv: preset_midi_channel_values) {
+			if (kv.second == mPresetProgramChangeChannel) {
+				config[preset_midi_channel_key] = kv.first;
+			}
+		}
 	}
 	//copy datarefs
 	{
@@ -582,20 +660,23 @@ void Instance::updatePresetEntries() {
 }
 
 void Instance::handleProgramChange(ProgramChange p) {
-	//TODO filter channel
-	std::string name;
-	{
-		std::lock_guard<std::mutex> guard(mPresetMutex);
-		uint8_t i = 0;
-		for (auto it = mPresets.begin(); it != mPresets.end(); it++, i++) {
-			if (i == p.prog) {
-				name = it->first;
-				break;
+	//filter channel
+	//0 == omni, 17 == none (won't match)
+	if (mPresetProgramChangeChannel == 0 || mPresetProgramChangeChannel == p.chan + 1) {
+		std::string name;
+		{
+			std::lock_guard<std::mutex> guard(mPresetMutex);
+			uint8_t i = 0;
+			for (auto it = mPresets.begin(); it != mPresets.end(); it++, i++) {
+				if (i == p.prog) {
+					name = it->first;
+					break;
+				}
 			}
 		}
-	}
-	if (name.size()) {
-		loadPreset(name);
+		if (name.size()) {
+			loadPreset(name);
+		}
 	}
 }
 

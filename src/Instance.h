@@ -114,6 +114,8 @@ class Instance {
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
 		ossia::net::parameter_base* mPresetInitialParam;
+		ossia::net::parameter_base* mPresetProgramChangeChannelParam;
+		int mPresetProgramChangeChannel = 0; //omni, 17 == none
 
 		Queue<PresetCommand> mPresetCommandQueue;
 
