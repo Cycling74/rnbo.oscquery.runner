@@ -148,6 +148,10 @@ add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
 add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
 
+if (CMAKE_BUILD_TYPE STREQUAL Debug)
+	add_definitions(-DDEBUG)
+endif()
+
 if (UNIX)
 	add_definitions(-DRNBO_DYLIB_PREFIX="lib")
 	add_definitions(-DRNBO_CONFIG_DIR="~/.config/rnbo/")
