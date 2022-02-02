@@ -12,7 +12,8 @@
 #include "JackAudio.h"
 #include "PatcherFactory.h"
 
-#include <boost/algorithm/string/predicate.hpp>
+#include <boost/process.hpp>
+#include <boost/process/child.hpp>
 
 #include <ossia/context.hpp>
 #include <ossia/detail/config.hpp>
@@ -25,6 +26,9 @@
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
+#include <sys/types.h>
+#include <signal.h>
+
 #ifdef RNBO_USE_DBUS
 #include "RunnerUpdateState.h"
 #include "RnboUpdateServiceProxy.h"
@@ -36,6 +40,7 @@ using std::endl;
 using std::chrono::system_clock;
 
 namespace fs = boost::filesystem;
+namespace bp = boost::process;
 
 namespace {
 	static const std::string rnbo_version(RNBO_VERSION);
@@ -46,6 +51,7 @@ namespace {
 	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
 
 	static const std::chrono::milliseconds command_wait_timeout(10);
+	static const std::chrono::milliseconds compile_command_wait_timeout(5); //poll more quickly so we can get cancels
 	static const std::chrono::milliseconds save_debounce_timeout(500);
 
 	static const std::string last_file_name = "last.json";
@@ -58,6 +64,39 @@ namespace {
 	fs::path lastFilePath() {
 			return config::get<fs::path>(config::key::SaveDir).get() / last_file_name;
 	}
+
+	struct CompileInfo {
+		bp::group mGroup;
+		bp::child mProcess;
+		std::string mCommandId;
+		RNBO::Json mConf;
+		fs::path mLibPath;
+		CompileInfo(
+				std::string command, std::vector<std::string> args,
+				fs::path libPath,
+				std::string cmdId,
+				RNBO::Json conf) :
+			mProcess(command, args, mGroup),
+			mCommandId(cmdId),
+			mConf(conf),
+			mLibPath(libPath)
+		{ }
+		CompileInfo(CompileInfo&&) = default;
+		CompileInfo& operator=(CompileInfo&& other) = default;
+
+		CompileInfo(CompileInfo&) = delete;
+		CompileInfo& operator=(CompileInfo& other) = delete;
+
+		~CompileInfo() {
+			if (mProcess.running()) {
+				mGroup.terminate();
+				//should we just .wait()
+				mProcess.detach();
+			}
+		}
+
+		bool valid() { return mProcess.valid(); }
+	};
 
 }
 
@@ -667,17 +706,59 @@ void Controller::processCommands() {
 		mProtocol->expose_to(std::move(protocol));
 	};
 
+	boost::optional<CompileInfo> compileProcess;
+
 	//wait for commands, then process them
 	while (mProcessCommands.load()) {
 		try {
-			auto cmd = mCommandQueue.popTimeout(command_wait_timeout);
+			//adjust timeout
+			auto wait = command_wait_timeout;
+			const bool compiling = compileProcess && compileProcess->valid();
+			if (compiling) {
+				wait = compile_command_wait_timeout;
+				//see if the process has completed
+				if (!compileProcess->mProcess.running()) {
+					//need to wait to get the correct exit code
+					compileProcess->mProcess.wait();
+
+					auto status = compileProcess->mProcess.exit_code();
+					auto id = compileProcess->mCommandId;
+					auto libPath = compileProcess->mLibPath;
+					auto conf = compileProcess->mConf;
+					compileProcess.reset();
+					if (status != 0) {
+						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
+					} else if (fs::exists(libPath)) {
+						reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
+							{"message", "compiled"},
+							{"progress", 90}
+						});
+						loadLibrary(libPath.string(), id, conf);
+					} else {
+						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.string());
+					}
+				}
+			}
+
+			auto cmd = mCommandQueue.popTimeout(wait);
 			if (!cmd)
 				continue;
 			std::string cmdStr = cmd.get();
 
 			//internal commands
 			if (cmdStr == "load_last") {
+				//terminate existing compile
+				compileProcess.reset();
+
 				loadLast();
+				continue;
+			}
+
+			if (cmdStr == "compile_cancel") {
+				cout << "canceling" << std::endl;
+				//should terminate
+				compileProcess.reset();
 				continue;
 			}
 
@@ -690,6 +771,9 @@ void Controller::processCommands() {
 			std::string method = cmdObj["method"];
 			RNBO::Json params = cmdObj["params"];
 			if (method == "compile") {
+				//terminate existing
+				compileProcess.reset();
+
 				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
 #if RNBO_USE_DBUS
 				//update the outpdated package list
@@ -744,23 +828,12 @@ void Controller::processCommands() {
 
 				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
 				//program path_to_generated.cpp libraryName pathToConfigFile
-				std::string buildCmd = build_program;
-				for (auto a: { sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string() }) {
-					buildCmd += (" \"" + a + "\"");
-				}
-				auto status = std::system(buildCmd.c_str());
-				if (status != 0) {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
-				} else if (fs::exists(libPath)) {
-					reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
-						{"message", "compiled"},
-						{"progress", 90}
-					});
-					loadLibrary(libPath.string(), id, params["config"]);
-				} else {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.string());
-				}
+				std::vector<std::string> args = {
+					sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
+				};
+				//start compile
+				compileProcess = CompileInfo(build_program, args, libPath, id, params["config"]);
+
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
 					continue;
