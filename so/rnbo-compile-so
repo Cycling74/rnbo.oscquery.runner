@@ -19,9 +19,12 @@ raise "cannot find CMakeLists.txt in #{so_build_dir}" unless File.exist?(File.jo
 #compile in a temp directory, then move the shared object to the OUTPUT_DIR
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
-    cmd = "cmake -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{RNBO_SRC_DIR} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}"
-    raise "#{cmd} failed" unless system(cmd)
-    raise "make failed" unless system("make")
+    [
+      "cmake -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{RNBO_SRC_DIR} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}",
+      "cmake --build ."
+    ].each do |cmd|
+      raise "#{cmd} failed" unless system(cmd)
+    end
     FileUtils.mv(Dir['*.{so,dll,dylib}'], OUTPUT_DIR)
   end
 end
