@@ -756,7 +756,6 @@ void Controller::processCommands() {
 			}
 
 			if (cmdStr == "compile_cancel") {
-				cout << "canceling" << std::endl;
 				//should terminate
 				compileProcess.reset();
 				continue;
