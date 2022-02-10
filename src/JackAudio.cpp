@@ -24,6 +24,7 @@ namespace fs = boost::filesystem;
 static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), "RNBO SampleValue must be the same size as jack_default_audio_sample_t");
 
 namespace {
+	const auto card_poll_period = std::chrono::seconds(2);
 
 	boost::optional<std::string> ns("jack");
 
@@ -94,65 +95,27 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 			conf->set(ossia::net::description_attribute{}, "Jack configuration parameters");
 
 #ifndef __APPLE__
-			//read info about alsa cards if it exists
-			fs::path alsa_cards("/proc/asound/cards");
-			std::vector<std::string> names;
-			if (fs::exists(alsa_cards)) {
-				std::ifstream i(alsa_cards.string());
+			mCardListNode = mInfoNode->create_child("alsa_cards");
+			mCardNode = conf->create_child("card");
 
-				//get all the lines, use semi instead of new line because regex doesn't support newline
-				std::string value;
-				std::string line;
-				while (std::getline(i, line)) {
-					value += (line + ";");
-				}
-				value += ";";
+			auto card = mCardNode->create_parameter(ossia::val_type::STRING);
+			mCardNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+			mCardNode->set(ossia::net::description_attribute{}, "ALSA device name");
 
-				auto cards = mInfoNode->create_child("alsa_cards");
-				std::smatch m;
-				while (std::regex_search(value, m, alsa_card_regex)) {
+			updateCards();
+			mCardsUpdated.store(false);
+			updateCardNodes();
 
-					//description
-					auto v = m[3].str() + "\n" + m[4].str();
-					auto name = std::string("hw:") + m[2].str();
-					auto index = std::string("hw:") + m[1].str();
-					value = m.suffix().str();
-
-					//Headphones doesn't work
-					if (name == "hw:Headphones") {
-						continue;
-					}
-
-					//hw:NAME
-					{
-						mCardNames.push_back(name);
-						names.push_back(name);
-						auto n = cards->create_child(name);
-						auto c = n->create_parameter(ossia::val_type::STRING);
-						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-						c->push_value(v);
-					}
-
-					//hw:Index
-					{
-						mCardNames.push_back(index);
-						auto n = cards->create_child(index);
-						auto c = n->create_parameter(ossia::val_type::STRING);
-						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-						c->push_value(v);
-					}
-
-				}
-			}
-
-			//set card name to first found non Headphones, it is our best guess
-			if (mCardName.empty() && names.size()) {
-				mCardName = names.front();
+			if (!mCardName.empty()) {
+				card->push_value(mCardName);
+			} else if (mCardNamesAndDescriptions.size()) {
+				//set card name to first found non Headphones, it is our best guess
+				mCardName = mCardNamesAndDescriptions.begin()->first;
 				//don't pick dummy by default if we can
-				if (names.size() > 1) {
-					for (auto n: names) {
-						if (n != "hw:Dummy") {
-							mCardName = n;
+				if (mCardNamesAndDescriptions.size() > 1) {
+					for (auto& kv: mCardNamesAndDescriptions) {
+						if (kv.first != "hw:Dummy") {
+							mCardName = kv.first;
 							break;
 						}
 					}
@@ -160,35 +123,19 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				jconfig_set(mCardName, "card_name");
 			}
 
-			{
-				auto n = conf->create_child("card");
-				auto card = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-				n->set(ossia::net::description_attribute{}, "ALSA device name");
-
-				if (mCardNames.size() != 0) {
-					std::vector<ossia::value> accepted;
-					for (auto name: mCardNames) {
-						accepted.push_back(name);
-					}
-
-					auto dom = ossia::init_domain(ossia::val_type::STRING);
-					ossia::set_values(dom, accepted);
-					n->set(ossia::net::domain_attribute{}, dom);
-					n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
-
-					if (!mCardName.empty()) {
-						card->push_value(mCardName);
-					}
+			//start callback and threading
+			card->add_callback([this](const ossia::value& val) {
+				if (val.get_type() == ossia::val_type::STRING) {
+					mCardName = val.get<std::string>();
+					jconfig_set(mCardName, "card_name");
 				}
-
-				card->add_callback([this](const ossia::value& val) {
-					if (val.get_type() == ossia::val_type::STRING) {
-						mCardName = val.get<std::string>();
-						jconfig_set(mCardName, "card_name");
+			});
+			mCardThread = std::thread([this]() {
+					while (mPollCards.load()) {
+						updateCards();
+						std::this_thread::sleep_for(card_poll_period);
 					}
-				});
-			}
+			});
 
 			{
 				auto n = conf->create_child("num_periods");
@@ -259,6 +206,10 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 }
 
 ProcessAudioJack::~ProcessAudioJack() {
+	mPollCards.store(false);
+	if (mCardThread.joinable()) {
+		mCardThread.join();
+	}
 	setActive(false);
 }
 
@@ -301,6 +252,11 @@ bool ProcessAudioJack::setActive(bool active) {
 
 void ProcessAudioJack::processEvents() {
 	if (auto _lock = std::unique_lock<std::mutex> (mMutex, std::try_to_lock)) {
+		//handle cards changing
+		if (mCardsUpdated.exchange(false)) {
+			updateCardNodes();
+		}
+
 		if (!mTransportBPMParam || !mJackClient) {
 			return;
 		}
@@ -329,6 +285,64 @@ void ProcessAudioJack::processEvents() {
 			}
 		}
 	}
+}
+
+void ProcessAudioJack::updateCards() {
+	fs::path alsa_cards("/proc/asound/cards");
+	if (!fs::exists(alsa_cards)) {
+		return;
+	}
+
+	std::map<std::string, std::string> nameDesc;
+	std::ifstream i(alsa_cards.string());
+
+	//get all the lines, use semi instead of new line because regex doesn't support newline
+	std::string value;
+	std::string line;
+	while (std::getline(i, line)) {
+		value += (line + ";");
+	}
+	value += ";";
+	std::smatch m;
+	while (std::regex_search(value, m, alsa_card_regex)) {
+		auto desc = m[3].str() + "\n" + m[4].str();
+		auto name = std::string("hw:") + m[2].str();
+		auto index = std::string("hw:") + m[1].str();
+		value = m.suffix().str();
+		nameDesc.insert({name, desc});
+		nameDesc.insert({index, desc});
+	}
+
+	{
+		std::lock_guard<std::mutex> guard(mCardMutex);
+		if (nameDesc != mCardNamesAndDescriptions) {
+			mCardNamesAndDescriptions.swap(nameDesc);
+			mCardsUpdated.store(true);
+		}
+	}
+}
+
+void ProcessAudioJack::updateCardNodes() {
+	if (!mCardNode || !mCardListNode) {
+		return;
+	}
+
+	std::lock_guard<std::mutex> guard(mCardMutex);
+	std::vector<ossia::value> accepted;
+	mCardNode->clear_children();
+	for (auto& kv: mCardNamesAndDescriptions) {
+		accepted.push_back(kv.first);
+		auto n = mCardNode->create_child(kv.first);
+		auto c = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		c->push_value(kv.second);
+	}
+
+	//update card enum
+	auto dom = ossia::init_domain(ossia::val_type::STRING);
+	ossia::set_values(dom, accepted);
+	mCardNode->set(ossia::net::domain_attribute{}, dom);
+	mCardNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 }
 
 bool ProcessAudioJack::createClient(bool startServer) {
