@@ -43,6 +43,7 @@ class Controller {
 		bool processEvents();
 	private:
 		bool tryActivateAudio();
+		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&);
 		void processCommands();
 		void reportCommandResult(std::string id, RNBO::Json res);

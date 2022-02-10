@@ -377,6 +377,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			if (cmdId.size()) {
 				reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
 			}
+			reportActive();
 			return false;
 		}
 		//make sure that no other instances can be created while this is active
@@ -413,6 +414,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		}
 		if (saveConfig)
 			queueSave();
+		reportActive();
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "failed to load library: " << fname << " exception: " << e.what() << std::endl;
@@ -480,6 +482,7 @@ bool Controller::loadBuiltIn() {
 	mSave = false;
 	try {
 		if (!tryActivateAudio()) {
+			reportActive();
 			cerr << "audio is not active, cannot create builtin instance" << endl;
 			return false;
 		}
@@ -507,6 +510,7 @@ bool Controller::loadBuiltIn() {
 				mInstances.emplace_back(std::make_pair(instance, fs::path()));
 			}
 		}
+		reportActive();
 		return true;
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load built in" << endl;
@@ -605,16 +609,24 @@ void Controller::handleActive(bool active) {
 	if (mProcessAudio->setActive(active) != active) {
 		cerr << "couldn't set active" << endl;
 		//XXX defer to setting not active
-	} else if (!wasActive) {
-		//load last if we're activating from inactive
-		mCommandQueue.push("load_last");
+	} else if (!wasActive && mProcessAudio->isActive()) {
+		//if the process audio became active and there are no instances loaded, try to load_last
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		if (!mInstances.size()) {
+			//load last if we're activating from inactive
+			mCommandQueue.push("load_last");
+		}
 	}
 }
 
 bool Controller::tryActivateAudio() {
 	if (!mProcessAudio->isActive())
-		mAudioActive->push_value(mProcessAudio->setActive(true));
+		mProcessAudio->setActive(true);
 	return mProcessAudio->isActive();
+}
+
+void Controller::reportActive() {
+	mAudioActive->set_value(mProcessAudio->isActive());
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
@@ -745,6 +757,7 @@ void Controller::processCommands() {
 			if (!cmd)
 				continue;
 			std::string cmdStr = cmd.get();
+
 
 			//internal commands
 			if (cmdStr == "load_last") {
