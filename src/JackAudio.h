@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <atomic>
+#include <thread>
 
 #include <ossia-cpp/ossia-cpp98.hpp>
 
@@ -36,6 +37,9 @@ class ProcessAudioJack : public ProcessAudio {
 	protected:
 		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
+		void updateCards();
+		void updateCardNodes();
+
 		bool createClient(bool startServer);
 		bool createServer();
 		jack_client_t * mJackClient = nullptr;
@@ -53,21 +57,28 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mTransportRollingParam = nullptr;
 		bool mTransportRollingLast = false;
 
-
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
-		std::vector<std::string> mCardNames;
 
 		double mSampleRate = 44100;
 		ossia::net::parameter_base * mSampleRateParam = nullptr;
 		int mPeriodFrames = 256;
 		ossia::net::parameter_base * mPeriodFramesParam = nullptr;
 
-#ifndef __APPLE__
+		//only used on systems with alsa
 		int mNumPeriods = 2;
 		ossia::net::parameter_base * mNumPeriodsParam;
 		std::string mCardName;
-#endif
+
+		std::thread mCardThread;
+		std::mutex mCardMutex;
+		std::atomic_bool mPollCards = true;
+		std::atomic_bool mCardsUpdated = false;
+
+		ossia::net::node_base * mCardNode = nullptr;
+		ossia::net::node_base * mCardListNode = nullptr;
+		//name -> Description
+		std::map<std::string, std::string> mCardNamesAndDescriptions;
 };
 
 //Processing and handling for a specific rnbo instance.
