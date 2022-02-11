@@ -10,10 +10,10 @@ class EventHandler : public RNBO::EventHandler {
 		EventHandler(ParameterEventCallback paramCallback, MessageEventEventCallback msgCallback, MidiEventEventCallback midiCallback = nullptr);
 
 		virtual void eventsAvailable() override;
-		virtual void handlePresetEvent(RNBO::PresetEvent event) override;
-		virtual void handleParameterEvent(RNBO::ParameterEvent event) override;
-		virtual void handleMessageEvent(RNBO::MessageEvent event) override;
-		virtual void handleMidiEvent(RNBO::MidiEvent event) override;
+		virtual void handlePresetEvent(const RNBO::PresetEvent& event) override;
+		virtual void handleParameterEvent(const RNBO::ParameterEvent& event) override;
+		virtual void handleMessageEvent(const RNBO::MessageEvent& event) override;
+		virtual void handleMidiEvent(const RNBO::MidiEvent& event) override;
 
 		//evaluate any queued events, in the current thread
 		void processEvents();
