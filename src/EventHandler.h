@@ -3,7 +3,7 @@
 
 class EventHandler : public RNBO::EventHandler {
 	public:
-		typedef std::function<void(const RNBO::ParameterIndex, const RNBO::ParameterValue)> ParameterEventCallback;
+		typedef std::function<void(const RNBO::Index, const RNBO::ParameterValue)> ParameterEventCallback;
 		typedef std::function<void(RNBO::MessageEvent)> MessageEventEventCallback;
 		typedef std::function<void(RNBO::MidiEvent)> MidiEventEventCallback;
 		typedef std::function<void(RNBO::TransportEvent)> TransportEventCallback;

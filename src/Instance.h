@@ -86,7 +86,7 @@ class Instance {
 		void handleOutportMessage(RNBO::MessageEvent e);
 		void handleMidiCallback(RNBO::MidiEvent e);
 
-		void handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value);
+		void handleParamUpdate(RNBO::Index index, RNBO::ParameterValue value);
 
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
@@ -94,7 +94,7 @@ class Instance {
 		std::shared_ptr<RNBO::CoreObject> mCore;
 
 		//parameter index -> (node and optional int -> string for enum lookups)
-		std::map<RNBO::ParameterIndex, std::pair<ossia::net::parameter_base*, boost::optional<std::unordered_map<int, std::string>>>> mIndexToParam;
+		std::map<RNBO::Index, std::pair<ossia::net::parameter_base*, boost::optional<std::unordered_map<int, std::string>>>> mIndexToParam;
 
 		ossia::net::parameter_base* mActiveParam;
 		ossia::net::parameter_base* mMIDIOutParam;

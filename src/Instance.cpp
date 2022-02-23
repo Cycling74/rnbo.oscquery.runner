@@ -14,7 +14,7 @@
 #include "JackAudio.h"
 #include "PatcherFactory.h"
 
-using RNBO::ParameterIndex;
+using RNBO::Index;
 using RNBO::ParameterInfo;
 using RNBO::ParameterType;
 using RNBO::ParameterValue;
@@ -158,7 +158,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		//setup parameters
 		auto params = root->create_child("params");
 		params->set(ossia::net::description_attribute{}, "Parameter get/set");
-		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
+		for (RNBO::Index index = 0; index < mCore->getNumParameters(); index++) {
 			ParameterInfo info;
 			mCore->getParameterInfo(index, &info);
 			//only supporting numbers right now
@@ -896,7 +896,7 @@ void Instance::handleMidiCallback(RNBO::MidiEvent e) {
 }
 
 //from RNBO
-void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value) {
+void Instance::handleParamUpdate(RNBO::Index index, RNBO::ParameterValue value) {
 	//RNBO is telling us we have a parameter update, tell ossia
 	auto it = mIndexToParam.find(index);
 	if (it != mIndexToParam.end()) {
