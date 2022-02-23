@@ -254,7 +254,9 @@ void ProcessAudioJack::processEvents() {
 	if (auto _lock = std::unique_lock<std::mutex> (mMutex, std::try_to_lock)) {
 		//handle cards changing
 		if (mCardsUpdated.exchange(false)) {
-			updateCardNodes();
+			mBuilder([this](ossia::net::node_base *) {
+				updateCardNodes();
+			});
 		}
 
 		if (!mTransportBPMParam || !mJackClient) {
@@ -329,10 +331,10 @@ void ProcessAudioJack::updateCardNodes() {
 
 	std::lock_guard<std::mutex> guard(mCardMutex);
 	std::vector<ossia::value> accepted;
-	mCardNode->clear_children();
+	mCardListNode->clear_children();
 	for (auto& kv: mCardNamesAndDescriptions) {
 		accepted.push_back(kv.first);
-		auto n = mCardNode->create_child(kv.first);
+		auto n = mCardListNode->create_child(kv.first);
 		auto c = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		c->push_value(kv.second);
