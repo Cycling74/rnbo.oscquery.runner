@@ -763,14 +763,7 @@ void Controller::processCommands() {
 			if (cmdStr == "load_last") {
 				//terminate existing compile
 				compileProcess.reset();
-
 				loadLast();
-				continue;
-			}
-
-			if (cmdStr == "compile_cancel") {
-				//should terminate
-				compileProcess.reset();
 				continue;
 			}
 
@@ -782,7 +775,16 @@ void Controller::processCommands() {
 			std::string id = cmdObj["id"];
 			std::string method = cmdObj["method"];
 			RNBO::Json params = cmdObj["params"];
-			if (method == "compile") {
+			if (method == "compile_cancel") {
+				//should terminate
+				compileProcess.reset();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(CompileLoadStatus::Cancelled)},
+					{"message", "cancelled"},
+					{"progress", 100}
+				});
+				continue;
+			} else if (method == "compile") {
 				//terminate existing
 				compileProcess.reset();
 

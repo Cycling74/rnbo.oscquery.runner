@@ -22,6 +22,7 @@ enum class CompileLoadStatus : unsigned int {
 	Received = 0,
 	Compiled = 1,
 	Loaded = 2,
+	Cancelled = 3
 };
 
 enum class CompileLoadError : unsigned int {
