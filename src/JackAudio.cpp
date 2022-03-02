@@ -250,13 +250,12 @@ bool ProcessAudioJack::setActive(bool active) {
 	}
 }
 
+//Controller is holding onto build mutex, so feel free to build and don't lock it
 void ProcessAudioJack::processEvents() {
 	if (auto _lock = std::unique_lock<std::mutex> (mMutex, std::try_to_lock)) {
 		//handle cards changing
 		if (mCardsUpdated.exchange(false)) {
-			mBuilder([this](ossia::net::node_base *) {
-				updateCardNodes();
-			});
+			updateCardNodes();
 		}
 
 		if (!mTransportBPMParam || !mJackClient) {
