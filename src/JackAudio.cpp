@@ -13,6 +13,7 @@
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 
+#include <atomic>
 #include <fstream>
 #include <iostream>
 #include <regex>
@@ -48,8 +49,11 @@ namespace {
 
 	template boost::optional<int> jconfig_get(const std::string& key);
 	template boost::optional<double> jconfig_get(const std::string& key);
+	template boost::optional<bool> jconfig_get(const std::string& key);
 
 	const static std::regex alsa_card_regex(R"X(\s*(\d+)\s*\[([^\[]+?)\s*\]:\s*([^;]+?)\s*;\s*([^;]+?)\s*;)X");
+
+	std::atomic<bool> sync_transport = true;
 
 	const std::string bpm_property_key("http://www.x37v.info/jack/metadata/bpm");
 	const char * bpm_property_type = "https://www.w3.org/2001/XMLSchema#decimal";
@@ -419,6 +423,24 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 
 					{
+						const std::string key("sync_transport");
+						//get from config
+						bool sync = jconfig_get<bool>(key).get_value_or(true);
+
+						auto n = transport->create_child("sync");
+						n->set(ossia::net::description_attribute{}, "should the runner sync to/from jack's transport or not");
+						auto p = n->create_parameter(ossia::val_type::BOOL);
+						p->push_value(sync);
+						p->add_callback([this, key](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::BOOL) {
+								auto v = val.get<bool>();
+								sync_transport.store(v);
+								jconfig_set(v, key);
+							}
+						});
+					}
+
+					{
 						auto n = transport->create_child("rolling");
 						mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
 						auto state = jack_transport_query(mJackClient, nullptr);
@@ -614,6 +636,9 @@ bool ProcessAudioJack::createServer() {
 
 
 void ProcessAudioJack::handleTransportState(bool running) {
+	if (!sync_transport.load()) {
+		return;
+	}
 	if (running) {
 		jack_transport_start(mJackClient);
 	} else {
@@ -622,6 +647,9 @@ void ProcessAudioJack::handleTransportState(bool running) {
 }
 
 static void reposition(jack_client_t * client, std::function<void(jack_position_t& pos)> func) {
+	if (!sync_transport.load()) {
+		return;
+	}
 	jack_position_t pos;
 	jack_transport_query(client, &pos);
 	if (pos.valid & JackPositionBBT) {
@@ -631,6 +659,9 @@ static void reposition(jack_client_t * client, std::function<void(jack_position_
 }
 
 void ProcessAudioJack::handleTransportTempo(double bpm) {
+	if (!sync_transport.load()) {
+		return;
+	}
 	//XXX should lock? std::lock_guard<std::mutex> guard(mMutex);
 	//we shouldn't actually get this callback if audio isn't active so I don't think so
 	auto bpmClient = mBPMClientUUID.load();
@@ -897,7 +928,7 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 	//TODO sync to jack's time?
 
 	//query the jack transport
-	{
+	if (sync_transport.load()) {
 		jack_position_t jackPos;
 		auto state = jack_transport_query(mJackClient, &jackPos);
 
