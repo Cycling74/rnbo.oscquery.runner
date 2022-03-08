@@ -49,7 +49,7 @@ namespace {
 	};
 }
 
-Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
+Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
 	std::vector<std::string> outportTags;
 	std::unordered_map<std::string, std::string> dataRefMap;
 
@@ -88,9 +88,25 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		[this](RNBO::MidiEvent e) {
 			handleMidiCallback(e);
 		};
+
+	auto transportCallback = [processAudio](RNBO::TransportEvent e) {
+		processAudio->handleTransportState(e.getState());
+	};
+	auto tempoCallback = [processAudio](RNBO::TempoEvent e) {
+		processAudio->handleTransportTempo(e.getTempo());
+	};
+	auto beatTimeCallback = [processAudio](RNBO::BeatTimeEvent e) {
+		processAudio->handleTransportBeatTime(e.getBeatTime());
+	};
+	auto timeSigCallback = [processAudio](RNBO::TimeSignatureEvent e) {
+		processAudio->handleTransportTimeSig(e.getNumerator(), e.getDenominator());
+	};
+
 	mEventHandler = std::unique_ptr<EventHandler>(new EventHandler(
 				std::bind(&Instance::handleParamUpdate, this, std::placeholders::_1, std::placeholders::_2),
-				msgCallback, midiCallback));
+				msgCallback,
+				transportCallback, tempoCallback, beatTimeCallback, timeSigCallback,
+				midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
 

@@ -74,7 +74,7 @@ class Controller {
 		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
 		std::chrono::time_point<std::chrono::system_clock> mDiskSpacePollNext;
 
-		std::unique_ptr<ProcessAudio> mProcessAudio;
+		std::shared_ptr<ProcessAudio> mProcessAudio;
 		ossia::net::parameter_base * mAudioActive;
 		std::mutex mBuildMutex;
 		std::mutex mInstanceMutex;

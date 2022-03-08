@@ -25,9 +25,11 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+class ProcessAudio;
+
 class Instance {
 	public:
-		Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf);
+		Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio);
 		~Instance();
 
 		void start();

@@ -251,7 +251,7 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		f(j);
 	};
 
-	mProcessAudio = std::unique_ptr<ProcessAudio>(new ProcessAudioJack(builder));
+	mProcessAudio = std::make_shared<ProcessAudioJack>(builder);
 
 	{
 		auto n = j->create_child("active");
@@ -395,7 +395,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			f(instNode);
 		};
-		auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf);
+		auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf, mProcessAudio);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			//queue a save whenenever the configuration changes
