@@ -54,7 +54,12 @@ namespace {
 	const std::string bpm_property_key("http://www.x37v.info/jack/metadata/bpm");
 	const char * bpm_property_type = "https://www.w3.org/2001/XMLSchema#decimal";
 
-	static int processJack(jack_nframes_t nframes, void *arg) {
+	static int processJackProcess(jack_nframes_t nframes, void *arg) {
+		reinterpret_cast<ProcessAudioJack *>(arg)->process(nframes);
+		return 0;
+	}
+
+	static int processJackInstance(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
 		return 0;
 	}
@@ -213,6 +218,26 @@ ProcessAudioJack::~ProcessAudioJack() {
 	setActive(false);
 }
 
+void ProcessAudioJack::process(jack_nframes_t nframes) {
+	{
+		//communicate transport state changes
+		auto state = jack_transport_query(mJackClient, nullptr);
+		//we only care about rolling and stopped
+		bool rolling = false;
+		switch (state) {
+			case jack_transport_state_t::JackTransportRolling:
+				rolling = true;
+				//fallthrough
+			case jack_transport_state_t::JackTransportStopped:
+				if (rolling != mTransportRollingUpdate.load())
+					mTransportRollingUpdate.store(rolling);
+				break;
+			default:
+				break;
+		}
+	}
+}
+
 bool ProcessAudioJack::isActive() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	return mJackClient != nullptr;
@@ -284,6 +309,13 @@ void ProcessAudioJack::processEvents() {
 				mTransportBPMLast = bpm;
 				mTransportBPMParam->push_value(bpm);
 			}
+		}
+
+		//report transport start/stop state
+		bool rolling = mTransportRollingUpdate.load();
+		if (rolling != mTransportRollingLast.load()) {
+			mTransportRollingLast.store(rolling);
+			mTransportRollingParam->push_value(rolling);
 		}
 	}
 }
@@ -358,6 +390,8 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		jack_status_t status;
 		mJackClient = jack_client_open("rnbo-info", JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
+			jack_set_process_callback(mJackClient, processJackProcess, this);
+
 			mBuilder([this](ossia::net::node_base * root) {
 				{
 					auto n = mInfoNode->create_child("is_realtime");
@@ -388,14 +422,18 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						auto n = transport->create_child("rolling");
 						mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
 						auto state = jack_transport_query(mJackClient, nullptr);
-						mTransportRollingLast = state != jack_transport_state_t::JackTransportStopped;
-						mTransportRollingParam->push_value(mTransportRollingLast);
+						bool rolling = state != jack_transport_state_t::JackTransportStopped;
+						mTransportRollingLast.store(rolling);
+						mTransportRollingUpdate.store(rolling);
+
+						mTransportRollingParam->push_value(rolling);
 
 						mTransportRollingParam->add_callback([this](const ossia::value& val) {
 							if (val.get_type() == ossia::val_type::BOOL) {
+								bool was = mTransportRollingLast.load();
 								bool rolling = val.get<bool>();
-								if (mTransportRollingLast != rolling) {
-									mTransportRollingLast = rolling;
+								if (was != rolling) {
+									mTransportRollingLast.store(rolling);
 									if (rolling) {
 										jack_transport_start(mJackClient);
 									} else {
@@ -574,6 +612,61 @@ bool ProcessAudioJack::createServer() {
 	return true;
 }
 
+
+void ProcessAudioJack::handleTransportState(bool running) {
+	if (running) {
+		jack_transport_start(mJackClient);
+	} else {
+		jack_transport_stop(mJackClient);
+	}
+}
+
+static void reposition(jack_client_t * client, std::function<void(jack_position_t& pos)> func) {
+	jack_position_t pos;
+	jack_transport_query(client, &pos);
+	if (pos.valid & JackPositionBBT) {
+		func(pos);
+		jack_transport_reposition(client, &pos);
+	}
+}
+
+void ProcessAudioJack::handleTransportTempo(double bpm) {
+	//XXX should lock? std::lock_guard<std::mutex> guard(mMutex);
+	//we shouldn't actually get this callback if audio isn't active so I don't think so
+	auto bpmClient = mBPMClientUUID.load();
+	if (jack_uuid_empty(bpmClient)) {
+		return;
+	}
+
+	std::string bpms = std::to_string(bpm);
+	jack_set_property(mJackClient, bpmClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+}
+
+void ProcessAudioJack::handleTransportBeatTime(double btime) {
+	if (btime < 0)
+		return;
+	reposition(mJackClient, [btime](jack_position_t& pos) {
+			auto quantum = pos.beats_per_bar;
+			if (quantum > 0) {
+				double bar = std::floor(btime / quantum);
+				double beat = std::max(0.0, btime - bar);
+				double ticksPerBeat = pos.ticks_per_beat;
+
+				pos.bar = static_cast<int32_t>(bar) + 1;
+				pos.beat = static_cast<int32_t>(beat) + 1;
+				pos.tick = static_cast<int32_t>(ticksPerBeat * (beat - floor(beat)));
+			}
+	});
+}
+
+void ProcessAudioJack::handleTransportTimeSig(double numerator, double denominator) {
+	reposition(mJackClient, [numerator, denominator](jack_position_t& pos) {
+			pos.beats_per_bar = static_cast<float>(numerator);
+			pos.beat_type = static_cast<float>(denominator);
+	});
+}
+
+
 InstanceAudioJack::InstanceAudioJack(
 		std::shared_ptr<RNBO::CoreObject> core,
 		std::string name,
@@ -585,7 +678,7 @@ InstanceAudioJack::InstanceAudioJack(
 	if (!mJackClient)
 		throw new std::runtime_error("couldn't create jack client");
 
-	jack_set_process_callback(mJackClient, processJack, this);
+	jack_set_process_callback(mJackClient, processJackInstance, this);
 
 	//setup queues, these might come from different threads?
 	mPortQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
@@ -808,8 +901,10 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 		jack_position_t jackPos;
 		auto state = jack_transport_query(mJackClient, &jackPos);
 
-		if (state != mTransportStateLast) {
-			RNBO::TransportEvent event(nowms, state == jack_transport_state_t::JackTransportRolling ? RNBO::TransportState::RUNNING : RNBO::TransportState::STOPPED);
+		//only use JackTransportRolling and JackTransportStopped
+		bool rolling = state == jack_transport_state_t::JackTransportRolling;
+		if (state != mTransportStateLast && (rolling || state == jack_transport_state_t::JackTransportStopped)) {
+			RNBO::TransportEvent event(nowms, rolling ? RNBO::TransportState::RUNNING : RNBO::TransportState::STOPPED);
 			mCore->scheduleEvent(event);
 		}
 		//if bbt is valid, check details

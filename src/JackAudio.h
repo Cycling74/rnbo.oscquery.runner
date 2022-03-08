@@ -32,6 +32,12 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual bool isActive() override;
 		virtual bool setActive(bool active) override;
 		virtual void processEvents() override;
+		void process(jack_nframes_t frames);
+
+		virtual void handleTransportState(bool running) override;
+		virtual void handleTransportTempo(double bpm) override;
+		virtual void handleTransportBeatTime(double btime) override;
+		virtual void handleTransportTimeSig(double numerator, double denominator) override;
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -55,7 +61,8 @@ class ProcessAudioJack : public ProcessAudio {
 		std::atomic<float> mTransportBPMPropLast;
 
 		ossia::net::parameter_base * mTransportRollingParam = nullptr;
-		bool mTransportRollingLast = false;
+		std::atomic<bool> mTransportRollingLast = false;
+		std::atomic<bool> mTransportRollingUpdate = false; //from the process callback
 
 		NodeBuilder mBuilder;
 		std::mutex mMutex;
