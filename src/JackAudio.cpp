@@ -426,6 +426,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						const std::string key("sync_transport");
 						//get from config
 						bool sync = jconfig_get<bool>(key).get_value_or(true);
+						sync_transport.store(sync);
 
 						auto n = transport->create_child("sync");
 						n->set(ossia::net::description_attribute{}, "should the runner sync to/from jack's transport or not");
