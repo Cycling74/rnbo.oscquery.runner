@@ -675,18 +675,24 @@ void ProcessAudioJack::handleTransportTempo(double bpm) {
 }
 
 void ProcessAudioJack::handleTransportBeatTime(double btime) {
-	if (btime < 0)
+	if (btime < 0.0)
 		return;
 	reposition(mJackClient, [btime](jack_position_t& pos) {
-			auto quantum = pos.beats_per_bar;
-			if (quantum > 0) {
-				double bar = std::floor(btime / quantum);
-				double beat = std::fmod(btime, quantum);
-				double ticksPerBeat = pos.ticks_per_beat;
+			//beat time is always in quater notes
+			double numerator = pos.beats_per_bar;
+			double denominator = pos.beat_type;
+			if (denominator > 0.0) {
+				double mul = denominator / 4.0;
+				double bt = btime * mul;
+
+				double bar = std::trunc(bt / numerator);
+				double rem = bt - bar * numerator;
+				double beat = std::trunc(rem);
+				double tick = (rem - beat) * static_cast<double>(pos.ticks_per_beat);
 
 				pos.bar = static_cast<int32_t>(bar) + 1;
 				pos.beat = static_cast<int32_t>(beat) + 1;
-				pos.tick = static_cast<int32_t>(ticksPerBeat * (beat - floor(beat)));
+				pos.tick = static_cast<int32_t>(std::trunc(tick));
 			}
 	});
 }
