@@ -681,7 +681,7 @@ void ProcessAudioJack::handleTransportBeatTime(double btime) {
 			auto quantum = pos.beats_per_bar;
 			if (quantum > 0) {
 				double bar = std::floor(btime / quantum);
-				double beat = std::max(0.0, btime - bar);
+				double beat = std::fmod(btime, quantum);
 				double ticksPerBeat = pos.ticks_per_beat;
 
 				pos.bar = static_cast<int32_t>(bar) + 1;
