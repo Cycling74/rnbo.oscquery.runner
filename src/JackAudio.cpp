@@ -21,9 +21,6 @@
 
 namespace fs = boost::filesystem;
 
-//we want the sample value to be the same size
-static_assert(sizeof(RNBO::SampleValue) == sizeof(jack_default_audio_sample_t), "RNBO SampleValue must be the same size as jack_default_audio_sample_t");
-
 namespace {
 	const auto card_poll_period = std::chrono::seconds(2);
 
@@ -1003,8 +1000,8 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 
 	//RNBO process
 	mCore->process(
-			static_cast<RNBO::SampleValue **>(mSampleBufferPtrIn.size() == 0 ? nullptr : &mSampleBufferPtrIn.front()), mSampleBufferPtrIn.size(),
-			static_cast<RNBO::SampleValue **>(mSampleBufferPtrOut.size() == 0 ? nullptr : &mSampleBufferPtrOut.front()), mSampleBufferPtrOut.size(),
+			static_cast<jack_default_audio_sample_t **>(mSampleBufferPtrIn.size() == 0 ? nullptr : &mSampleBufferPtrIn.front()), mSampleBufferPtrIn.size(),
+			static_cast<jack_default_audio_sample_t **>(mSampleBufferPtrOut.size() == 0 ? nullptr : &mSampleBufferPtrOut.front()), mSampleBufferPtrOut.size(),
 			nframes, &mMIDIInList, &mMIDIOutList);
 
 	//process midi out

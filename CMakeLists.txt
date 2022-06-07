@@ -47,8 +47,6 @@ set(PROJECT_SRC
 	${RNBO_DIR}/RNBO.cpp
 )
 
-add_definitions(-DRNBO_USE_FLOAT32)
-
 if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
