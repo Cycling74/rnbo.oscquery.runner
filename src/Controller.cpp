@@ -503,7 +503,7 @@ bool Controller::loadBuiltIn() {
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				f(instNode);
 			};
-			auto instance = new Instance(factory, "rnbo" + instIndex, builder, {});
+			auto instance = new Instance(factory, "rnbo" + instIndex, builder, {}, mProcessAudio);
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				instance->start();
