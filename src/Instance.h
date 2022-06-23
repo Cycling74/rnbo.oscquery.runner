@@ -101,6 +101,9 @@ class Instance {
 
 		//queue for loading or unloading data refs
 		Queue<DataRefCommand> mDataRefCommandQueue;
+		//queue for moving dataref deallocs out of audio thread
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>> mDataRefCleanupQueue;
+
 		//only accessed in the data ref thread
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;
 		std::thread mDataRefThread;

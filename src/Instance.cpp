@@ -111,6 +111,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, name, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
 
 	mPresetSavedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
+	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 
 	//parse out presets
 	auto presets = conf["presets"];
@@ -533,6 +534,10 @@ void Instance::processDataRefCommands() {
 void Instance::processEvents() {
 	mEventHandler->processEvents();
 	mAudio->processEvents();
+	//clear
+	while (mDataRefCleanupQueue->pop()) {
+		//clear out/dealloc
+	}
 
 	//see if we should signal a change
 	auto changed = false;
@@ -787,8 +792,9 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 
 		//set the dataref data
 		RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-		mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data](RNBO::ExternalDataId, char*) mutable {
-				//hold onto data shared_ptr until rnbo stops using it
+		mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data, this](RNBO::ExternalDataId, char*) mutable {
+				//hold onto data shared_ptr until rnbo stops using it, move it to cleanup
+				mDataRefCleanupQueue->try_enqueue(data);
 				data.reset();
 				});
 		//std::cout << "loading: " << fileName << " into: " << id << std::endl;
