@@ -5,6 +5,7 @@
 #include <sndfile.hh>
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <boost/filesystem.hpp>
+#include <boost/optional.hpp>
 
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
@@ -47,6 +48,72 @@ namespace {
 		{"16", 16},
 		{"none", 17} //17 will never be valid
 	};
+
+	//recursively get values, if we can
+	boost::optional<ossia::value> get_value(const RNBO::Json& meta) {
+		boost::optional<ossia::value> value = boost::none;
+		if (meta.is_boolean()){
+			value = ossia::value(meta.get<bool>());
+		} else if (meta.is_number()) {
+			value = ossia::value(meta.get<double>());
+		} else if (meta.is_string()) {
+			value = ossia::value(meta.get<std::string>());
+		} else if (meta.is_null()) {
+			value = ossia::value(ossia::impulse());
+		} else if (meta.is_array()) {
+			//if all children are simple values, we can append
+			std::vector<ossia::value> values;
+			for (auto i: meta) {
+				auto v = get_value(i);
+				if (v) {
+					values.push_back(*v);
+				} else {
+					return boost::none;
+				}
+			}
+			value = ossia::value(values);
+		} //else, object, not a simple value
+		return value;
+	}
+
+	void recurse_add_meta(const RNBO::Json& meta, ossia::net::node_base * parent) {
+		if (meta.is_array()) {
+			//if we can get an ossia::value from the array, we can just create a LIST param
+			auto value = get_value(meta);
+			if (value) {
+				auto p = parent->create_parameter(ossia::val_type::LIST);
+				p->push_value(*value);
+			} else {
+				int index = 0;
+				for (auto i: meta) {
+					auto c = parent->create_child(std::to_string(index++));
+					recurse_add_meta(i, c);
+					c->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				}
+			}
+		} else if (meta.is_object()) {
+			for (auto it = meta.begin(); it != meta.end(); ++it) {
+				auto c = parent->create_child(it.key());
+				recurse_add_meta(it.value(), c);
+				c->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			}
+		} else if (meta.is_boolean()) {
+			auto p = parent->create_parameter(ossia::val_type::BOOL);
+			p->push_value(meta.get<bool>());
+		} else if (meta.is_string()) {
+			auto p = parent->create_parameter(ossia::val_type::STRING);
+			p->push_value(meta.get<std::string>());
+		} else if (meta.is_number()) {
+			auto p = parent->create_parameter(ossia::val_type::FLOAT);
+			p->push_value(meta.get<double>());
+		} else if (meta.is_null()) {
+			auto p = parent->create_parameter(ossia::val_type::IMPULSE);
+			p->push_value(ossia::impulse());
+		} else {
+			//assert?
+			return;
+		}
+	}
 }
 
 Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
@@ -155,11 +222,37 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 	}
 
-	builder([this, outportTags, &dataRefMap](ossia::net::node_base * root) {
+	builder([this, outportTags, &dataRefMap, conf](ossia::net::node_base * root) {
+
 		//setup parameters
 		auto params = root->create_child("params");
+		if (conf.contains("parameters")) {
+			mParamConfig = conf["parameters"];
+		} else {
+			mParamConfig.clear();
+		}
 		params->set(ossia::net::description_attribute{}, "Parameter get/set");
 		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
+
+			auto add_meta = [index, this](ossia::net::node_base& param) {
+				if (!mParamConfig.is_array()) {
+					return;
+				}
+				//find the parameter
+				for (auto p: mParamConfig) {
+					if (p.contains("index") && p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
+						if (p.contains("meta")) {
+							auto meta = p["meta"];
+							auto m = param.create_child("meta");
+							auto p = m->create_parameter(ossia::val_type::STRING);
+							p->push_value(meta.dump());
+							m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+							recurse_add_meta(meta, m);
+						}
+					}
+				}
+			};
+
 			ParameterInfo info;
 			mCore->getParameterInfo(index, &info);
 			//only supporting numbers right now
@@ -206,7 +299,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				n.set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
 				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 				p->push_value(info.initialValue);
-
+				add_meta(n);
 
 				//normalized
 				auto norm = cnorm(n);
@@ -248,6 +341,7 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				n.set(ossia::net::domain_attribute{}, dom);
 				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 				p->push_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
+				add_meta(n);
 
 				//normalized
 				auto norm = cnorm(n);
@@ -653,6 +747,7 @@ RNBO::Json Instance::currentConfig() {
 	for (auto& kv: mOutportParams)
 		ports.push_back(kv.first);
 	config["outports"] = ports;
+	config["parameters"] = mParamConfig;
 
 	RNBO::Json presets = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();

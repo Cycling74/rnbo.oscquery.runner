@@ -51,6 +51,8 @@ class Instance {
 		//this will be called in the same thread as `processEvents`
 		void registerConfigChangeCallback(std::function<void()> cb);
 	private:
+		//stored parameter meta
+		RNBO::Json mParamConfig;
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::mutex mConfigChangedMutex;
 		bool mConfigChanged = false;
