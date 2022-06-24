@@ -8,20 +8,27 @@ FILE_PATH = File.expand_path(ARGV[0])
 LIB_NAME = ARGV[1]
 RNBO_SRC_DIR = File.expand_path(ARGV[2])
 OUTPUT_DIR = File.expand_path(ARGV[3])
+CMAKE = ARGV[4] || "cmake"
 
 #validate
 raise "#{RNBO_SRC_DIR} is not a valid directory" unless Dir.exist?(RNBO_SRC_DIR)
 raise "#{OUTPUT_DIR} is not a valid directory" unless Dir.exist?(OUTPUT_DIR)
 
-so_build_dir = File.join(File.expand_path(__dir__), "../share/rnbo/so/")
-raise "cannot find CMakeLists.txt in #{so_build_dir}" unless File.exist?(File.join(so_build_dir, "CMakeLists.txt"))
+so_build_dir = nil
+[File.join(File.expand_path(__dir__), "../share/rnbo/so/"), File.join(File.expand_path(__dir__), "/")].each do |p|
+	if File.exist?(File.join(p, "CMakeLists.txt"))
+		so_build_dir = p
+		break
+	end
+end
+raise "cannot find CMakeLists.txt" unless so_build_dir
 
 #compile in a temp directory, then move the shared object to the OUTPUT_DIR
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
     [
-      "cmake -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{RNBO_SRC_DIR} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}",
-      "cmake --build ."
+      "#{CMAKE} -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{RNBO_SRC_DIR} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}",
+      "#{CMAKE} --build ."
     ].each do |cmd|
       raise "#{cmd} failed" unless system(cmd)
     end

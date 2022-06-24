@@ -845,6 +845,10 @@ void Controller::processCommands() {
 				std::vector<std::string> args = {
 					sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
 				};
+				auto cmake = config::get<fs::path>(config::key::CMakePath);
+				if (cmake) {
+					args.push_back(cmake.get().string());
+				}
 				//start compile
 				compileProcess = CompileInfo(build_program, args, libPath, id, params["config"]);
 

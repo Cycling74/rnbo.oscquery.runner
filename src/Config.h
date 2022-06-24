@@ -9,6 +9,8 @@ namespace config {
 		const static std::string SOBuildExe = "so_build_exe"; //optional path to the executable used for building shared objects.
 		const static std::string RnboCPPDir = "rnbo_cpp_dir"; //the directory that contains the RNBO c++ source files
 
+		const static std::string CMakePath = "cmake_path"; //path to cmake executable, useful if if it isn't in $PATH
+
 		//user preference config values
 		const static std::string SourceCacheDir = "source_cache_dir"; //where do we generated source we get
 		const static std::string CompileCacheDir = "compile_cache_dir"; //where do we store compiled shared objects

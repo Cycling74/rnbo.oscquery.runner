@@ -158,7 +158,11 @@ namespace config {
 		boost::optional<std::string> p = get<std::string>(k, ns);
 		if (!p && !ns) {
 			if (k == key::RnboCPPDir) {
-				return base_dir / "src" / "rnbo";
+				//Xcode layout is slightly different so support both commandline and xcode
+				for (boost::filesystem::path rp : {base_dir / "src" / "rnbo", base_dir / ".." / "src" / "rnbo"}) {
+					if (fs::exists(rp))
+						return rp;
+				}
 			}
 			if (k == key::SOBuildExe) {
 				return base_dir / "bin" / "rnbo-compile-so";
