@@ -93,7 +93,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan_699427d36efb189c9d86cfb6105f63e1255d4e65@xnor/testing
+	REQUIRES libossia/xnor_conan-multiplex-thread-safe_b2c9019afdefeee0ed@xnor/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
