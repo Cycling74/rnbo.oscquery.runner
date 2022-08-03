@@ -125,7 +125,7 @@ Do all the normal use stuff then:
 * build and install the runner (on pi)
   ```shell
   ssh pi@c74rpi.local
-  cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && cmake .. && make && cpack
+  cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && CXXFLAGS="-mcpu=cortex-a53" cmake .. && make && cpack
   sudo dpkg -i *.deb
   ```
   * you could also do a standard make install, but then you'll need to setup the service file yourself.
