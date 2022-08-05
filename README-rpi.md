@@ -116,6 +116,13 @@ Do all the normal use stuff then:
 
 **NOTE** at this point you can save the SD image for future *fresh* images.
 
+changes for bullseye
+
+from apt-get
+  * cmake
+  * libsdbus-c++-dev
+
+
 ### Copy and Build runner
 
 * copy runner to the pi (from your host PC):
