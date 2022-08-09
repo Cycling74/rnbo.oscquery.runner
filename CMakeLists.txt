@@ -197,13 +197,17 @@ target_link_libraries(${PROJECT_APP}
 	${SNDFILE_LIB}
 	${SDBUS_LIBS}
 )
-
 if (LINUX)
 	target_link_libraries(${PROJECT_APP}
 		-ldl
 		-latomic
 		-lpthread
 	)
+endif()
+if (WITH_DBUS)
+target_link_libraries(${PROJECT_APP}
+	SDBusCpp::sdbus-c++
+)
 endif()
 
 ### INSTALL
