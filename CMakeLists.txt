@@ -53,10 +53,8 @@ endif()
 
 #dbus on linux
 if (WITH_DBUS)
-
-	find_package(sdbus-c++ 0.8.3 REQUIRED)
 	#handle sdbus for linux, common between this and the update lib
-	#include("${CMAKE_CURRENT_SOURCE_DIR}/common/sdbus.cmake")
+	find_package(sdbus-c++ 0.8.3 REQUIRED)
 	add_definitions(-DRNBO_USE_DBUS)
 	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
 endif()
@@ -199,15 +197,15 @@ target_link_libraries(${PROJECT_APP}
 )
 if (LINUX)
 	target_link_libraries(${PROJECT_APP}
-		-ldl
 		-latomic
 		-lpthread
+		-ldl
 	)
 endif()
 if (WITH_DBUS)
-target_link_libraries(${PROJECT_APP}
-	SDBusCpp::sdbus-c++
-)
+	target_link_libraries(${PROJECT_APP}
+		SDBusCpp::sdbus-c++
+	)
 endif()
 
 ### INSTALL
