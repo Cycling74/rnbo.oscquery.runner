@@ -20,12 +20,14 @@ endif()
 
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/../common/conan.cmake")
-include("${CMAKE_CURRENT_SOURCE_DIR}/../common/sdbus.cmake")
+find_package(sdbus-c++ 0.8.3 REQUIRED)
 
 conan_cmake_configure(
 	REQUIRES boost/1.75.0
 	GENERATORS cmake_find_package
-	OPTIONS boost:shared=False
+	OPTIONS
+		boost:shared=False
+		boost:without_stacktrace=True
 )
 conan_cmake_autodetect(settings)
 conan_cmake_install(
@@ -57,10 +59,11 @@ add_executable(${PROJECT_APP}
 )
 
 target_link_libraries(${PROJECT_APP}
-	${SDBUS_LIBS}
+	PRIVATE
+	SDBusCpp::sdbus-c++
 	${Boost_LIBRARIES}
-	-lpthread
-	-latomic
+	pthread
+	atomic
 )
 
 if (LINUX)
