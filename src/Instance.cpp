@@ -203,8 +203,13 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		auto ports = conf["inports"];
 		if (ports.is_array()) {
 			for (auto i: ports) {
-				if (i.is_string()) {
-					mInportTags.push_back(i);
+				if (i.contains("tag") && p["tag"].is_string())
+				{
+					mInportTags.push_back(i["tag"].get<std::string>());
+					if (p.contains("meta"))
+					{
+						//TODO
+					}
 				} else {
 					std::cerr << "unexpected type for inport tag " << i << std::endl;
 				}
@@ -213,8 +218,13 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		ports = conf["outports"];
 		if (ports.is_array()) {
 			for (auto i: ports) {
-				if (i.is_string()) {
-					outportTags.push_back(i);
+				if (i.contains("tag") && p["tag"].is_string())
+				{
+					outportTags.push_back(i["tag"].get<std::string>());
+					if (p.contains("meta"))
+					{
+						//TODO
+					}
 				} else {
 					std::cerr << "unexpected type for outport tag " << i << std::endl;
 				}
