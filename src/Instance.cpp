@@ -114,10 +114,17 @@ namespace {
 			return;
 		}
 	}
+
+	void add_meta_to_param(RNBO::Json& meta, ossia::net::node_base& param) {
+		auto m = param.create_child("meta");
+		auto p = m->create_parameter(ossia::val_type::STRING);
+		p->push_value(meta.dump());
+		m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		recurse_add_meta(meta, m);
+	}
 }
 
-Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio) : mPatcherFactory(factory), mDataRefProcessCommands(true) {
-	std::vector<std::string> outportTags;
+Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
@@ -198,66 +205,28 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			mPresetInitial = presetInit;
 	}
 
-	//grab inports and outports
-	{
-		auto ports = conf["inports"];
-		if (ports.is_array()) {
-			for (auto i: ports) {
-				if (i.contains("tag") && p["tag"].is_string())
-				{
-					mInportTags.push_back(i["tag"].get<std::string>());
-					if (p.contains("meta"))
-					{
-						//TODO
-					}
-				} else {
-					std::cerr << "unexpected type for inport tag " << i << std::endl;
-				}
-			}
-		}
-		ports = conf["outports"];
-		if (ports.is_array()) {
-			for (auto i: ports) {
-				if (i.contains("tag") && p["tag"].is_string())
-				{
-					outportTags.push_back(i["tag"].get<std::string>());
-					if (p.contains("meta"))
-					{
-						//TODO
-					}
-				} else {
-					std::cerr << "unexpected type for outport tag " << i << std::endl;
-				}
-			}
-		}
-	}
-
-	builder([this, outportTags, &dataRefMap, conf](ossia::net::node_base * root) {
+	builder([this, &dataRefMap, conf](ossia::net::node_base * root) {
 
 		//setup parameters
 		auto params = root->create_child("params");
+		RNBO::Json paramConfig;
 		if (conf.contains("parameters")) {
-			mParamConfig = conf["parameters"];
-		} else {
-			mParamConfig.clear();
+			paramConfig = conf["parameters"];
 		}
+
 		params->set(ossia::net::description_attribute{}, "Parameter get/set");
 		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
 
-			auto add_meta = [index, this](ossia::net::node_base& param) {
-				if (!mParamConfig.is_array()) {
+			auto add_meta = [index, &paramConfig, this](ossia::net::node_base& param) {
+				if (!paramConfig.is_array()) {
 					return;
 				}
 				//find the parameter
-				for (auto p: mParamConfig) {
+				for (auto p: paramConfig) {
 					if (p.contains("index") && p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
 						if (p.contains("meta")) {
 							auto meta = p["meta"];
-							auto m = param.create_child("meta");
-							auto p = m->create_parameter(ossia::val_type::STRING);
-							p->push_value(meta.dump());
-							m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-							recurse_add_meta(meta, m);
+							add_meta_to_param(meta, param);
 						}
 					}
 				}
@@ -522,30 +491,54 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			}
 		}
 
-		if (mInportTags.size() > 0 || outportTags.size() > 0) {
-			auto msgs = root->create_child("messages");
-			if (mInportTags.size()) {
-				auto in = msgs->create_child("in");
-				for (auto i: mInportTags) {
-					auto tag = RNBO::TAG(i.c_str());
+		try {
+			auto outports = conf["outports"];
+			auto inports = conf["inports"];
+			bool hasInports = (inports.is_array() && inports.size() > 0);
+			bool hasOutports = (outports.is_array() && outports.size() > 0);
+			if (hasInports || hasOutports) {
+				auto msgs = root->create_child("messages");
+				if (hasInports) {
+					auto in = msgs->create_child("in");
+					for (auto i: inports) {
+						std::string name = i["tag"];
+						auto tag = RNBO::TAG(name.c_str());
 
-					auto& n = ossia::net::create_node(*in, i);
-					auto p = n.create_parameter(ossia::val_type::LIST);
-					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-					p->add_callback([this, tag](const ossia::value& val) {
-						handleInportMessage(tag, val);
-					});
+						auto& n = ossia::net::create_node(*in, name);
+						auto p = n.create_parameter(ossia::val_type::LIST);
+						n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+						if (i.contains("meta"))
+						{
+							auto meta = i["meta"];
+							add_meta_to_param(meta, n);
+						}
+
+						p->add_callback([this, tag](const ossia::value& val) {
+							handleInportMessage(tag, val);
+						});
+					}
+				}
+				if (hasOutports) {
+					auto o = msgs->create_child("out");
+					for (auto i: outports) {
+						std::string name = i["tag"];
+						auto& n = ossia::net::create_node(*o, name);
+						auto p = n.create_parameter(ossia::val_type::LIST);
+						n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+
+						if (i.contains("meta"))
+						{
+							auto meta = i["meta"];
+							add_meta_to_param(meta, n);
+						}
+
+						mOutportParams[name] = p;
+					}
 				}
 			}
-			if (outportTags.size()) {
-				auto o = msgs->create_child("out");
-				for (auto i: outportTags) {
-					auto& n = ossia::net::create_node(*o, i);
-					auto p = n.create_parameter(ossia::val_type::LIST);
-					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-					mOutportParams[i] = p;
-				}
-			}
+		} catch (const std::exception& e) {
+			std::cerr << "exception processing ports: " << e.what() << std::endl;
 		}
 
 		//setup virtual midi
@@ -744,20 +737,7 @@ RNBO::UniquePresetPtr Instance::getPresetSync() {
 }
 
 RNBO::Json Instance::currentConfig() {
-	RNBO::Json config = RNBO::Json::object();
-
-	//inports
-	RNBO::Json ports = RNBO::Json::array();
-	for (auto& p: mInportTags)
-		ports.push_back(p);
-	config["inports"] = ports;
-
-	//outports
-	ports = RNBO::Json::array();
-	for (auto& kv: mOutportParams)
-		ports.push_back(kv.first);
-	config["outports"] = ports;
-	config["parameters"] = mParamConfig;
+	RNBO::Json config = mConfig;
 
 	RNBO::Json presets = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();

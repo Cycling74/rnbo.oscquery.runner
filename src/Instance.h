@@ -52,7 +52,6 @@ class Instance {
 		void registerConfigChangeCallback(std::function<void()> cb);
 	private:
 		//stored parameter meta
-		RNBO::Json mParamConfig;
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::mutex mConfigChangedMutex;
 		bool mConfigChanged = false;
@@ -133,7 +132,8 @@ class Instance {
 		//callback data from RNBO, a name and a ptr
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;
 
-		//simply the names of imports and outports, for building up OSCQuery and seralization
-		std::vector<std::string> mInportTags;
+		//simply the names of outports, for building up OSCQuery
 		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
+
+		RNBO::Json mConfig;
 };
