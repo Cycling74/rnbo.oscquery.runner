@@ -116,11 +116,13 @@ namespace {
 	}
 
 	void add_meta_to_param(RNBO::Json& meta, ossia::net::node_base& param) {
-		auto m = param.create_child("meta");
-		auto p = m->create_parameter(ossia::val_type::STRING);
-		p->push_value(meta.dump());
-		m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-		recurse_add_meta(meta, m);
+		if (meta.is_object() && meta.size()) {
+			auto m = param.create_child("meta");
+			auto p = m->create_parameter(ossia::val_type::STRING);
+			p->push_value(meta.dump());
+			m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			recurse_add_meta(meta, m);
+		}
 	}
 }
 
