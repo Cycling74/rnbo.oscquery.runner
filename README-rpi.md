@@ -2,7 +2,7 @@
 
 ## Normal use
 
-You can install rnbooscquery on an existing buster image or start from scratch.
+You can install rnbooscquery on an existing bullseye image or start from scratch.
 Feel free to customize your hostname and password, but at this time you should
 keep the user name `pi`.
 
@@ -35,7 +35,7 @@ keep the user name `pi`.
   ```
 
   Setup the initial host, you can customize this with your own hostname and
-  password if you want, or skip it if you've already set up a buster image
+  password if you want, or skip it if you've already set up a bullseye image
   that you just want to run rnbo on. You should keep the user name `pi` though.
   This part is optional.
 
@@ -181,7 +181,7 @@ from apt-get
     ```
 * backup with dd (**BE CAREFUL**):
   ```shell
-  sudo dd if=/dev/disk5 of=2020-12-02-raspios-buster-armhf-setup.dmg bs=1024k
+  sudo dd if=/dev/disk5 of=2020-12-02-raspios-bullseye-armhf-setup.dmg bs=1024k
   ```
   *note* if you're on linux you can add `status=progress` to see the progress
 * shrink, on linux:
@@ -222,20 +222,20 @@ brew install gnupg
 to create a package and upload it, from a mac, in the root of this repo.
 ```shell
 ./build-rpi.sh
-aptly -distribution=buster repo create buster-rpi
-aptly repo add buster-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo -component=, buster-rpi buster-rpi-extra s3:c74:
+aptly -distribution=bullseye repo create bullseye-rpi
+aptly repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly publish repo -component=, bullseye-rpi bullseye-rpi-extra s3:c74:
 ```
 
 to update the repo
 ```shell
-aptly publish update buster s3:c74:
+aptly publish update bullseye s3:c74:
 ```
 
 to overwrite a package
 ```shell
-aptly -force-replace repo add buster-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
-aptly -force-overwrite publish update buster s3:c74:
+aptly -force-replace repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly -force-overwrite publish update bullseye s3:c74:
 ```
 
 ## List installed version of package
