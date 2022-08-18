@@ -227,6 +227,11 @@ aptly repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0
 aptly publish repo -component=, bullseye-rpi bullseye-rpi-extra s3:c74:
 ```
 
+create remote, before pushing new stuff with cli
+```
+aptly publish repo -batch -passphrase-file=/Users/benbracken/.apt-gpg.txt bullseye-rpi s3:c74:
+```
+
 to update the repo
 ```shell
 aptly publish update bullseye s3:c74:
