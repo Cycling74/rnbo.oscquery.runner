@@ -60,7 +60,7 @@ keep the user name `pi`.
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
   ```
 
-  Configure jack for realtime
+  Configure jack for realtime if you didn't when you installed jackd2
   ```shell
   dpkg-reconfigure jackd2
   ```
@@ -223,13 +223,9 @@ to create a package and upload it, from a mac, in the root of this repo.
 ```shell
 ./build-rpi.sh
 aptly -distribution=bullseye repo create bullseye-rpi
+aptly repo create -distribution=bullseye -component=extra bullseye-rpi-extra
 aptly repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo -component=, bullseye-rpi bullseye-rpi-extra s3:c74:
-```
-
-create remote, before pushing new stuff with cli
-```
-aptly publish repo -batch -passphrase-file=/Users/benbracken/.apt-gpg.txt bullseye-rpi s3:c74:
+aptly publish repo -component=, -passphrase-file=/Users/benbracken/.apt-gpg.txt bullseye-rpi bullseye-rpi-extra s3:c74:
 ```
 
 to update the repo
