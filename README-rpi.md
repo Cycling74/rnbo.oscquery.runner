@@ -6,18 +6,17 @@ You can install rnbooscquery on an existing bullseye image or start from scratch
 Feel free to customize your hostname and password, but at this time you should
 keep the user name `pi`.
 
-* [inital setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
-  * I used `Raspberry Pi OS with desktop`.
-  * The important detail is that you need to create a file `/boot/ssh` to enable ssh:
-    * with the SD card mounted on mac: `touch /Volumes/boot/ssh`
-* Boot the Pi, connect via Ethernet to the host machine.
-* send over files that are needed for the repo:  (pw: `raspberry`)
+* Install latest `bullseye 32-bit` OS with [raspberry pi imager](https://www.raspberrypi.com/software/)
+  * use the gear icon to set your hostname, password, and enable SSH
+    * we use `c74rpi` for the host name and `c74rnbo` for the initial password
+  * do not change the user name, it needs to be `pi`
+  * optionally setup wireless lan (wifi)
+* Boot the Pi with the `bullseye` SD card you just created, connect via Ethernet to the host machine.
+* send over files that are needed for the repo:
   ```shell
-  rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@raspberrypi.local:
+  rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@c74rpi.local:
   ```
-* setup pi (pw: `raspberry`)
-  * update host name
-  * update password
+* setup pi (pw: `c74rnbo`)
   * disable screen reader
   * setup our private apt repo
   * uninstall pulse audio
@@ -30,22 +29,9 @@ keep the user name `pi`.
   ssh to do the pi and get into sudo.
 
   ```shell
-  ssh pi@raspberrypi.local
+  ssh pi@c74rpi.local
   sudo -s
   ```
-
-  Setup the initial host, you can customize this with your own hostname and
-  password if you want, or skip it if you've already set up a bullseye image
-  that you just want to run rnbo on. You should keep the user name `pi` though.
-  This part is optional.
-
-  ```shell
-  export NEW_HOST_NAME=c74rpi
-  sed -i 's/127.0.1.1.*/127.0.1.1\t'"$NEW_HOST_NAME"'/g' /etc/hosts
-  hostnamectl set-hostname ${NEW_HOST_NAME}
-  echo "pi:c74rnbo" | chpasswd
-  ```
-
   Remove some stuff that causes problems, add the c74 apt repo, install/setup.
 
   ```shell
@@ -54,10 +40,10 @@ keep the user name `pi`.
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
-  apt -y upgrade
-  apt-get -y autoremove
   apt -y install jackd2 ccache cpufrequtils
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
+  apt -y upgrade
+  apt-get -y autoremove
   ```
 
   Configure jack for realtime if you didn't when you installed jackd2
@@ -75,7 +61,7 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.11.0-xnor-jack2-properties-server.0
+  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.17.0-xnor-rpi-bull.0
   apt-mark hold rnbooscquery
   ```
 
@@ -237,6 +223,12 @@ to overwrite a package
 ```shell
 aptly -force-replace repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
 aptly -force-overwrite publish update bullseye s3:c74:
+```
+
+to remove a package from a repo.. (dry-run)
+
+```shell
+aptly repo remove -dry-run buster-rpi 'Name (% rnbooscquery), Version (% 0.17.0-dev.43)'
 ```
 
 ## List installed version of package
