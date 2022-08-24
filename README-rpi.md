@@ -277,6 +277,7 @@ Boot into an old image, update the packages, install the new version, mark the p
   apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.11.0
   apt-mark hold rnbooscquery
   apt-get -y upgrade && apt-get -y autoremove && apt-get -y clean
+  journalctl --vacuum-time=2d
   rm -r ~pi/.config/rnbo ~pi/Documents/rnbo/ ~pi/.bash_history
   shutdown -P -h now
 ```
