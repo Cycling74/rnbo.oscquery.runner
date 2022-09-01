@@ -494,48 +494,50 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 		}
 
 		try {
-			auto outports = conf["outports"];
-			auto inports = conf["inports"];
-			bool hasInports = (inports.is_array() && inports.size() > 0);
-			bool hasOutports = (outports.is_array() && outports.size() > 0);
-			if (hasInports || hasOutports) {
-				auto msgs = root->create_child("messages");
-				if (hasInports) {
-					auto in = msgs->create_child("in");
-					for (auto i: inports) {
-						std::string name = i["tag"];
-						auto tag = RNBO::TAG(name.c_str());
+			if (conf.contains("outports") && conf.contains("inports")) {
+				auto outports = conf["outports"];
+				auto inports = conf["inports"];
+				bool hasInports = (inports.is_array() && inports.size() > 0);
+				bool hasOutports = (outports.is_array() && outports.size() > 0);
+				if (hasInports || hasOutports) {
+					auto msgs = root->create_child("messages");
+					if (hasInports) {
+						auto in = msgs->create_child("in");
+						for (auto i: inports) {
+							std::string name = i["tag"];
+							auto tag = RNBO::TAG(name.c_str());
 
-						auto& n = ossia::net::create_node(*in, name);
-						auto p = n.create_parameter(ossia::val_type::LIST);
-						n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+							auto& n = ossia::net::create_node(*in, name);
+							auto p = n.create_parameter(ossia::val_type::LIST);
+							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 
-						if (i.contains("meta"))
-						{
-							auto meta = i["meta"];
-							add_meta_to_param(meta, n);
+							if (i.contains("meta"))
+							{
+								auto meta = i["meta"];
+								add_meta_to_param(meta, n);
+							}
+
+							p->add_callback([this, tag](const ossia::value& val) {
+								handleInportMessage(tag, val);
+							});
 						}
-
-						p->add_callback([this, tag](const ossia::value& val) {
-							handleInportMessage(tag, val);
-						});
 					}
-				}
-				if (hasOutports) {
-					auto o = msgs->create_child("out");
-					for (auto i: outports) {
-						std::string name = i["tag"];
-						auto& n = ossia::net::create_node(*o, name);
-						auto p = n.create_parameter(ossia::val_type::LIST);
-						n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					if (hasOutports) {
+						auto o = msgs->create_child("out");
+						for (auto i: outports) {
+							std::string name = i["tag"];
+							auto& n = ossia::net::create_node(*o, name);
+							auto p = n.create_parameter(ossia::val_type::LIST);
+							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 
-						if (i.contains("meta"))
-						{
-							auto meta = i["meta"];
-							add_meta_to_param(meta, n);
+							if (i.contains("meta"))
+							{
+								auto meta = i["meta"];
+								add_meta_to_param(meta, n);
+							}
+
+							mOutportParams[name] = p;
 						}
-
-						mOutportParams[name] = p;
 					}
 				}
 			}
