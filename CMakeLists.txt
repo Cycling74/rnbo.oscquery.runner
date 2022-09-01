@@ -51,6 +51,14 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
+#debugging
+if (CMAKE_BUILD_TYPE STREQUAL Debug)
+	add_definitions(
+		-DRNBO_PLATFORM_ASSERT_WARN=0
+		-DRNBO_PLATFORM_ERROR_WARN=0
+	)
+endif()
+
 #dbus on linux
 if (WITH_DBUS)
 	#handle sdbus for linux, common between this and the update lib
