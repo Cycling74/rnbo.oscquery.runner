@@ -20,7 +20,7 @@ docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/r
 
 ```shell
 mkdir -p ~/.conan/profiles
-cd /build/examples/RNBOOSCQueryRunner/runner/
+cd /build/examples/rnbo.oscquery.runner/runner/
 mkdir build-rpi && cd build-rpi
 cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH cmake -DCMAKE_TOOLCHAIN_FILE=../rpi-toolchain.cmake -DCONAN_PROFILE=rpi .. && make
 ```

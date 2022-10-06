@@ -23,4 +23,4 @@ COPY conan-rpi-xcompile /root/.conan/profiles/default
 
 COPY rpi-rootfs /rpi-rootfs
 
-CMD ["/bin/bash", "/build/examples/RNBOOSCQueryRunner/docker/build-rpi.sh"]
+CMD ["/bin/bash", "/build/examples/rnbo.oscquery.runner/docker/build-rpi.sh"]

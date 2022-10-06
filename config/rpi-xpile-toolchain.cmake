@@ -1,4 +1,4 @@
-# Toolchain file for cross compiling RNBOOSCQueryRunner for raspi in Docker container
+# Toolchain file for cross compiling rnbo.oscquery.runner for raspi in Docker container
 
 
 ############################################################################

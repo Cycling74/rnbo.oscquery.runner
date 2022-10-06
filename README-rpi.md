@@ -118,7 +118,7 @@ from apt-get
 * build and install the runner (on pi)
   ```shell
   ssh pi@c74rpi.local
-  cd ~/local/src/RNBOOSCQueryRunner/ && mkdir build && cd build && CXXFLAGS="-mcpu=cortex-a53" cmake .. && make && cpack
+  cd ~/local/src/rnbo.oscquery.runner/ && mkdir build && cd build && CXXFLAGS="-mcpu=cortex-a53" cmake .. && make && cpack
   sudo dpkg -i *.deb
   ```
   * you could also do a standard make install, but then you'll need to setup the service file yourself.
@@ -133,7 +133,7 @@ from apt-get
   `make install`, or if the service file contents changes. If you install via a
   `.deb` file (as detailed above), you shouldn't need to do this at all.
 
-  From whereever `rnbooscquery.service` is, either `cd ~/local/src/RNBOOSCQueryRunner/config/` or maybe its in your homedir.
+  From whereever `rnbooscquery.service` is, either `cd ~/local/src/rnbo.oscquery.runner/config/` or maybe its in your homedir.
 
   ```shell
   sudo -s
@@ -210,7 +210,7 @@ to create a package and upload it, from a mac, in the root of this repo.
 ./build-rpi.sh
 aptly -distribution=bullseye repo create bullseye-rpi
 aptly repo create -distribution=bullseye -component=extra bullseye-rpi-extra
-aptly repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly repo add bullseye-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
 aptly publish repo -component=, -passphrase-file=/Users/benbracken/.apt-gpg.txt bullseye-rpi bullseye-rpi-extra s3:c74:
 ```
 
@@ -221,7 +221,7 @@ aptly publish update bullseye s3:c74:
 
 to overwrite a package
 ```shell
-aptly -force-replace repo add bullseye-rpi examples/RNBOOSCQueryRunner/build-rpi/rnbooscquery_0.9.0.deb
+aptly -force-replace repo add bullseye-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
 aptly -force-overwrite publish update bullseye s3:c74:
 ```
 
