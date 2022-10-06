@@ -7,15 +7,15 @@ rm rpi-rootfs/usr/lib/systemd/system/rnbo*
 ```
 * build docker image:
 ```shell
-docker build -f Dockerfile -t xnor/rpi-bullseye-audio-xpile:0.7 .
+docker build -f Dockerfile -t xnor/rpi-bullseye-audio-xpile:0.8 .
 ```
 
 cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONAN_CMAKE_FIND_ROOT_PATH=/rootfs/ CONAN_CMAKE_SYSROOT=/rootfs/ cmake -DRNBO_DIR=../cpp/ -DCMAKE_TOOLCHAIN_FILE=../rpi-toolchain.cmake ..
 
 
 ```shell
-docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.7
-docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.7 /bin/bash
+docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.8
+docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.8 /bin/bash
 ```
 
 ```shell
@@ -27,6 +27,6 @@ cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH cmak
 
 ## share to docker hub
 ```shell
-docker push xnor/rpi-bullseye-audio-xpile:0.7
+docker push xnor/rpi-bullseye-audio-xpile:0.8
 ```
 
