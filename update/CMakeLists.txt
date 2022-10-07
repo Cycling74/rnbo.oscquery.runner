@@ -88,6 +88,11 @@ if (LINUX)
 			WORLD_READ
 	)
 
+	install(FILES
+		${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright
+		DESTINATION share/doc/rnbo-update-service
+	)
+
 	#setup deb build
 	IF(EXISTS "${CMAKE_ROOT}/Modules/CPack.cmake")
 		INCLUDE(InstallRequiredSystemLibraries)
@@ -110,7 +115,12 @@ if (LINUX)
 		SET(CPACK_DEBIAN_PACKAGE_SECTION "admin")
 
 		set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-			"${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm;${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles")
+			${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm
+			${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm
+			${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst
+			${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles
+			${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright
+		)
 
 		INCLUDE(CPack)
 
