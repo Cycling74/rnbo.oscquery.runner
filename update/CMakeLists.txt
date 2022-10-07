@@ -103,6 +103,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Description: A service for managing the version of the rnbooscquery runner.")
 		SET(CPACK_PACKAGE_VENDOR "Cycling '74")
 		SET(CPACK_PACKAGE_CONTACT "xnor@cycling74.com")
+		set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/Cycling74/rnbo.oscquery.runner")
 
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}")
 
