@@ -3,6 +3,7 @@
   After=multi-user.target
   StartLimitIntervalSec=500
   StartLimitBurst=5
+  StartLimitInterval=0
   Wants=rnbo-update-service.service
   After=rnbo-update-service.service
 
