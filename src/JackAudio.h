@@ -55,6 +55,8 @@ class ProcessAudioJack : public ProcessAudio {
 		std::atomic<jack_uuid_t> mBPMClientUUID;
 
 		ossia::net::node_base * mInfoNode = nullptr;
+		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
+		ossia::net::parameter_base * mIsOwnedParam = nullptr;
 		ossia::net::node_base * mTransportNode = nullptr;
 		ossia::net::parameter_base * mTransportBPMParam = nullptr;
 		float mTransportBPMLast = 0.0;

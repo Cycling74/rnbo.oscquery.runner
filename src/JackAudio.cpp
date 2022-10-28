@@ -394,13 +394,20 @@ bool ProcessAudioJack::createClient(bool startServer) {
 			jack_set_process_callback(mJackClient, processJackProcess, this);
 
 			mBuilder([this](ossia::net::node_base * root) {
-				{
+				if (mIsRealTimeParam == nullptr) {
 					auto n = mInfoNode->create_child("is_realtime");
-					auto p = n->create_parameter(ossia::val_type::BOOL);
+					mIsRealTimeParam = n->create_parameter(ossia::val_type::BOOL);
 					n->set(ossia::net::description_attribute{}, "indicates if jack is running in realtime mode or not");
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-					p->push_value(jack_is_realtime(mJackClient) != 0);
 				}
+				mIsRealTimeParam->push_value(jack_is_realtime(mJackClient) != 0);
+				if (mIsOwnedParam == nullptr) {
+					auto n = mInfoNode->create_child("owns_server");
+					mIsOwnedParam = n->create_parameter(ossia::val_type::BOOL);
+					n->set(ossia::net::description_attribute{}, "indicates if the runner manages/owns the server or not");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				}
+				mIsOwnedParam->push_value(mJackServer != nullptr);
 
 				double sr = jack_get_sample_rate(mJackClient);
 				jack_nframes_t bs = jack_get_buffer_size(mJackClient);
