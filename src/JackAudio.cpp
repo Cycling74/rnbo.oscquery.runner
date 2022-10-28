@@ -150,7 +150,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 				mNumPeriodsParam->push_value(mNumPeriods);
 
 				auto dom = ossia::init_domain(ossia::val_type::INT);
-				ossia::set_values(dom, { 1, 2, 3, 4});
+				ossia::set_values(dom, { 2, 3, 4});
 				n->set(ossia::net::domain_attribute{}, dom);
 				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 
@@ -579,6 +579,11 @@ bool ProcessAudioJack::createServer() {
 
 		std::string midi("-Xseq");
 		args.push_back(const_cast<char *>(midi.c_str()));
+
+		std::string nperiods("--nperiods");
+		std::string nperiodsv = std::to_string(mNumPeriods);
+		args.push_back(const_cast<char *>(nperiods.c_str()));
+		args.push_back(const_cast<char *>(nperiodsv.c_str()));
 #endif
 
 		std::string period = "--period";
