@@ -55,7 +55,7 @@ Here is an example of the contents:
     "jack": {
         "period_frames": 1024,
         "sample_rate": 44100.0,
-				"card_name": "hw:ES8"
+        "card_name": "hw:ES8"
     }
 }
 ```
