@@ -1,6 +1,6 @@
 # RNBO OSCQuery Runner
 
-A RNBO runner controlled by [OSCQuery](https://github.com/Vidvox/OSCQueryProposal).
+A [RNBO](https://cycling74.com/products/rnbo) runner controlled by [OSCQuery](https://github.com/Vidvox/OSCQueryProposal).
 
 ## Setup
 
@@ -647,7 +647,9 @@ modifications:
 
 ## Notes/Links
 
-* [libossia thread safety](https://github.com/ossia/libossia/issues/656)
+* [rnbo](https://cycling74.com/products/rnbo)
+* [libossia](https://ossia.io/site-libossia/about.html)
+  * [thread safety](https://github.com/ossia/libossia/issues/656)
 * [osc.js](https://github.com/colinbdclark/osc.js)
 
 add a listener
