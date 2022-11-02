@@ -27,12 +27,12 @@ This currently runs on Linux and Mac, Windows is TBD.
 
 ### Building
 
-Build the runner:
+Build the runner. You may have to update the `RNBO_DIR` to reflect the path on your system.
 
 ```
 mkdir build/
 cd build/
-cmake .. && make -j8
+cmake .. -DRNBO_DIR=~/Documents/Max\ 8/Packages/RNBO/source/rnbo/ && make -j8
 ```
 
 ### Configuration
