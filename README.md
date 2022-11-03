@@ -652,7 +652,18 @@ modifications:
   * [thread safety](https://github.com/ossia/libossia/issues/656)
 * [osc.js](https://github.com/colinbdclark/osc.js)
 
-add a listener
+### To add an OSC listener
+
+If the runner is running on the same machine as you want to listen on, you can use `localhost` for the `ip`.
+
 ```
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "foo", "params": {"ip": "localhost", "port": 9999}}'
+```
+
+### Testing out discovery
+
+`dns-sd` can show you available services:
+
+```shell
+dns-sd -B _oscjson._tcp
 ```
