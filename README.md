@@ -27,7 +27,11 @@ This currently runs on Linux and Mac, Windows is TBD.
 
 ### Building
 
-Build the runner. You may have to update the `RNBO_DIR` to reflect the path on your system.
+Build the runner with CMake. You may have to update the `RNBO_DIR` to reflect the path on your system.
+
+If you're on Mac OS using the bundled RNBO version, your `RNBO_DIR` should probably be:
+
+`/Applications/Max.app/Contents/Resources/C74/packages/RNBO/source/rnbo`
 
 ```
 mkdir build/
