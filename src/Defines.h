@@ -34,6 +34,7 @@ enum class CompileLoadError : unsigned int {
 	AudioNotActive = 5,
 	VersionMismatch = 6,
 	SourceFileDoesNotExist = 7,
+	DecodeFailed = 8
 };
 
 enum class FileCommandStatus : unsigned int {

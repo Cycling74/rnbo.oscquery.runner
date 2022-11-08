@@ -65,6 +65,16 @@ namespace {
 			return config::get<fs::path>(config::key::SaveDir).get() / last_file_name;
 	}
 
+	bool base64_decode_inplace(std::string& v) {
+		size_t read = 0;
+		std::vector<char> decoded(v.size()); //will be smaller than the in fileName
+		if (base64_decode(v.c_str(), v.size(), &decoded.front(), &read, 0) != 1) {
+			return false;
+		}
+		v = std::string(decoded.begin(), decoded.end());
+		return true;
+	}
+
 	struct CompileInfo {
 		bp::group mGroup;
 		bp::child mProcess;
@@ -675,12 +685,12 @@ void Controller::processCommands() {
 		return true;
 	};
 
-	auto fileCmdDir = [this](std::string& id, std::string filetype) -> boost::optional<fs::path> {
+	auto fileCmdDir = [this, sourceCache](std::string& id, std::string filetype) -> boost::optional<fs::path> {
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
 			r = config::get<fs::path>(config::key::DataFileDir);
 		} else if (filetype == "sourcefile") {
-			r = config::get<fs::path>(config::key::SourceCacheDir);
+			r = sourceCache;
 		} else {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
 			return {};
@@ -767,7 +777,7 @@ void Controller::processCommands() {
 				continue;
 			}
 
-			auto cmdObj = RNBO::Json::parse(cmdStr);;
+			auto cmdObj = RNBO::Json::parse(cmdStr);
 			if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
 				cerr << "invalid cmd json" << cmdStr << endl;
 				continue;
@@ -849,8 +859,22 @@ void Controller::processCommands() {
 				if (cmake) {
 					args.push_back(cmake.get().string());
 				}
+
 				//start compile
-				compileProcess = CompileInfo(build_program, args, libPath, id, params["config"]);
+				{
+					//config might be in a file
+					RNBO::Json config;
+					if (params.contains("config_file")) {
+						std::string fileName = params["config_file"].get<std::string>();
+						fs::path config_file = fs::absolute(sourceCache / fileName);
+						std::ifstream i(config_file.string());
+						i >> config;
+						i.close();
+					} else if (params.contains("config")) {
+						config = params["config"];
+					}
+					compileProcess = CompileInfo(build_program, args, libPath, id, config);
+				}
 
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
@@ -871,7 +895,7 @@ void Controller::processCommands() {
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DeleteFailed), "delete failed with message " + ec.message());
 				}
-			} else if (method == "file_write") {
+			} else if (method == "file_write_extended" || method == "file_write") {
 				if (!validateFileCmd(id, cmdObj, params, true))
 					continue;
 
@@ -879,7 +903,12 @@ void Controller::processCommands() {
 				if (!dir)
 					continue;
 
+				//file_write_extended base64 encodes the file name so we can have non ascii in there
 				std::string fileName = params["filename"];
+				if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
+					continue;
+				}
 				fs::path filePath = dir.get() / fs::path(fileName);
 				std::fstream fs;
 				//allow for "append" to add to the end of an existing file
