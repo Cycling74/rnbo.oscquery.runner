@@ -154,6 +154,17 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		updateDiskSpace();
 	}
 
+	//add support for commands
+	{
+		std::vector<ossia::value> supported = { "file_write_extended", "compile-with_config_file" };
+
+		auto n = info->create_child("supported_cmds");
+		auto p = n->create_parameter(ossia::val_type::LIST);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		n->set(ossia::net::description_attribute{}, "details about post 1.0 commands added");
+		p->push_value(supported);
+	}
+
 	{
 		auto n = root->create_child("cmd");
 		auto p = n->create_parameter(ossia::val_type::STRING);
