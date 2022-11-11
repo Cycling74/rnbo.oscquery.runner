@@ -1,5 +1,12 @@
 #!/bin/sh
 set -e
+
+# Automatically added by dh_sysuser/UNDECLARED
+# -*- sh -*-
+
+CONF_HOME=/nonexistent CONF_PACKAGE=rnbo-update-service CONF_USERNAME=rnbo /lib/sysuser-helper/sysuser-helper postinst "$@"
+# End automatically added section
+
 # Automatically added by dh_installsystemd/13.2.1ubuntu1
 if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
 	# This will only remove masks created by d-s-h on package removal.

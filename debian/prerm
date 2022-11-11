@@ -5,3 +5,9 @@ if [ -d /run/systemd/system ] && [ "$1" = remove ]; then
 	deb-systemd-invoke stop 'rnbooscquery.service' >/dev/null || true
 fi
 # End automatically added section
+
+# Automatically added by dh_sysuser/UNDECLARED
+# -*- sh -*-
+
+CONF_HOME=/nonexistent CONF_PACKAGE=rnbooscquery CONF_USERNAME=rnbo /lib/sysuser-helper/sysuser-helper prerm "$@"
+# End automatically added section
