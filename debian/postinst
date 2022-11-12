@@ -7,6 +7,13 @@ set -e
 CONF_HOME=/nonexistent CONF_PACKAGE=rnbooscquery CONF_USERNAME=rnbo /lib/sysuser-helper/sysuser-helper postinst "$@"
 # End automatically added section
 
+if [ "$1" = "configure" ]; then
+	mkdir -p /usr/share/rnbo/cache/
+	mkdir -p /usr/share/rnbo/config/
+	chown rnbo /usr/share/rnbo/cache/ /usr/share/rnbo/config/
+	chmod 0770 /usr/share/rnbo/cache/ /usr/share/rnbo/config/
+fi
+
 # Automatically added by dh_installsystemd/13.2.1ubuntu1
 if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ] ; then
 	# This will only remove masks created by d-s-h on package removal.
