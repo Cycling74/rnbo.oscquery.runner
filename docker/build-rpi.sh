@@ -6,4 +6,6 @@ PATH=/opt/cross-pi-gcc/bin:$PATH \
 	cmake -DRNBO_DIR=/build/src/cpp/ \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/rpi-xpile-toolchain.cmake \
+	-DRNBOOSCQUERY_DEFAULT_CACHE_DIR=/usr/share/rnbo/cache/ \
+	-DRNBOOSCQUERY_DEFAULT_CONFIG_DIR=/usr/share/rnbo/config/ \
 	..  && make && cpack
