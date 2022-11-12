@@ -14,6 +14,15 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/lexical_cast.hpp>
 
+
+#ifndef RNBOOSCQUERY_DEFAULT_CACHE_DIR
+#define RNBOOSCQUERY_DEFAULT_CACHE_DIR "~/Documents/rnbo/cache/"
+#endif
+
+#ifndef RNBOOSCQUERY_DEFAULT_CONFIG_DIR
+#define RNBOOSCQUERY_DEFAULT_CONFIG_DIR "~/.config/rnbo/"
+#endif
+
 using std::chrono::system_clock;
 
 namespace fs = boost::filesystem;
@@ -27,14 +36,16 @@ namespace {
 	const static std::string home_str = fs::absolute(fs::path(std::getenv("HOME"))).string();
 	const static std::regex tilde("~");
 
-	static fs::path default_so_cache = config::make_path("~/Documents/rnbo/cache/so");
-	static fs::path default_src_cache = config::make_path("~/Documents/rnbo/cache/src");
-	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
-	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
+	static fs::path default_cache_dir = config::make_path(RNBOOSCQUERY_DEFAULT_CACHE_DIR);
+	static fs::path default_config_dir = config::make_path(RNBOOSCQUERY_DEFAULT_CONFIG_DIR);
 
-	static fs::path home_dir_config_file_path = config::make_path("~/.config/rnbo/runner.json");
+	static fs::path default_so_cache = default_cache_dir / fs::path("so/");
+	static fs::path default_src_cache = default_cache_dir / fs::path("src/");
+	static fs::path default_save_dir = default_cache_dir / fs::path("saves/");
+	static fs::path default_datafile_dir = default_cache_dir / fs::path("datafiles/");
 
-	static fs::path runner_uuid_path = config::make_path("~/.config/rnbo/runner-id.txt");
+	static fs::path default_config_file_path = default_config_dir / fs::path("runner.json");
+	static fs::path runner_uuid_path = default_config_dir / fs::path("runner-id.txt");
 
 	static boost::uuids::uuid system_id = boost::uuids::random_generator()();
 
@@ -115,7 +126,7 @@ namespace config {
 
 		//find the path
 		for (auto p: {
-				home_dir_config_file_path,
+				default_config_file_path,
 				base_dir / "share" / "rnbo" / "runner.json"
 				}) {
 			if (fs::exists(p)) {
@@ -143,8 +154,8 @@ namespace config {
 				if (update_next && update_next.get() <= system_clock::now()) {
 					update_next.reset();
 
-					//always write to the homedir one
-					config_file_path = home_dir_config_file_path;
+					//always write to the default one
+					config_file_path = default_config_file_path;
 					fs::path dir;
 					fs::create_directories((dir = config_file_path).remove_filename());
 					std::ofstream o(config_file_path.string());

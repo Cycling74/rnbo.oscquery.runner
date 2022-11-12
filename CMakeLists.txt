@@ -21,6 +21,11 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
 
+set(RNBOOSCQUERY_DEFAULT_CONFIG_DIR "~/.config/rnbo/" CACHE STRING "The path to the default location for rnbooscquery's config dir")
+set(RNBOOSCQUERY_DEFAULT_CACHE_DIR "~/Documents/rnbo/cache/" CACHE STRING "The path to the default location for rnbooscquery's cache dir")
+mark_as_advanced(RNBOOSCQUERY_DEFAULT_CONFIG_DIR)
+mark_as_advanced(RNBOOSCQUERY_DEFAULT_CACHE_DIR)
+
 #libossia and sdbus require c++17
 set(CMAKE_CXX_STANDARD 17)
 
@@ -56,6 +61,7 @@ if (CMAKE_BUILD_TYPE STREQUAL Debug)
 	add_definitions(
 		-DRNBO_PLATFORM_ASSERT_WARN=0
 		-DRNBO_PLATFORM_ERROR_WARN=0
+		-DDEBUG
 	)
 endif()
 
@@ -150,19 +156,16 @@ if (CCACHE_PROGRAM)
 	set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
 endif()
 
-add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
-add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
-add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
-
-if (CMAKE_BUILD_TYPE STREQUAL Debug)
-	add_definitions(-DDEBUG)
-endif()
+add_definitions(
+	-DRNBO_VERSION="${RNBO_VERSION}"
+	-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}"
+	-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}"
+	-DRNBOOSCQUERY_DEFAULT_CACHE_DIR="${RNBOOSCQUERY_DEFAULT_CACHE_DIR}"
+	-DRNBOOSCQUERY_DEFAULT_CONFIG_DIR="${RNBOOSCQUERY_DEFAULT_CONFIG_DIR}"
+)
 
 if (UNIX)
 	add_definitions(-DRNBO_DYLIB_PREFIX="lib")
-	add_definitions(-DRNBO_CONFIG_DIR="~/.config/rnbo/")
-	add_definitions(-DRNBO_CACHE_BASE_DIR="~/.local/share/rnbo/")
-	add_definitions(-DRNBO_SO_BUILD_DIR="~/.local/share/rnbo/sobuild/")
 	if (APPLE)
 		add_definitions(-DRNBO_DYLIB_SUFFIX="${RNBO_VERSION}.dylib")
 	else() # for Linux, BSD, Solaris, Minix
