@@ -36,7 +36,7 @@ keep the user name `pi`.
 
   ```shell
   rm -f /etc/xdg/autostart/piwiz.desktop
-  apt-key add apt-cycling74-pubkey.asc
+  mv apt-cycling74-pubkey.asc /usr/share/keyrings/
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
