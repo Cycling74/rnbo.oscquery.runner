@@ -17,7 +17,6 @@ keep the user name `pi`.
   rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@c74rpi.local:
   ```
 * setup pi (pw: `c74rnbo`)
-  * disable screen reader
   * setup our private apt repo
   * uninstall pulse audio
   * install some packages, including rnbooscquery
@@ -35,7 +34,6 @@ keep the user name `pi`.
   Remove some stuff that causes problems, add the c74 apt repo, install/setup.
 
   ```shell
-  rm -f /etc/xdg/autostart/piwiz.desktop
   mv apt-cycling74-pubkey.asc /usr/share/keyrings/
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
