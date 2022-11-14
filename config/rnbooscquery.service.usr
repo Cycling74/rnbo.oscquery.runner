@@ -16,6 +16,7 @@
   LimitRTPRIO=infinity
   LimitMEMLOCK=infinity
   Environment="JACK_NO_AUDIO_RESERVATION=1"
+  Environment="CCACHE_DIR=/usr/share/rnbo/cache/ccache/"
   Restart=on-failure
   RestartSec=5s
 
