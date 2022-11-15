@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbo-update-service LANGUAGES CXX)
-set(PROJECT_VERSION "0.2.5")
+set(PROJECT_VERSION "0.2.6")
 set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_APP "rnbo-update-service")
 
@@ -111,6 +111,7 @@ if (LINUX)
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 
 		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.28), libsystemd0, libsdbus-c++0 (>= 0.8.3), sysuser-helper (<< 1.4)")
+		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbooscquery (<< 1.1.0)")
 
 		SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 		SET(CPACK_DEBIAN_PACKAGE_SECTION "admin")
