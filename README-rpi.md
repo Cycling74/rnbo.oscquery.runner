@@ -3,16 +3,14 @@
 ## Normal use
 
 You can install rnbooscquery on an existing bullseye image or start from scratch.
-Feel free to customize your hostname and password, but at this time you should
-keep the user name `pi`.
+Feel free to customize your username, hostname and password.
 
 * Install latest `bullseye 32-bit` OS with [raspberry pi imager](https://www.raspberrypi.com/software/)
-  * use the gear icon to set your hostname, password, and enable SSH
+  * use the gear icon to set your hostname, username, password, and enable SSH
     * we use `c74rpi` for the host name and `c74rnbo` for the initial password
-  * do not change the user name, it needs to be `pi`
   * optionally setup wireless lan (wifi)
-* Boot the Pi with the `bullseye` SD card you just created, connect via Ethernet to the host machine.
-* send over files that are needed for the repo:
+* Boot the Pi with the `bullseye` SD card you just created, connect via ethernet, or wifi if you set that up, to the host machine.
+* send over files that are needed for the repo (change to your username and hostname):
   ```shell
   rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@c74rpi.local:
   ```
@@ -25,7 +23,7 @@ keep the user name `pi`.
   * install rnbooscquery
   * reboot (easiest way to update your group security settings)
 
-  ssh to do the pi and get into sudo.
+  ssh to do the pi and get into sudo (change to your username and hostname):
 
   ```shell
   ssh pi@c74rpi.local
@@ -59,7 +57,7 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.17.0-xnor-rpi-bull.0
+  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=1.1.0
   apt-mark hold rnbooscquery
   ```
 
