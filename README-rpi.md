@@ -61,7 +61,7 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.17.0-xnor-rpi-bull.0
+  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=1.0.1
   apt-mark hold rnbooscquery
   ```
 
@@ -85,7 +85,7 @@ Do all the normal use stuff then:
 * install conan
 * make directories for local builds and config
   ```shell
-  sudo apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock
+  sudo apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
   sudo apt-get -y --no-install-recommends install ruby python3-pip
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
