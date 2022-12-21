@@ -164,8 +164,13 @@ namespace config {
 						return rp;
 				}
 			}
+
+			//Xcode layout is slightly different so support both commandline and xcode
 			if (k == key::SOBuildExe) {
-				return base_dir / "bin" / "rnbo-compile-so";
+				for (boost::filesystem::path rp : {base_dir / "bin" / "rnbo-compile-so", base_dir / "rnbo-compile-so"}) {
+					if (fs::exists(rp))
+						return rp;
+				}
 			}
 			return boost::none;
 		}
