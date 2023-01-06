@@ -718,9 +718,21 @@ void Instance::loadPreset(std::string name) {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
 	auto it = mPresets.find(name);
 	if (it == mPresets.end()) {
-		std::cerr << "couldn't find preset with name " << name << std::endl;
-		return;
+		//try to convert it to an int
+		try {
+			int index = std::stoi(name);
+			if (index >= 0 && index < mPresets.size()) {
+				it = std::next(mPresets.begin(), index);
+			}
+		} catch (const std::exception&) {
+			//do nothing
+		}
+		if (it == mPresets.end()) {
+			std::cerr << "couldn't find preset with name or index: " << name << std::endl;
+			return;
+		}
 	}
+
 	RNBO::UniquePresetPtr preset = RNBO::make_unique<RNBO::Preset>();
 	auto shared = it->second;
 	RNBO::copyPreset(*shared, *preset);
