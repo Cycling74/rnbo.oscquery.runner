@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <utility>
 #include <chrono>
+#include <algorithm>
 #include <libbase64.h>
 #include <iomanip>
 
@@ -137,6 +138,41 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		p->push_value(it.second);
 	}
+
+	//get PRETTY_NAME from os-release if it exists
+	try {
+		fs::path osRelease("/etc/os-release");
+		if (fs::exists(osRelease)) {
+			std::ifstream i(osRelease.string());
+			std::string line;
+			while (std::getline(i, line)) {
+				std::size_t found = line.find("PRETTY_NAME");
+				if (found != std::string::npos) {
+					auto eq = line.find("=");
+					if (eq != std::string::npos) {
+						std::string name = line.substr(eq + 1);
+
+						//trim quotes
+						if (name.size() && name[0] == '"' && name[name.size() - 1] == '"') {
+							name = name.substr(1, name.size() - 2);
+						}
+
+						auto n = info->create_child("system_os_name");
+						auto p = n->create_parameter(ossia::val_type::STRING);
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+
+						p->push_value(name);
+					} else {
+						std::cerr << "/etc/os-release not in expected KEY=VALUE format" << std::endl;
+					}
+					break;
+				}
+			}
+		}
+	} catch (const std::exception& e) {
+		std::cerr << "error reading /etc/os-release: " << e.what() << std::endl;
+	}
+
 	{
 		auto n = info->create_child("system_id");
 		auto p = n->create_parameter(ossia::val_type::STRING);
