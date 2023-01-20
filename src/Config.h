@@ -18,6 +18,7 @@ namespace config {
 		const static std::string SaveDir = "save_dir"; //where do we persist saved data, for auto start on restart
 		const static std::string InstanceAutoStartLast = "instance_auto_start_last"; //try to restart the last run instance (and its settings) on startup.
 		const static std::string InstanceAutoConnectAudio = "instance_auto_connect_audio"; //if applicable (Jack), should an instance be automatically connected to audio
+		const static std::string InstanceAutoConnectAudioIndexed = "instance_auto_connect_audio_indexed"; //if applicable (Jack), uses i/o indexes to automatically connect to hardware
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
 
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery

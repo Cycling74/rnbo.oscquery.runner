@@ -716,10 +716,11 @@ void ProcessAudioJack::handleTransportTimeSig(double numerator, double denominat
 
 InstanceAudioJack::InstanceAudioJack(
 		std::shared_ptr<RNBO::CoreObject> core,
+		RNBO::Json conf,
 		std::string name,
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback
-		) : mCore(core), mRunning(false), mProgramChangeCallback(progChangeCallback) {
+		) : mCore(core), mInstanceConf(conf), mRunning(false), mProgramChangeCallback(progChangeCallback) {
 	//get jack client, fail early if we can't
 	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
@@ -875,22 +876,77 @@ void InstanceAudioJack::processEvents() {
 void InstanceAudioJack::connectToHardware() {
 	const char ** ports;
 
-	if (config::get<bool>(config::key::InstanceAutoConnectAudio)) {
+	RNBO::Json outlets;
+	if (mInstanceConf.contains("outlets") && mInstanceConf["outlets"].is_array()) {
+		outlets = mInstanceConf["outlets"];
+	}
+	RNBO::Json inlets;
+	if (mInstanceConf.contains("inlets") && mInstanceConf["inlets"].is_array()) {
+		inlets = mInstanceConf["inlets"];
+	}
+
+	bool autoConnect = false;
+	bool indexed = false;
+	{
+		auto v = config::get<bool>(config::key::InstanceAutoConnectAudio);
+		if (v) {
+			autoConnect = *v;
+		}
+		v = config::get<bool>(config::key::InstanceAutoConnectAudioIndexed);
+		if (v) {
+			indexed = *v;
+		}
+	}
+	if (autoConnect || indexed) {
+		//get the port count, is there a better way?
+		auto getPortCount = [](const char ** ptr) -> size_t {
+			size_t portCount = 0;
+			while (*ptr != nullptr) {
+				portCount++;
+				ptr++;
+			}
+			return portCount;
+		};
+
+		auto remap = [indexed](RNBO::Json ioletConf, size_t i) -> int {
+			int index = static_cast<int>(i);
+			if (indexed && ioletConf.is_array()) {
+				if (ioletConf.size() <= i) {
+					std::cerr << "iolet index << " << i << " out of range" << std::endl;
+					return -1;
+				}
+				auto cur = ioletConf[i];
+				if (!(cur.is_object() && cur.contains("index"))) {
+					std::cerr << "iolet index << " << i << " data invalid" << std::endl;
+					return -1;
+				}
+				index = cur["index"].get<int>() - 1;
+			}
+			return index;
+		};
+
 		//connect hardware audio outputs to our inputs
 		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_AUDIO_TYPE, JackPortIsPhysical|JackPortIsOutput)) != NULL) {
-			auto ptr = ports;
-			for (auto it = mJackAudioPortIn.begin(); it != mJackAudioPortIn.end() && *ptr != nullptr; it++, ptr++) {
-				jack_connect(mJackClient, *ptr, jack_port_name(*it));
+			size_t portCount = getPortCount(ports);
+			for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
+				int index = remap(inlets, i);
+				if (index >= 0 && index < portCount) {
+					jack_connect(mJackClient, ports[static_cast<size_t>(index)], jack_port_name(mJackAudioPortIn.at(i)));
+				}
 			}
 			jack_free(ports);
 		}
 
 		//connect hardware audio inputs to our outputs
 		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_AUDIO_TYPE, JackPortIsPhysical|JackPortIsInput)) != NULL) {
-			auto ptr = ports;
-			for (auto it = mJackAudioPortOut.begin(); it != mJackAudioPortOut.end() && *ptr != nullptr; it++, ptr++) {
-				jack_connect(mJackClient, jack_port_name(*it), *ptr);
+			size_t portCount = getPortCount(ports);
+			for (size_t i = 0; i < mJackAudioPortOut.size(); i++) {
+				int index = remap(outlets, i);
+				if (index >= 0 && index < portCount) {
+					jack_connect(mJackClient, jack_port_name(mJackAudioPortOut.at(i)), ports[static_cast<size_t>(index)]);
+				}
 			}
+
 			jack_free(ports);
 		}
 	}

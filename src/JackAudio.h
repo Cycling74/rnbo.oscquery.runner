@@ -95,6 +95,7 @@ class InstanceAudioJack : public InstanceAudio {
 	public:
 		InstanceAudioJack(
 				std::shared_ptr<RNBO::CoreObject> core,
+				RNBO::Json conf,
 				std::string name,
 				NodeBuilder builder,
 				std::function<void(ProgramChange)> progChangeCallback
@@ -112,6 +113,7 @@ class InstanceAudioJack : public InstanceAudio {
 		void connectToHardware();
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
+		RNBO::Json mInstanceConf;
 
 		jack_client_t * mJackClient;
 

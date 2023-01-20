@@ -56,6 +56,7 @@ namespace {
 		{config::key::DataFileDir, default_datafile_dir.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
+		{config::key::InstanceAutoConnectAudioIndexed, true},
 		{config::key::InstanceAutoConnectMIDI, true},
 		{config::key::PresetMIDIProgramChangeChannel, "omni"},
 	};
