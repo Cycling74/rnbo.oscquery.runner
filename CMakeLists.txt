@@ -122,14 +122,27 @@ conan_cmake_install(
 	SETTINGS ${settings}
 )
 
+conan_cmake_configure(
+	REQUIRES libsndfile/1.2.0
+	GENERATORS cmake_find_package
+	OPTIONS
+		libsndfile:shared=False
+		libsndfile:programs=False
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS ${settings}
+)
+
 find_library(JACK_LIB "jack" REQUIRED)
 find_library(JACKSERVER_LIB "jackserver" REQUIRED)
-find_library(SNDFILE_LIB "sndfile" REQUIRED)
-find_path(SNDFILE_INCLUDE_DIR sndfile.hh REQUIRED)
+find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
 
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
+find_package(SndFile REQUIRED)
 
 include_directories(
 	./3rdparty/
@@ -142,7 +155,8 @@ include_directories(
 	${cpp-optparse_INCLUDE_DIRS}
 	${libossia_INCLUDE_DIRS}
 	${base64_INCLUDE_DIRS}
-	${SNDFILE_INCLUDE_DIR}
+	${SndFile_INCLUDE_DIRS}
+	${JACK_INCLUDE_DIR}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -200,7 +214,7 @@ target_link_libraries(${PROJECT_APP}
 	${cpp-optparse_LIBRARIES}
 	${JACK_LIB}
 	${JACKSERVER_LIB}
-	${SNDFILE_LIB}
+	${SndFile_LIBRARIES}
 	${SDBUS_LIBS}
 )
 if (LINUX)
@@ -287,7 +301,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsdbus-c++0 (>= 0.8.3)")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsdbus-c++0 (>= 0.8.3)")
 
 		#packages that are also installed by default but don't have to be
 		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.1.1)")
