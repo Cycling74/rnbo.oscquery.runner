@@ -122,14 +122,19 @@ conan_cmake_install(
 	SETTINGS ${settings}
 )
 
+#unfortunately libmpg123 doesn't compile on the pi, so we disable it
+set(SNDFILE_WITH_MPEG True)
+if (LINUX)
+	set(SNDFILE_WITH_MPEG False)
+endif()
+
 conan_cmake_configure(
 	REQUIRES libsndfile/1.2.0
 	GENERATORS cmake_find_package
 	OPTIONS
 		libsndfile:shared=False
 		libsndfile:programs=False
-		#unfortunately libmpg123 doesn't compile on the pi, so we disable it
-		libsndfile:with_mpeg=False
+		libsndfile:with_mpeg=${SNDFILE_WITH_MPEG}
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
