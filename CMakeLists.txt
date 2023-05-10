@@ -128,6 +128,8 @@ conan_cmake_configure(
 	OPTIONS
 		libsndfile:shared=False
 		libsndfile:programs=False
+		#unfortunately libmpg123 doesn't compile on the pi, so we disable it
+		libsndfile:with_mpeg=False
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
