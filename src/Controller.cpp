@@ -447,6 +447,12 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		auto factory = PatcherFactory::CreateFactory(path);
 		ossia::net::node_base * instNode = nullptr;
 		std::string instIndex = std::to_string(instanceIndex);
+
+		std::string name = "rnbo" + instIndex;
+		if (conf.contains("name")) {
+			name = conf["name"].get<std::string>();
+		}
+
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			unloadInstance(guard, instanceIndex);
@@ -457,7 +463,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			f(instNode);
 		};
 
-		auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf, mProcessAudio, instanceIndex);
+		auto instance = new Instance(factory, name, builder, conf, mProcessAudio, instanceIndex);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			//queue a save whenenever the configuration changes
