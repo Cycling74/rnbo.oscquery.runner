@@ -89,7 +89,7 @@ Do all the normal use stuff then:
   sudo apt-get -y --no-install-recommends install ruby python3-pip
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
-  pip3 install conan
+  pip3 install conan==1.58.0
   mkdir -p ~/.conan/profiles/
   mkdir -p ~/local/src/
   ```
