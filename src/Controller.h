@@ -33,7 +33,7 @@ class Controller {
 		~Controller();
 
 		//return true on success
-		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true);
+		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0);
 		bool loadLast();
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
@@ -45,6 +45,7 @@ class Controller {
 		bool tryActivateAudio();
 		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&);
+		void unloadInstance(std::lock_guard<std::mutex>&, unsigned int index);
 		void processCommands();
 		void reportCommandResult(std::string id, RNBO::Json res);
 		void reportCommandError(std::string id, unsigned int code, std::string message);

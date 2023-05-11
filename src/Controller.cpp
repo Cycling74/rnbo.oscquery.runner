@@ -60,6 +60,7 @@ namespace {
 	static const std::string last_instances_key = "instances";
 	static const std::string last_so_key = "so_path";
 	static const std::string last_config_key = "config";
+	static const std::string index_key = "index";
 
 
 	fs::path lastFilePath() {
@@ -81,16 +82,20 @@ namespace {
 		bp::child mProcess;
 		std::string mCommandId;
 		RNBO::Json mConf;
+		boost::optional<unsigned int> mInstanceIndex;
 		fs::path mLibPath;
 		CompileInfo(
 				std::string command, std::vector<std::string> args,
 				fs::path libPath,
 				std::string cmdId,
-				RNBO::Json conf) :
+				RNBO::Json conf,
+				boost::optional<unsigned int> instanceIndex
+				) :
 			mProcess(command, args, mGroup),
 			mCommandId(cmdId),
 			mConf(conf),
-			mLibPath(libPath)
+			mLibPath(libPath),
+			mInstanceIndex(instanceIndex)
 		{ }
 		CompileInfo(CompileInfo&&) = default;
 		CompileInfo& operator=(CompileInfo&& other) = default;
@@ -411,7 +416,7 @@ Controller::~Controller() {
 	mServer.reset();
 }
 
-bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig) {
+bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex) {
 	//clear out our last instance preset, loadLast should already have it if there is one
 	mInstanceLastPreset.reset();
 
@@ -441,18 +446,18 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
 		auto factory = PatcherFactory::CreateFactory(path);
 		ossia::net::node_base * instNode = nullptr;
-		std::string instIndex;
+		std::string instIndex = std::to_string(instanceIndex);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			clearInstances(guard);
-			instIndex = std::to_string(mInstances.size());
+			unloadInstance(guard, instanceIndex);
 			instNode = mInstancesNode->create_child(instIndex);
 		}
 		auto builder = [instNode, this](std::function<void(ossia::net::node_base*)> f) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			f(instNode);
 		};
-		auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf, mProcessAudio);
+
+		auto instance = new Instance(factory, "rnbo" + instIndex, builder, conf, mProcessAudio, instanceIndex);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			//queue a save whenenever the configuration changes
@@ -512,8 +517,12 @@ bool Controller::loadLast() {
 		//load instances
 		for (auto i: c[last_instances_key]) {
 			std::string so = i[last_so_key];
+			unsigned int index = 0;
+			if (i.contains(index_key) && i[index_key].is_number()) {
+				index = i[index_key].get<int>();
+			}
 			//load library but don't save config
-			if (!loadLibrary(so, std::string(), i[last_config_key], false)) {
+			if (!loadLibrary(so, std::string(), i[last_config_key], false, index)) {
 				cerr << "failed to load so " << so << endl;
 				return false;
 			}
@@ -587,6 +596,7 @@ void Controller::saveLast() {
 			RNBO::Json data = RNBO::Json::object();
 			data[last_so_key] = i.second.string();
 			data[last_config_key] = i.first->currentConfig();
+			data[index_key] = i.first->index();
 			instances.push_back(data);
 		}
 	}
@@ -689,6 +699,18 @@ void Controller::reportActive() {
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 	mInstancesNode->clear_children();
 	mInstances.clear();
+}
+
+void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index) {
+	for (auto it = mInstances.begin(); it < mInstances.end(); it++) {
+		if (it->first->index() == index) {
+			mInstances.erase(it);
+			if (!mInstancesNode->remove_child(std::to_string(index))) {
+				std::cerr << "failed to remove instance node with index " << index << std::endl;
+			}
+			return;
+		}
+	}
 }
 
 void Controller::processCommands() {
@@ -794,16 +816,25 @@ void Controller::processCommands() {
 					auto id = compileProcess->mCommandId;
 					auto libPath = compileProcess->mLibPath;
 					auto conf = compileProcess->mConf;
+					auto instanceIndex = compileProcess->mInstanceIndex;
 					compileProcess.reset();
 					if (status != 0) {
 						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
 					} else if (fs::exists(libPath)) {
-						reportCommandResult(id, {
-							{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
-							{"message", "compiled"},
-							{"progress", 90}
-						});
-						loadLibrary(libPath.string(), id, conf);
+						if (instanceIndex != boost::none) {
+							reportCommandResult(id, {
+								{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
+								{"message", "compiled"},
+								{"progress", 90}
+							});
+							loadLibrary(libPath.string(), id, conf, true, instanceIndex.get());
+						} else {
+							reportCommandResult(id, {
+								{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
+								{"message", "compiled"},
+								{"progress", 100}
+							});
+						}
 					} else {
 						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::LibraryNotFound), "couldn't find compiled library at " + libPath.string());
 					}
@@ -888,12 +919,6 @@ void Controller::processCommands() {
 					{"progress", 10}
 				});
 
-				//clear out instances in prep
-				{
-					std::lock_guard<std::mutex> guard(mBuildMutex);
-					clearInstances(guard);
-				}
-
 				//create library name, based on time so we don't have to unload existing
 				std::string libName = "RNBORunnerSO" + timeTag;
 
@@ -911,6 +936,7 @@ void Controller::processCommands() {
 				{
 					//config might be in a file
 					RNBO::Json config;
+					boost::optional<unsigned int> instanceIndex = 0;
 					if (params.contains("config_file")) {
 						std::string fileName = params["config_file"].get<std::string>();
 						fs::path config_file = fs::absolute(sourceCache / fileName);
@@ -920,7 +946,17 @@ void Controller::processCommands() {
 					} else if (params.contains("config")) {
 						config = params["config"];
 					}
-					compileProcess = CompileInfo(build_program, args, libPath, id, config);
+
+					if (params.contains("load")) {
+						if (params["load"].is_null()) {
+							instanceIndex = boost::none;
+						} else {
+							instanceIndex = boost::make_optional(static_cast<unsigned int>(params["load"].get<int>()));
+							std::lock_guard<std::mutex> guard(mBuildMutex);
+							unloadInstance(guard, instanceIndex.get());
+						}
+					}
+					compileProcess = CompileInfo(build_program, args, libPath, id, config, instanceIndex);
 				}
 
 			} else if (method == "file_delete") {
