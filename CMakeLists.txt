@@ -37,6 +37,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(PROJECT_SRC
 	src/main.cpp
+	src/DB.cpp
 	src/Config.cpp
 	src/Controller.cpp
 	src/Instance.cpp
@@ -142,6 +143,18 @@ conan_cmake_install(
 	SETTINGS ${settings}
 )
 
+conan_cmake_configure(
+	REQUIRES sqlitecpp/3.2.1
+	GENERATORS cmake_find_package
+	OPTIONS
+		sqlitecpp:shared=False
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS ${settings}
+)
+
 find_library(JACK_LIB "jack" REQUIRED)
 find_library(JACKSERVER_LIB "jackserver" REQUIRED)
 find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
@@ -150,6 +163,7 @@ find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
 find_package(SndFile REQUIRED)
+find_package(SQLiteCpp REQUIRED)
 
 include_directories(
 	./3rdparty/
@@ -164,6 +178,7 @@ include_directories(
 	${base64_INCLUDE_DIRS}
 	${SndFile_INCLUDE_DIRS}
 	${JACK_INCLUDE_DIR}
+	${SQLiteCpp_INCLUDES}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -222,6 +237,7 @@ target_link_libraries(${PROJECT_APP}
 	${JACK_LIB}
 	${JACKSERVER_LIB}
 	${SndFile_LIBRARIES}
+	${SQLiteCpp_LIBRARIES}
 	${SDBUS_LIBS}
 )
 if (LINUX)
