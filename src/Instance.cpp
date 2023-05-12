@@ -130,8 +130,8 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
-	auto datarefs = conf["datarefs"];
-	if (datarefs.is_object()) {
+	if (conf.contains("datarefs") && conf["datarefs"].is_object()) {
+		auto datarefs = conf["datarefs"];
 		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
 			dataRefMap[it.key()] = it.value();
 		}

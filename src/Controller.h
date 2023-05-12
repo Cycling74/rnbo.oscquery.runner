@@ -13,6 +13,7 @@
 #include "Instance.h"
 #include "ProcessAudio.h"
 #include "Queue.h"
+#include "DB.h"
 
 //forward declarations
 namespace ossia {
@@ -58,6 +59,7 @@ class Controller {
 		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
+		DB mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
 		std::shared_ptr<ossia::net::network_context> mOssiaContext;
 		ossia::net::multiplex_protocol * mProtocol;

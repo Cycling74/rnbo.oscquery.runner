@@ -50,7 +50,7 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 
 	do_migration(cur, mDB, 2, [](SQLite::Database& db) {
 			db.exec(R"(CREATE TABLE IF NOT EXISTS patchers (
-					id INTEGER PRIMARY KEY,
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
 					name TEXT NOT NULL,
 					so_path TEXT NOT NULL,
 					config_path TEXT,
@@ -65,3 +65,39 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 
 DB::~DB() { }
 
+
+void DB::patcherStore(
+		const std::string& name,
+		const fs::path& so_name,
+		const fs::path& config_name,
+		const std::string& max_rnbo_version
+		) {
+	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path) VALUES (?1, ?2, ?3, ?4, ?5)");
+	query.bind(1, name);
+	query.bind(2, rnbo_version);
+	query.bind(3, max_rnbo_version);
+	query.bind(4, so_name.string());
+	query.bind(5, config_name.string());
+	query.exec();
+}
+
+bool DB::patcherGetLatest(
+		const std::string& name,
+		fs::path& so_name,
+		fs::path& config_name,
+		std::string& created_at
+		) {
+		SQLite::Statement query(mDB, "SELECT so_path, config_path, created_at FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		query.bind(1, name);
+		query.bind(2, rnbo_version);
+		if (query.executeStep()) {
+			const char * s = query.getColumn(0);
+			so_name = fs::path(s);
+			s = query.getColumn(1);
+			config_name = fs::path(s);
+			s = query.getColumn(2);
+			created_at = std::string(s);
+			return true;
+		}
+		return false;
+}

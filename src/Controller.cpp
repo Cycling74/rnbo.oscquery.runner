@@ -82,6 +82,8 @@ namespace {
 		bp::child mProcess;
 		std::string mCommandId;
 		RNBO::Json mConf;
+		fs::path mConfFileName;
+		std::string mMaxRNBOVersion;
 		boost::optional<unsigned int> mInstanceIndex;
 		fs::path mLibPath;
 		CompileInfo(
@@ -89,11 +91,15 @@ namespace {
 				fs::path libPath,
 				std::string cmdId,
 				RNBO::Json conf,
+				fs::path confFileName,
+				std::string maxRNBOVersion,
 				boost::optional<unsigned int> instanceIndex
 				) :
 			mProcess(command, args, mGroup),
 			mCommandId(cmdId),
 			mConf(conf),
+			mConfFileName(confFileName),
+			mMaxRNBOVersion(maxRNBOVersion),
 			mLibPath(libPath),
 			mInstanceIndex(instanceIndex)
 		{ }
@@ -117,7 +123,7 @@ namespace {
 }
 
 
-Controller::Controller(std::string server_name) : mProcessCommands(true) {
+Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) {
 	mProtocol = new ossia::net::multiplex_protocol();
 	mOssiaContext = ossia::net::create_network_context();
 	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, 1234, 5678);
@@ -330,6 +336,63 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 
 	mInstancesNode = root->create_child("inst");
 	mInstancesNode->set(ossia::net::description_attribute{}, "code export instances");
+	{
+		auto ctl = mInstancesNode->create_child("control");
+
+		auto cmdBuilder = [](std::string method, int index, const std::string& name) -> std::string {
+			RNBO::Json cmd = {
+				{"method", method},
+				{"id", "internal"},
+				{"params",
+					{
+						{"name", name},
+						{"index", index},
+					}
+				}
+			};
+			return cmd.dump();
+		};
+
+		{
+			auto n = ctl->create_child("unload");
+			auto p = n->create_parameter(ossia::val_type::INT);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "Unload a running instance by index");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::INT) {
+						auto index = v.get<int>();
+						if (index >= 0) {
+							mCommandQueue.push(cmdBuilder("instance_unload", index, ""));
+						}
+					}
+			});
+
+		}
+
+		{
+			auto n = ctl->create_child("load");
+			auto p = n->create_parameter(ossia::val_type::LIST);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index name");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::LIST) {
+					auto l = v.get<std::vector<ossia::value>>();
+					if (l.size() == 2 && l[1].get_type() == ossia::val_type::STRING && l[0].get_type() == ossia::val_type::INT) {
+						auto index = l[0].get<int>();
+						auto name = l[1].get<std::string>();
+
+						if (index >= 0) {
+							mCommandQueue.push(cmdBuilder("instance_load", index, name));
+						}
+
+					}
+				}
+			});
+
+		}
+	}
 
 	bool supports_install = false;
 	auto update = info->create_child("update");
@@ -449,7 +512,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		std::string instIndex = std::to_string(instanceIndex);
 
 		std::string name = "rnbo" + instIndex;
-		if (conf.contains("name")) {
+		if (conf.contains("name") && conf["name"].is_string()) {
 			name = conf["name"].get<std::string>();
 		}
 
@@ -703,7 +766,12 @@ void Controller::reportActive() {
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
-	mInstancesNode->clear_children();
+	for (auto it = mInstances.begin(); it < mInstances.end(); it++) {
+		auto index = std::to_string(it->first->index());
+		if (!mInstancesNode->remove_child(index)) {
+			std::cerr << "failed to remove instance node with index " << index << std::endl;
+		}
+	}
 	mInstances.clear();
 }
 
@@ -822,11 +890,18 @@ void Controller::processCommands() {
 					auto id = compileProcess->mCommandId;
 					auto libPath = compileProcess->mLibPath;
 					auto conf = compileProcess->mConf;
+					auto confFileName = compileProcess->mConfFileName;
 					auto instanceIndex = compileProcess->mInstanceIndex;
+					auto maxRNBOVersion = compileProcess->mMaxRNBOVersion;
 					compileProcess.reset();
 					if (status != 0) {
 						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
 					} else if (fs::exists(libPath)) {
+						if (conf.contains("name") && conf["name"].is_string()) {
+							std::string name = conf["name"].get<std::string>();
+							mDB.patcherStore(name, libPath.filename(), confFileName, maxRNBOVersion);
+						}
+
 						if (instanceIndex != boost::none) {
 							reportCommandResult(id, {
 								{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
@@ -943,14 +1018,20 @@ void Controller::processCommands() {
 					//config might be in a file
 					RNBO::Json config;
 					boost::optional<unsigned int> instanceIndex = 0;
+					std::string confFileName;
+					std::string maxRNBOVersion = "unknown";
 					if (params.contains("config_file")) {
-						std::string fileName = params["config_file"].get<std::string>();
-						fs::path config_file = fs::absolute(sourceCache / fileName);
+						confFileName = params["config_file"].get<std::string>();
+						fs::path config_file = fs::absolute(sourceCache / confFileName);
 						std::ifstream i(config_file.string());
 						i >> config;
 						i.close();
 					} else if (params.contains("config")) {
 						config = params["config"];
+					}
+
+					if (params.contains("rnbo_version")) {
+						maxRNBOVersion = params["rnbo_version"].get<std::string>();
 					}
 
 					if (params.contains("load")) {
@@ -962,9 +1043,35 @@ void Controller::processCommands() {
 							unloadInstance(guard, instanceIndex.get());
 						}
 					}
-					compileProcess = CompileInfo(build_program, args, libPath, id, config, instanceIndex);
+					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFileName, maxRNBOVersion, instanceIndex);
 				}
 
+			} else if (method == "instance_load") {
+				int index = params["index"].get<int>();
+				std::string name = params["name"].get<std::string>();
+
+				fs::path libPath;
+				fs::path confPath;
+				std::string createdAt;
+				RNBO::Json config;
+				if (mDB.patcherGetLatest(name, libPath, confPath, createdAt)) {
+					libPath = fs::absolute(compileCache / libPath);
+					confPath = fs::absolute(sourceCache / confPath);
+
+					if (fs::exists(libPath)) {
+						if (fs::exists(confPath)) {
+							std::ifstream i(confPath.string());
+							i >> config;
+							i.close();
+						}
+						loadLibrary(libPath.string(), std::string(), config, true, static_cast<unsigned int>(index));
+					}
+				}
+			} else if (method == "instance_unload") {
+				unsigned int index = static_cast<unsigned int>(params["index"].get<int>());
+				std::lock_guard<std::mutex> guard(mBuildMutex);
+				unloadInstance(guard, index);
+				queueSave();
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
 					continue;
