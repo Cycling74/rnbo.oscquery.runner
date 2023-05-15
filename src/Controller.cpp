@@ -399,6 +399,58 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 		}
 	}
 
+	{
+		auto conf = mInstancesNode->create_child("config");
+		{
+			auto key = config::key::InstanceAutoConnectAudio;
+			auto n = conf->create_child("auto_connect_audio");
+			n->set(ossia::net::description_attribute{}, "Automatically connect newly activated instances to audio i/o");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+		{
+			auto key = config::key::InstanceAutoConnectAudioIndexed;
+			auto n = conf->create_child("auto_connect_audio_indexed");
+			n->set(ossia::net::description_attribute{}, "Automatically connect newly activated instances to audio i/o, using the RNBO i/o index to inform the connections");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+		{
+			auto key = config::key::InstanceAutoConnectMIDI;
+			auto n = conf->create_child("auto_connect_midi");
+			n->set(ossia::net::description_attribute{}, "Automatically connect newly activated instances to midi i/o");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+		{
+			auto key = config::key::InstanceAutoStartLast;
+			auto n = conf->create_child("auto_start_last");
+			n->set(ossia::net::description_attribute{}, "Automatically start the last instance configuration on runner startup");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+	}
+
 
 	bool supports_install = false;
 	auto update = info->create_child("update");
