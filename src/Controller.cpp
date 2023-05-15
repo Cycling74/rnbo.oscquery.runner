@@ -334,6 +334,11 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 		});
 	}
 
+	mPatchersNode = root->create_child("patchers");
+	mPatchersNode->set(ossia::net::description_attribute{}, "patcher descriptions");
+
+	updatePatchersInfo();
+
 	mInstancesNode = root->create_child("inst");
 	mInstancesNode->set(ossia::net::description_attribute{}, "code export instances");
 	{
@@ -371,10 +376,10 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 		}
 
 		{
-			auto n = ctl->create_child("load");
-			auto p = n->create_parameter(ossia::val_type::LIST);
-			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index name");
+			mInstanceLoadNode = ctl->create_child("load");
+			auto p = mInstanceLoadNode->create_parameter(ossia::val_type::LIST);
+			mInstanceLoadNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index name");
 
 			p->add_callback([this, cmdBuilder](const ossia::value& v) {
 				if (v.get_type() == ossia::val_type::LIST) {
@@ -393,6 +398,7 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 
 		}
 	}
+
 
 	bool supports_install = false;
 	auto update = info->create_child("update");
@@ -680,6 +686,36 @@ void Controller::queueSave() {
 	mSave = true;
 }
 
+void Controller::updatePatchersInfo() {
+
+	mPatchersNode->clear_children();
+	mDB.patchers([this](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at) {
+			auto r = mPatchersNode->create_child(name);
+
+			{
+				auto n = r->create_child("io");
+				auto p = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "input and output counts: audio ins, audio outs, midi ins, midi outs");
+
+				std::vector<ossia::value> l;
+				l.push_back(audio_inputs);
+				l.push_back(audio_outputs);
+				l.push_back(midi_inputs);
+				l.push_back(midi_outputs);
+
+				p->push_value(l);
+			}
+
+			{
+				auto n = r->create_child("created_at");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				p->push_value(created_at);
+			}
+	});
+}
+
 bool Controller::processEvents() {
 	try {
 		{
@@ -899,7 +935,31 @@ void Controller::processCommands() {
 					} else if (fs::exists(libPath)) {
 						if (conf.contains("name") && conf["name"].is_string()) {
 							std::string name = conf["name"].get<std::string>();
-							mDB.patcherStore(name, libPath.filename(), confFileName, maxRNBOVersion);
+
+							int audio_inputs = 0;
+							int audio_outputs = 0;
+							int midi_inputs = 0;
+							int midi_outputs = 0;
+
+							if (conf.contains("numInputChannels")) {
+								audio_inputs = conf["numInputChannels"].get<int>();
+							}
+							if (conf.contains("numOutputChannels")) {
+								audio_outputs = conf["numOutputChannels"].get<int>();
+							}
+							if (conf.contains("numMidiInputPorts")) {
+								midi_inputs = conf["numMidiInputPorts"].get<int>();
+							}
+							if (conf.contains("numMidiOutputPorts")) {
+								midi_outputs = conf["numMidiOutputPorts"].get<int>();
+							}
+
+							mDB.patcherStore(name, libPath.filename(), confFileName, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+
+							{
+								std::lock_guard<std::mutex> guard(mBuildMutex);
+								updatePatchersInfo();
+							}
 						}
 
 						if (instanceIndex != boost::none) {
@@ -1052,9 +1112,8 @@ void Controller::processCommands() {
 
 				fs::path libPath;
 				fs::path confPath;
-				std::string createdAt;
 				RNBO::Json config;
-				if (mDB.patcherGetLatest(name, libPath, confPath, createdAt)) {
+				if (mDB.patcherGetLatest(name, libPath, confPath)) {
 					libPath = fs::absolute(compileCache / libPath);
 					confPath = fs::absolute(sourceCache / confPath);
 

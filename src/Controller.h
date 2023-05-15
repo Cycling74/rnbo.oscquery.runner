@@ -59,15 +59,18 @@ class Controller {
 		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
+		void updatePatchersInfo();
+
 		DB mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
 		std::shared_ptr<ossia::net::network_context> mOssiaContext;
 		ossia::net::multiplex_protocol * mProtocol;
 		std::mutex mOssiaContextMutex;
 
-		//TODO
 		ossia::net::node_base * mInstancesNode;
 		ossia::net::parameter_base * mResponseParam = nullptr;
+		ossia::net::node_base * mInstanceLoadNode;
+		ossia::net::node_base * mPatchersNode;
 
 		//instance and path to SO
 		std::vector<std::pair<std::unique_ptr<Instance>, boost::filesystem::path>> mInstances;

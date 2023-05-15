@@ -66,6 +66,12 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 			db.exec("CREATE INDEX patcher_version ON patchers(runner_rnbo_version)");
 			db.exec("CREATE INDEX patcher_name_version ON patchers(name, runner_rnbo_version)");
 	});
+	do_migration(4, [](SQLite::Database& db) {
+			db.exec("ALTER TABLE patchers ADD COLUMN audio_inputs INTEGER DEFAULT 0");
+			db.exec("ALTER TABLE patchers ADD COLUMN audio_outputs INTEGER DEFAULT 0");
+			db.exec("ALTER TABLE patchers ADD COLUMN midi_inputs INTEGER DEFAULT 0");
+			db.exec("ALTER TABLE patchers ADD COLUMN midi_outputs INTEGER DEFAULT 0");
+	});
 }
 
 DB::~DB() { }
@@ -75,24 +81,27 @@ void DB::patcherStore(
 		const std::string& name,
 		const fs::path& so_name,
 		const fs::path& config_name,
-		const std::string& max_rnbo_version
+		const std::string& max_rnbo_version,
+		int audio_inputs,
+		int audio_outputs,
+		int midi_inputs,
+		int midi_outputs
 		) {
-	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path) VALUES (?1, ?2, ?3, ?4, ?5)");
+	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)");
 	query.bind(1, name);
 	query.bind(2, rnbo_version);
 	query.bind(3, max_rnbo_version);
 	query.bind(4, so_name.string());
 	query.bind(5, config_name.string());
+	query.bind(6, audio_inputs);
+	query.bind(7, audio_outputs);
+	query.bind(8, midi_inputs);
+	query.bind(9, midi_outputs);
 	query.exec();
 }
 
-bool DB::patcherGetLatest(
-		const std::string& name,
-		fs::path& so_name,
-		fs::path& config_name,
-		std::string& created_at
-		) {
-		SQLite::Statement query(mDB, "SELECT so_path, config_path, created_at FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name) {
+		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (query.executeStep()) {
@@ -100,9 +109,29 @@ bool DB::patcherGetLatest(
 			so_name = fs::path(s);
 			s = query.getColumn(1);
 			config_name = fs::path(s);
-			s = query.getColumn(2);
-			created_at = std::string(s);
 			return true;
 		}
 		return false;
+}
+
+void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> func) {
+	SQLite::Statement query(mDB, R"(
+		SELECT name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, datetime(created_at) FROM patchers
+		WHERE id IN (SELECT MAX(id) FROM patchers WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+	)");
+	query.bind(1, rnbo_version);
+	while (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string name(s);
+
+		int audio_inputs = query.getColumn(1);
+		int audio_outputs = query.getColumn(2);
+		int midi_inputs = query.getColumn(3);
+		int midi_outputs  = query.getColumn(4);
+
+		s = query.getColumn(5);
+		std::string created_at(s);
+
+		func(name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, created_at);
+	}
 }
