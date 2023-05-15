@@ -39,6 +39,8 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void handleTransportBeatTime(double btime) override;
 		virtual void handleTransportTimeSig(double numerator, double denominator) override;
 
+		void updatePorts();
+
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
 		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
@@ -55,6 +57,7 @@ class ProcessAudioJack : public ProcessAudio {
 		std::atomic<jack_uuid_t> mBPMClientUUID;
 
 		ossia::net::node_base * mInfoNode = nullptr;
+		ossia::net::node_base * mPortInfoNode = nullptr;
 		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
 		ossia::net::parameter_base * mIsOwnedParam = nullptr;
 		ossia::net::node_base * mTransportNode = nullptr;

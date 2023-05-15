@@ -97,6 +97,8 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 	mBuilder([this](ossia::net::node_base * root) {
 			mInfoNode = root->create_child("info");
 
+			mPortInfoNode = mInfoNode->create_child("ports");
+
 			auto conf = root->create_child("config");
 			conf->set(ossia::net::description_attribute{}, "Jack configuration parameters");
 
@@ -511,7 +513,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 				}
 			});
-			//TODO build up i/o dynamically
+			updatePorts();
 			jack_activate(mJackClient);
 		}
 	}
@@ -556,6 +558,52 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 			}
 		}
 	}
+}
+
+void ProcessAudioJack::updatePorts() {
+	mBuilder([this](ossia::net::node_base *) {
+			//TODO detect changes?
+			mPortInfoNode->clear_children();
+			const char ** ports = nullptr;
+
+			char * aliases[2] = { nullptr, nullptr };
+			aliases[0] = new char[jack_port_name_size()];
+			aliases[1] = new char[jack_port_name_size()];
+
+			std::vector<std::tuple<std::string, const char *, unsigned long>> portTypes = {
+				{"audio_sources", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput},
+				{"audio_sinks", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput},
+				{"midi_sources", JACK_DEFAULT_MIDI_TYPE, JackPortIsInput},
+				{"midi_sinks", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput},
+			};
+
+			for (auto info: portTypes) {
+				auto n = mPortInfoNode->create_child(std::get<0>(info));
+				auto p = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+
+				std::vector<ossia::value> names;
+
+				if ((ports = jack_get_ports(mJackClient, NULL, std::get<1>(info), std::get<2>(info))) != NULL) {
+					for (size_t i = 0; ports[i] != nullptr; i++) {
+						jack_port_t * port = jack_port_by_name(mJackClient, ports[i]);
+						if (port) {
+							if (jack_port_get_aliases(port, aliases)) {
+								names.push_back(std::string(aliases[0])); //do we ever want the 2nd one?
+							} else {
+								names.push_back(std::string(ports[i]));
+							}
+						}
+					}
+					jack_free(ports);
+				}
+
+				p->push_value(names);
+			}
+
+			delete [] aliases[0];
+			delete [] aliases[1];
+	});
 }
 
 //XXX expects to have mutex already
