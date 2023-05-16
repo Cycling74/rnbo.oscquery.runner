@@ -117,6 +117,8 @@ class InstanceAudioJack : public InstanceAudio {
 		void process(jack_nframes_t frames);
 		//callback that gets called with jack adds or removes client ports
 		void jackPortRegistration(jack_port_id_t id, int reg);
+
+		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
 	private:
 
 		void connectToHardware();
@@ -157,4 +159,6 @@ class InstanceAudioJack : public InstanceAudio {
 		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
 
 		std::function<void(ProgramChange)> mProgramChangeCallback;
+
+		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
 };
