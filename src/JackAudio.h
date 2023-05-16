@@ -39,7 +39,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void handleTransportBeatTime(double btime) override;
 		virtual void handleTransportTimeSig(double numerator, double denominator) override;
 
-		void updatePorts();
+		virtual void updatePorts() override;
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:

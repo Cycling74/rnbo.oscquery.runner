@@ -604,6 +604,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 		if (saveConfig)
 			queueSave();
 		reportActive();
+		mProcessAudio->updatePorts();
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "failed to load library: " << fname << " exception: " << e.what() << std::endl;
@@ -662,6 +663,7 @@ bool Controller::loadLast() {
 				mInstances.front().first->loadPreset(std::move(preset));
 			}
 		}
+		mProcessAudio->updatePorts();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
 	} catch (...) {
@@ -1151,8 +1153,11 @@ void Controller::processCommands() {
 							instanceIndex = boost::none;
 						} else {
 							instanceIndex = boost::make_optional(static_cast<unsigned int>(params["load"].get<int>()));
-							std::lock_guard<std::mutex> guard(mBuildMutex);
-							unloadInstance(guard, instanceIndex.get());
+							{
+								std::lock_guard<std::mutex> guard(mBuildMutex);
+								unloadInstance(guard, instanceIndex.get());
+							}
+							mProcessAudio->updatePorts();
 						}
 					}
 					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFileName, maxRNBOVersion, instanceIndex);
@@ -1180,8 +1185,11 @@ void Controller::processCommands() {
 				}
 			} else if (method == "instance_unload") {
 				unsigned int index = static_cast<unsigned int>(params["index"].get<int>());
-				std::lock_guard<std::mutex> guard(mBuildMutex);
-				unloadInstance(guard, index);
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+					unloadInstance(guard, index);
+				}
+				mProcessAudio->updatePorts();
 				queueSave();
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))

@@ -9,6 +9,8 @@ class ProcessAudio {
 		//process any events in the current thread
 		virtual void processEvents() = 0;
 
+		virtual void updatePorts() {}
+
 		//transport handlers
 		virtual void handleTransportState(bool running) = 0;
 		virtual void handleTransportTempo(double bpm) = 0;
