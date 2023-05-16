@@ -1213,11 +1213,10 @@ void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /
 			std::vector<ossia::value> names;
 
 			if (connections != nullptr) {
+				for (int i = 0; connections[i] != nullptr; i++) {
+					names.push_back(std::string(connections[i]));
+				}
 				jack_free(connections);
-			}
-			while (*connections != nullptr) {
-				names.push_back(std::string(*connections));
-				connections++;
 			}
 			param->push_value(names);
 		}
