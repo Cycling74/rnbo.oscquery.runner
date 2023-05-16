@@ -562,26 +562,38 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 
 void ProcessAudioJack::updatePorts() {
 	mBuilder([this](ossia::net::node_base *) {
-			//TODO detect changes?
-			mPortInfoNode->clear_children();
 			const char ** ports = nullptr;
 
 			char * aliases[2] = { nullptr, nullptr };
 			aliases[0] = new char[jack_port_name_size()];
 			aliases[1] = new char[jack_port_name_size()];
 
-			std::vector<std::tuple<std::string, const char *, unsigned long>> portTypes = {
-				{"audio_sources", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput},
-				{"audio_sinks", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput},
-				{"midi_sources", JACK_DEFAULT_MIDI_TYPE, JackPortIsInput},
-				{"midi_sinks", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput},
+			if (mPortAudioSinksParam == nullptr) {
+				auto audio = mPortInfoNode->create_child("audio");
+				auto midi = mPortInfoNode->create_child("midi");
+
+				auto build = [](ossia::net::node_base * parent, const std::string name) -> ossia::net::parameter_base * {
+					auto n = parent->create_child(name);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					return p;
+				};
+
+				mPortAudioSinksParam = build(audio, "sinks");
+				mPortAudioSourcesParam = build(audio, "sources");
+				mPortMidiSinksParam = build(midi, "sinks");
+				mPortMidiSourcesParam = build(midi, "sources");
+			}
+
+			std::vector<std::tuple<ossia::net::parameter_base *, const char *, unsigned long>> portTypes = {
+				{mPortAudioSourcesParam, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput},
+				{mPortAudioSinksParam, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput},
+				{mPortMidiSourcesParam, JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput},
+				{mPortMidiSinksParam, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput},
 			};
 
 			for (auto info: portTypes) {
-				auto n = mPortInfoNode->create_child(std::get<0>(info));
-				auto p = n->create_parameter(ossia::val_type::LIST);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-
+				auto p = std::get<0>(info);
 				std::vector<ossia::value> names;
 
 				if ((ports = jack_get_ports(mJackClient, NULL, std::get<1>(info), std::get<2>(info))) != NULL) {
