@@ -40,6 +40,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void handleTransportTimeSig(double numerator, double denominator) override;
 
 		virtual void updatePorts() override;
+		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:

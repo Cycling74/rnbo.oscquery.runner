@@ -61,6 +61,10 @@ namespace {
 		return 0;
 	}
 
+	static void processJackPortRenamed(jack_port_id_t port, const char *old_name, const char *new_name, void *arg) {
+		reinterpret_cast<ProcessAudioJack *>(arg)->portRenamed(port, old_name, new_name);
+	}
+
 	static int processJackInstance(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
 		return 0;
@@ -399,6 +403,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		mJackClient = jack_client_open("rnbo-info", JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
 			jack_set_process_callback(mJackClient, processJackProcess, this);
+			jack_set_port_rename_callback(mJackClient, processJackPortRenamed, this);
 
 			mBuilder([this](ossia::net::node_base * root) {
 				if (mIsRealTimeParam == nullptr) {
@@ -640,6 +645,10 @@ void ProcessAudioJack::updatePorts() {
 			delete [] aliases[0];
 			delete [] aliases[1];
 	});
+}
+
+void ProcessAudioJack::portRenamed(jack_port_id_t /*port*/, const char * /*old_name*/, const char * /*new_name*/) {
+	updatePorts();
 }
 
 //XXX expects to have mutex already
