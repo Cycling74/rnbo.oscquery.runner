@@ -1128,41 +1128,41 @@ void InstanceAudioJack::connectToHardware() {
 	}
 
 
-	if (config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
-		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
-			for (auto ptr = ports; *ptr != nullptr; ptr++) {
-				connectToMidiIf(jack_port_by_name(mJackClient, *ptr));
-			}
-			jack_free(ports);
+	if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
+		for (auto ptr = ports; *ptr != nullptr; ptr++) {
+			connectToMidiIf(jack_port_by_name(mJackClient, *ptr));
 		}
+		jack_free(ports);
 	}
 }
 
 void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
-	std::lock_guard<std::mutex> guard(mPortMutex);
-	//if we can get the port, it isn't ours and it is a midi port
-	if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
-		//ignore through and virtual
-		auto is_through = [](const char * name) -> bool {
-			std::string lower(name);
-			transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-			return lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
-		};
-		auto name = jack_port_name(port);
-		//ditch if the port is a through or is already connected
-		if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name))
-			return;
-		//check aliases, ditch if it is a virtual or through
-		auto count = jack_port_get_aliases(port, mJackPortAliases);
-		for (auto i = 0; i < count; i++) {
-			if (is_through(mJackPortAliases[i]))
+	if (config::get<bool>(config::key::InstanceAutoConnectMIDI).value_or(false)) {
+		std::lock_guard<std::mutex> guard(mPortMutex);
+		//if we can get the port, it isn't ours and it is a midi port
+		if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
+			//ignore through and virtual
+			auto is_through = [](const char * name) -> bool {
+				std::string lower(name);
+				transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+				return lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
+			};
+			auto name = jack_port_name(port);
+			//ditch if the port is a through or is already connected
+			if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name))
 				return;
-		}
-		auto flags = jack_port_flags(port);
-		if (flags & JackPortFlags::JackPortIsInput) {
-			jack_connect(mJackClient, jack_port_name(mJackMidiOut), name);
-		} else if (flags & JackPortFlags::JackPortIsOutput) {
-			jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
+			//check aliases, ditch if it is a virtual or through
+			auto count = jack_port_get_aliases(port, mJackPortAliases);
+			for (auto i = 0; i < count; i++) {
+				if (is_through(mJackPortAliases[i]))
+					return;
+			}
+			auto flags = jack_port_flags(port);
+			if (flags & JackPortFlags::JackPortIsInput) {
+				jack_connect(mJackClient, jack_port_name(mJackMidiOut), name);
+			} else if (flags & JackPortFlags::JackPortIsOutput) {
+				jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
+			}
 		}
 	}
 }
