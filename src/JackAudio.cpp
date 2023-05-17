@@ -815,14 +815,16 @@ InstanceAudioJack::InstanceAudioJack(
 			auto n = parent->create_child(name);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 			n->set(ossia::net::description_attribute{}, "Port and its connections, send port names to change, see /rnbo/jack/ports for names to connect");
-			auto p = n->create_parameter(ossia::val_type::LIST);
+			auto param = n->create_parameter(ossia::val_type::LIST);
 
-			p->add_callback([port, input, name, this](const ossia::value& val) {
+			param->add_callback([port, input, name, this, param](const ossia::value& val) {
 				std::set<std::string> add;
 				std::set<std::string> remove;
 
 				if (val.get_type() == ossia::val_type::LIST) {
 					auto l = val.get<std::vector<ossia::value>>();
+					std::vector<ossia::value> valid;
+					bool invalidEntry = false;
 					for (auto it: l) {
 						if (it.get_type() == ossia::val_type::STRING) {
 							add.insert(it.get<std::string>());
@@ -838,6 +840,7 @@ InstanceAudioJack::InstanceAudioJack(
 							std::string n(connections[i]);
 							//we don't need to add connections that are already there
 							if (add.count(n)) {
+								valid.push_back(n);
 								add.erase(n);
 							} else {
 								remove.insert(n);
@@ -847,11 +850,17 @@ InstanceAudioJack::InstanceAudioJack(
 					}
 
 					for (auto n: add) {
-						//TODO chekc response
+						int ret = 0;
 						if (input) {
-							jack_connect(mJackClient, n.c_str(), name.c_str());
+							ret = jack_connect(mJackClient, n.c_str(), name.c_str());
 						} else {
-							jack_connect(mJackClient, name.c_str(), n.c_str());
+							ret = jack_connect(mJackClient, name.c_str(), n.c_str());
+						}
+						//check response and update parameter
+						if (ret == 0 || ret == EEXIST) {
+							valid.push_back(n);
+						} else {
+							invalidEntry = true;
 						}
 					}
 					for (auto n: remove) {
@@ -861,11 +870,15 @@ InstanceAudioJack::InstanceAudioJack(
 							jack_disconnect(mJackClient, name.c_str(), n.c_str());
 						}
 					}
-
+					//update param with valid entries
+					if (invalidEntry) {
+						//quiet to avoid recursion and deadlock
+						param->set_value_quiet(valid);
+					}
 				}
 			});
 
-			return p;
+			return param;
 		};
 
 		auto audio_sinks = audio->create_child("sinks");
