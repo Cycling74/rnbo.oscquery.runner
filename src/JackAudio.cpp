@@ -18,6 +18,7 @@
 #include <iostream>
 #include <regex>
 #include <string>
+#include <set>
 
 namespace fs = boost::filesystem;
 
@@ -810,11 +811,60 @@ InstanceAudioJack::InstanceAudioJack(
 		auto audio = conn->create_child("audio");
 		auto midi = conn->create_child("midi");
 
-		auto build_port = [](ossia::net::node_base * parent, const std::string name) -> ossia::net::parameter_base * {
+		auto build_port_param = [this](jack_port_t * port, ossia::net::node_base * parent, const std::string& name, bool input) -> ossia::net::parameter_base * {
 			auto n = parent->create_child(name);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 			n->set(ossia::net::description_attribute{}, "Port and its connections, send port names to change, see /rnbo/jack/ports for names to connect");
 			auto p = n->create_parameter(ossia::val_type::LIST);
+
+			p->add_callback([port, input, name, this](const ossia::value& val) {
+				std::set<std::string> add;
+				std::set<std::string> remove;
+
+				if (val.get_type() == ossia::val_type::LIST) {
+					auto l = val.get<std::vector<ossia::value>>();
+					for (auto it: l) {
+						if (it.get_type() == ossia::val_type::STRING) {
+							add.insert(it.get<std::string>());
+						} else {
+							//ERROR
+						}
+					}
+
+					auto connections = jack_port_get_connections(port);
+
+					if (connections != nullptr) {
+						for (int i = 0; connections[i] != nullptr; i++) {
+							std::string n(connections[i]);
+							//we don't need to add connections that are already there
+							if (add.count(n)) {
+								add.erase(n);
+							} else {
+								remove.insert(n);
+							}
+						}
+						jack_free(connections);
+					}
+
+					for (auto n: add) {
+						//TODO chekc response
+						if (input) {
+							jack_connect(mJackClient, n.c_str(), name.c_str());
+						} else {
+							jack_connect(mJackClient, name.c_str(), n.c_str());
+						}
+					}
+					for (auto n: remove) {
+						if (input) {
+							jack_disconnect(mJackClient, n.c_str(), name.c_str());
+						} else {
+							jack_disconnect(mJackClient, name.c_str(), n.c_str());
+						}
+					}
+
+				}
+			});
+
 			return p;
 		};
 
@@ -852,7 +902,7 @@ InstanceAudioJack::InstanceAudioJack(
 				mSampleBufferPtrIn.push_back(nullptr);
 				mJackAudioPortIn.push_back(port);
 
-				mPortParamMap.insert({port, build_port(audio_sinks, name)});
+				mPortParamMap.insert({port, build_port_param(port, audio_sinks, name, true)});
 			}
 
 			{
@@ -878,7 +928,7 @@ InstanceAudioJack::InstanceAudioJack(
 				mSampleBufferPtrOut.push_back(nullptr);
 				mJackAudioPortOut.push_back(port);
 
-				mPortParamMap.insert({port, build_port(audio_sources, name)});
+				mPortParamMap.insert({port, build_port_param(port, audio_sources, name, false)});
 			}
 			{
 				auto n = jack->create_child("audio_outs");
@@ -900,7 +950,7 @@ InstanceAudioJack::InstanceAudioJack(
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 
 			std::string name(jack_port_name(mJackMidiIn));
-			mPortParamMap.insert({mJackMidiIn, build_port(midi_sinks, name)});
+			mPortParamMap.insert({mJackMidiIn, build_port_param(mJackMidiIn, midi_sinks, name, true)});
 
 			midi_ins->push_value(ossia::value({ossia::value(name)}));
 		}
@@ -916,7 +966,7 @@ InstanceAudioJack::InstanceAudioJack(
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 
 			std::string name(jack_port_name(mJackMidiOut));
-			mPortParamMap.insert({mJackMidiOut, build_port(midi_sources, name)});
+			mPortParamMap.insert({mJackMidiOut, build_port_param(mJackMidiOut, midi_sources, name, false)});
 
 			midi_outs->push_value(ossia::value({ossia::value(name)}));
 		}
