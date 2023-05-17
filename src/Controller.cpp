@@ -203,7 +203,7 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 
 	//add support for commands
 	{
-		std::vector<ossia::value> supported = { "file_write_extended", "compile-with_config_file" };
+		std::vector<ossia::value> supported = { "file_write_extended", "compile-with_config_file", "compile-with_instance_and_name" };
 
 		auto n = info->create_child("supported_cmds");
 		auto p = n->create_parameter(ossia::val_type::LIST);
