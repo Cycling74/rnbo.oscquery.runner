@@ -588,6 +588,9 @@ void ProcessAudioJack::updatePorts() {
 				mPortAudioSourcesParam = build(audio, "sources");
 				mPortMidiSinksParam = build(midi, "sinks");
 				mPortMidiSourcesParam = build(midi, "sources");
+
+				mPortAliases = mPortInfoNode->create_child("aliases");
+				mPortAliases->set(ossia::net::description_attribute{}, "Ports and a list of their aliases");
 			}
 
 			std::vector<std::tuple<ossia::net::parameter_base *, const char *, unsigned long>> portTypes = {
@@ -605,10 +608,26 @@ void ProcessAudioJack::updatePorts() {
 					for (size_t i = 0; ports[i] != nullptr; i++) {
 						jack_port_t * port = jack_port_by_name(mJackClient, ports[i]);
 						if (port) {
-							if (jack_port_get_aliases(port, aliases)) {
-								names.push_back(std::string(aliases[0])); //do we ever want the 2nd one?
+							std::string name(ports[i]);
+							names.push_back(name);
+							auto cnt = jack_port_get_aliases(port, aliases);
+
+							//update aliases
+							if (cnt != 0) {
+								auto n = mPortAliases->find_child(name);
+								if (n == nullptr) {
+									n = mPortAliases->create_child(name);
+									n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+									n->create_parameter(ossia::val_type::LIST);
+								}
+
+								std::vector<ossia::value> aliasValues;
+								for (int i = 0; i < cnt; i++) {
+									aliasValues.push_back(std::string(aliases[i]));
+								}
+								n->get_parameter()->push_value(aliasValues);
 							} else {
-								names.push_back(std::string(ports[i]));
+								auto n = mPortAliases->remove_child(name);
 							}
 						}
 					}
@@ -1126,7 +1145,6 @@ void InstanceAudioJack::connectToHardware() {
 			jack_free(ports);
 		}
 	}
-
 
 	if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
 		for (auto ptr = ports; *ptr != nullptr; ptr++) {

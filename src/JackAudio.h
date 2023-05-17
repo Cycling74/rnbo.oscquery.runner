@@ -59,6 +59,7 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mInfoNode = nullptr;
 		ossia::net::node_base * mPortInfoNode = nullptr;
 
+		ossia::net::node_base * mPortAliases = nullptr;
 		ossia::net::parameter_base * mPortAudioSinksParam = nullptr;
 		ossia::net::parameter_base * mPortAudioSourcesParam = nullptr;
 		ossia::net::parameter_base * mPortMidiSinksParam = nullptr;
