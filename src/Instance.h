@@ -34,8 +34,10 @@ class Instance {
 
 		unsigned int index() const { return mIndex; }
 
+		void connect();
 		void start();
 		void stop();
+
 		//process any events in the current thread
 		void processEvents();
 

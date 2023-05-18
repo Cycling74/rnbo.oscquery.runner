@@ -29,10 +29,14 @@ class ProcessAudioJack : public ProcessAudio {
 	public:
 		ProcessAudioJack(NodeBuilder builder);
 		virtual ~ProcessAudioJack();
+
 		virtual bool isActive() override;
 		virtual bool setActive(bool active) override;
 		virtual void processEvents() override;
 		void process(jack_nframes_t frames);
+
+		virtual bool connect(const RNBO::Json& config) override;
+		virtual RNBO::Json connections() override;
 
 		virtual void handleTransportState(bool running) override;
 		virtual void handleTransportTempo(double bpm) override;
@@ -112,18 +116,25 @@ class InstanceAudioJack : public InstanceAudio {
 				std::function<void(ProgramChange)> progChangeCallback
 				);
 		virtual ~InstanceAudioJack();
+
+
+		virtual std::string name() override;
+
+		virtual void connect() override;
 		virtual void start() override;
 		virtual void stop() override;
+
 		virtual bool isActive() override;
 		virtual void processEvents() override;
+
 		void process(jack_nframes_t frames);
 		//callback that gets called with jack adds or removes client ports
 		void jackPortRegistration(jack_port_id_t id, int reg);
 
 		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
+
 	private:
 
-		void connectToHardware();
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
 		RNBO::Json mInstanceConf;

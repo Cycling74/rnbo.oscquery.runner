@@ -90,6 +90,18 @@ namespace {
 		}
 		return nullptr;
 	}
+
+	void iterate_connections(jack_port_t * port, std::function<void(std::string)> func) {
+		auto connections = jack_port_get_connections(port);
+
+		if (connections != nullptr) {
+			for (int i = 0; connections[i] != nullptr; i++) {
+				func(std::string(connections[i]));
+			}
+			jack_free(connections);
+		}
+	}
+
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mBPMClientUUID(0) {
@@ -248,6 +260,40 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 				break;
 		}
 	}
+}
+
+bool ProcessAudioJack::connect(const RNBO::Json& config) {
+	return false;
+}
+
+RNBO::Json ProcessAudioJack::connections() {
+	RNBO::Json conf;
+	const char ** ports = nullptr;
+	if ((ports = jack_get_ports(mJackClient, nullptr, nullptr, 0)) != nullptr) {
+		for (size_t i = 0; ports[i] != nullptr; i++) {
+			std::string name(ports[i]);
+			jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+			std::vector<std::string> connections;
+			iterate_connections(port, [&connections](std::string n) {
+					connections.push_back(n);
+			});
+
+			if (connections.size()) {
+				auto flags = jack_port_flags(port);
+
+				RNBO::Json entry;
+				entry["connections"] = connections;
+				entry["physical"] = static_cast<bool>(JackPortIsPhysical & flags);
+				entry["input"] = static_cast<bool>(JackPortIsInput & flags);
+				entry["output"] = static_cast<bool>(JackPortIsOutput & flags);
+
+				conf[name] = entry;
+			}
+		}
+		jack_free(ports);
+	}
+
+	return conf;
 }
 
 bool ProcessAudioJack::isActive() {
@@ -870,21 +916,15 @@ InstanceAudioJack::InstanceAudioJack(
 						}
 					}
 
-					auto connections = jack_port_get_connections(port);
-
-					if (connections != nullptr) {
-						for (int i = 0; connections[i] != nullptr; i++) {
-							std::string n(connections[i]);
-							//we don't need to add connections that are already there
-							if (add.count(n)) {
-								valid.push_back(n);
-								add.erase(n);
-							} else {
-								remove.insert(n);
-							}
+					iterate_connections(port, [&valid, &add, &remove](std::string n) {
+						//we don't need to add connections that are already there
+						if (add.count(n)) {
+							valid.push_back(n);
+							add.erase(n);
+						} else {
+							remove.insert(n);
 						}
-						jack_free(connections);
-					}
+					});
 
 					for (auto n: add) {
 						int ret = 0;
@@ -1043,6 +1083,10 @@ InstanceAudioJack::~InstanceAudioJack() {
 	delete [] mJackPortAliases[1];
 }
 
+std::string InstanceAudioJack::name() {
+	return std::string(jack_get_client_name(mJackClient));
+}
+
 void InstanceAudioJack::start() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	//protect against double activate or deactivate
@@ -1055,7 +1099,6 @@ void InstanceAudioJack::start() {
 		}
 		jack_activate(mJackClient);
 		//only connects what the config indicates
-		connectToHardware();
 		mRunning = true;
 	}
 }
@@ -1086,7 +1129,7 @@ void InstanceAudioJack::processEvents() {
 	}
 }
 
-void InstanceAudioJack::connectToHardware() {
+void InstanceAudioJack::connect() {
 	const char ** ports;
 
 	RNBO::Json outlets;
@@ -1308,15 +1351,10 @@ void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /
 		auto it = mPortParamMap.find(p);
 		if (it != mPortParamMap.end()) {
 			auto param = it->second;
-			auto connections = jack_port_get_connections(p);
 			std::vector<ossia::value> names;
-
-			if (connections != nullptr) {
-				for (int i = 0; connections[i] != nullptr; i++) {
-					names.push_back(std::string(connections[i]));
-				}
-				jack_free(connections);
-			}
+			iterate_connections(p, [&names](std::string name) {
+					names.push_back(name);
+			});
 			param->push_value(names);
 		}
 	};

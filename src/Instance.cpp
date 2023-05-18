@@ -608,6 +608,10 @@ Instance::~Instance() {
 	mPatcherFactory.reset();
 }
 
+void Instance::connect() {
+	mAudio->connect();
+}
+
 void Instance::start() {
 	mAudio->start();
 }

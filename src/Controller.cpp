@@ -59,8 +59,11 @@ namespace {
 
 	static const std::string last_instances_key = "instances";
 	static const std::string last_so_key = "so_path";
+	static const std::string last_conf_file_key = "config_path";
 	static const std::string last_config_key = "config";
 	static const std::string index_key = "index";
+
+	static const std::string connections_key = "connections";
 
 
 	fs::path lastFilePath() {
@@ -82,7 +85,7 @@ namespace {
 		bp::child mProcess;
 		std::string mCommandId;
 		RNBO::Json mConf;
-		fs::path mConfFileName;
+		fs::path mConfFilePath;
 		std::string mMaxRNBOVersion;
 		boost::optional<unsigned int> mInstanceIndex;
 		fs::path mLibPath;
@@ -91,14 +94,14 @@ namespace {
 				fs::path libPath,
 				std::string cmdId,
 				RNBO::Json conf,
-				fs::path confFileName,
+				fs::path confFilePath,
 				std::string maxRNBOVersion,
 				boost::optional<unsigned int> instanceIndex
 				) :
 			mProcess(command, args, mGroup),
 			mCommandId(cmdId),
 			mConf(conf),
-			mConfFileName(confFileName),
+			mConfFilePath(confFilePath),
 			mMaxRNBOVersion(maxRNBOVersion),
 			mLibPath(libPath),
 			mInstanceIndex(instanceIndex)
@@ -537,7 +540,7 @@ Controller::~Controller() {
 	mServer.reset();
 }
 
-bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex) {
+bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
 	//clear out our last instance preset, loadLast should already have it if there is one
 	mInstanceLastPreset.reset();
 
@@ -592,7 +595,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 					queueSave();
 			});
 			instance->start();
-			mInstances.emplace_back(std::make_pair(instance, path));
+			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
 		}
 		if (cmdId.size()) {
 			reportCommandResult(cmdId, {
@@ -645,12 +648,19 @@ bool Controller::loadLast() {
 		//load instances
 		for (auto i: c[last_instances_key]) {
 			std::string so = i[last_so_key];
+
 			unsigned int index = 0;
 			if (i.contains(index_key) && i[index_key].is_number()) {
 				index = i[index_key].get<int>();
 			}
+
+			fs::path conf_file;
+			if (i.contains(last_conf_file_key)) {
+				conf_file = i[last_conf_file_key].get<std::string>();
+			}
+
 			//load library but don't save config
-			if (!loadLibrary(so, std::string(), i[last_config_key], false, index)) {
+			if (!loadLibrary(so, std::string(), i[last_config_key], false, index, conf_file)) {
 				cerr << "failed to load so " << so << endl;
 				return false;
 			}
@@ -660,7 +670,7 @@ bool Controller::loadLast() {
 		if (preset) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mInstances.size()) {
-				mInstances.front().first->loadPreset(std::move(preset));
+				std::get<0>(mInstances.front())->loadPreset(std::move(preset));
 			}
 		}
 		mProcessAudio->updatePorts();
@@ -702,7 +712,7 @@ bool Controller::loadBuiltIn() {
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				instance->start();
-				mInstances.emplace_back(std::make_pair(instance, fs::path()));
+				mInstances.emplace_back(std::make_tuple(instance, fs::path(), fs::path()));
 			}
 		}
 		reportActive();
@@ -723,13 +733,25 @@ void Controller::saveLast() {
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
 		for (auto& i: mInstances) {
 			RNBO::Json data = RNBO::Json::object();
-			data[last_so_key] = i.second.string();
-			data[last_config_key] = i.first->currentConfig();
-			data[index_key] = i.first->index();
+			data[last_so_key] = std::get<1>(i).string();
+			data[last_config_key] = std::get<0>(i)->currentConfig();
+			data[index_key] = std::get<0>(i)->index();
+
+			auto conf_file = std::get<2>(i);
+			if (fs::exists(conf_file)) {
+				data[last_conf_file_key] = conf_file.string();
+			}
+
 			instances.push_back(data);
 		}
 	}
 	last[last_instances_key] = instances;
+
+	RNBO::Json connections = mProcessAudio->connections();
+	if (!connections.is_null()) {
+		last[connections_key] = connections;
+	}
+
 	auto lastFile = lastFilePath();
 	std::ofstream o(lastFile.string());
 	o << std::setw(4) << last << std::endl;
@@ -783,7 +805,7 @@ bool Controller::processEvents() {
 			if (mProcessAudio)
 				mProcessAudio->processEvents();
 			for (auto& i: mInstances)
-				i.first->processEvents();
+				std::get<0>(i)->processEvents();
 		}
 		if (mDiskSpacePollNext <= now) {
 			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
@@ -823,7 +845,7 @@ void Controller::handleActive(bool active) {
 		//save preset to reload on activation
 		//might cause a glitch?
 		if (mInstances.size()) {
-			mInstanceLastPreset = mInstances.front().first->getPresetSync();
+			mInstanceLastPreset = std::get<0>(mInstances.front())->getPresetSync();
 		} else {
 			mInstanceLastPreset.reset();
 		}
@@ -857,7 +879,7 @@ void Controller::reportActive() {
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 	for (auto it = mInstances.begin(); it < mInstances.end(); it++) {
-		auto index = std::to_string(it->first->index());
+		auto index = std::to_string(std::get<0>(*it)->index());
 		if (!mInstancesNode->remove_child(index)) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
 		}
@@ -867,7 +889,7 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 
 void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index) {
 	for (auto it = mInstances.begin(); it < mInstances.end(); it++) {
-		if (it->first->index() == index) {
+		if (std::get<0>(*it)->index() == index) {
 			mInstances.erase(it);
 			if (!mInstancesNode->remove_child(std::to_string(index))) {
 				std::cerr << "failed to remove instance node with index " << index << std::endl;
@@ -980,7 +1002,7 @@ void Controller::processCommands() {
 					auto id = compileProcess->mCommandId;
 					auto libPath = compileProcess->mLibPath;
 					auto conf = compileProcess->mConf;
-					auto confFileName = compileProcess->mConfFileName;
+					auto confFilePath = compileProcess->mConfFilePath;
 					auto instanceIndex = compileProcess->mInstanceIndex;
 					auto maxRNBOVersion = compileProcess->mMaxRNBOVersion;
 					compileProcess.reset();
@@ -1008,7 +1030,7 @@ void Controller::processCommands() {
 								midi_outputs = conf["numMidiOutputPorts"].get<int>();
 							}
 
-							mDB.patcherStore(name, libPath.filename(), confFileName, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+							mDB.patcherStore(name, libPath.filename(), confFilePath.filename(), maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
 
 							{
 								std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -1022,7 +1044,7 @@ void Controller::processCommands() {
 								{"message", "compiled"},
 								{"progress", 90}
 							});
-							loadLibrary(libPath.string(), id, conf, true, instanceIndex.get());
+							loadLibrary(libPath.string(), id, conf, true, instanceIndex.get(), confFilePath);
 						} else {
 							reportCommandResult(id, {
 								{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
@@ -1132,12 +1154,12 @@ void Controller::processCommands() {
 					//config might be in a file
 					RNBO::Json config;
 					boost::optional<unsigned int> instanceIndex = 0;
-					std::string confFileName;
+					fs::path confFilePath;
 					std::string maxRNBOVersion = "unknown";
 					if (params.contains("config_file")) {
-						confFileName = params["config_file"].get<std::string>();
-						fs::path config_file = fs::absolute(sourceCache / confFileName);
-						std::ifstream i(config_file.string());
+						confFilePath = params["config_file"].get<std::string>();
+						confFilePath = fs::absolute(sourceCache / confFilePath);
+						std::ifstream i(confFilePath.string());
 						i >> config;
 						i.close();
 					} else if (params.contains("config")) {
@@ -1160,7 +1182,7 @@ void Controller::processCommands() {
 							mProcessAudio->updatePorts();
 						}
 					}
-					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFileName, maxRNBOVersion, instanceIndex);
+					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, maxRNBOVersion, instanceIndex);
 				}
 
 			} else if (method == "instance_load") {
@@ -1180,7 +1202,7 @@ void Controller::processCommands() {
 							i >> config;
 							i.close();
 						}
-						loadLibrary(libPath.string(), std::string(), config, true, static_cast<unsigned int>(index));
+						loadLibrary(libPath.string(), std::string(), config, true, static_cast<unsigned int>(index), confPath);
 					}
 				}
 			} else if (method == "instance_unload") {

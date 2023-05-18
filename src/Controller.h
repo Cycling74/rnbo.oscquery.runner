@@ -34,7 +34,7 @@ class Controller {
 		~Controller();
 
 		//return true on success
-		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0);
+		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
 		bool loadLast();
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
@@ -72,8 +72,8 @@ class Controller {
 		ossia::net::node_base * mInstanceLoadNode;
 		ossia::net::node_base * mPatchersNode;
 
-		//instance and path to SO
-		std::vector<std::pair<std::unique_ptr<Instance>, boost::filesystem::path>> mInstances;
+		//instance, path to SO, path to config
+		std::vector<std::tuple<std::unique_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
