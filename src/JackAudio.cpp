@@ -840,7 +840,16 @@ InstanceAudioJack::InstanceAudioJack(
 		auto midi = conn->create_child("midi");
 
 		auto build_port_param = [this](jack_port_t * port, ossia::net::node_base * parent, const std::string& name, bool input) -> ossia::net::parameter_base * {
-			auto n = parent->create_child(name);
+
+			//remove prefix: from string
+			auto childname = name;
+			auto it = childname.find(':');
+			if (it != std::string::npos) {
+				childname = childname.substr(it + 1);
+			}
+
+			auto n = parent->create_child(childname);
+
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 			n->set(ossia::net::description_attribute{}, "Port and its connections, send port names to change, see /rnbo/jack/ports for names to connect");
 			auto param = n->create_parameter(ossia::val_type::LIST);
