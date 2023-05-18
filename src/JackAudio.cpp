@@ -1346,7 +1346,8 @@ void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
 }
 
 void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /*connected*/) {
-	auto doit = [this](jack_port_id_t id) {
+	bool changed = false;
+	auto doit = [this, &changed](jack_port_id_t id) {
 		auto p = jack_port_by_id(mJackClient, id);
 		auto it = mPortParamMap.find(p);
 		if (it != mPortParamMap.end()) {
@@ -1356,9 +1357,14 @@ void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /
 					names.push_back(name);
 			});
 			param->push_value(names);
+			changed = true;
 		}
 	};
 
 	doit(a);
 	doit(b);
+
+	if (changed && mConfigChangeCallback != nullptr) {
+		mConfigChangeCallback();
+	}
 }

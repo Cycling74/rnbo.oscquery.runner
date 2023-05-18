@@ -185,6 +185,10 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, name, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
+	mAudio->registerConfigChangeCallback([this]() {
+			if (mConfigChangeCallback != nullptr)
+			mConfigChangeCallback();
+	});
 
 	mPresetSavedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);

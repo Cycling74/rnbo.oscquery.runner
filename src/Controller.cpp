@@ -1205,6 +1205,7 @@ void Controller::processCommands() {
 						loadLibrary(libPath.string(), std::string(), config, true, static_cast<unsigned int>(index), confPath);
 					}
 				}
+				queueSave();
 			} else if (method == "instance_unload") {
 				unsigned int index = static_cast<unsigned int>(params["index"].get<int>());
 				{

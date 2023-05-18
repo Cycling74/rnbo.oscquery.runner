@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 //abstract base class for instance audio
 class InstanceAudio {
 	public:
@@ -14,4 +16,6 @@ class InstanceAudio {
 
 		//called by the instance, in the main thread, to take care of any command processing or what not
 		virtual void processEvents() {}
+
+		virtual void registerConfigChangeCallback(std::function<void()> cb) { };
 };

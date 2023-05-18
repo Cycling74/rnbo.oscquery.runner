@@ -117,7 +117,6 @@ class InstanceAudioJack : public InstanceAudio {
 				);
 		virtual ~InstanceAudioJack();
 
-
 		virtual std::string name() override;
 
 		virtual void connect() override;
@@ -133,6 +132,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
 
+		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
 
 		void connectToMidiIf(jack_port_t * port);
@@ -174,4 +174,5 @@ class InstanceAudioJack : public InstanceAudio {
 		std::function<void(ProgramChange)> mProgramChangeCallback;
 
 		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
+		std::function<void()> mConfigChangeCallback = nullptr;
 };
