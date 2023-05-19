@@ -34,6 +34,7 @@ class Instance {
 
 		unsigned int index() const { return mIndex; }
 
+		void activate();
 		void connect();
 		void start();
 		void stop();

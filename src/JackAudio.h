@@ -119,6 +119,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void addConfig(RNBO::Json& conf) override;
 
+		virtual void activate() override;
 		virtual void connect() override;
 		virtual void start() override;
 		virtual void stop() override;
@@ -158,6 +159,7 @@ class InstanceAudioJack : public InstanceAudio {
 		RNBO::MidiEventList mMIDIOutList;
 		RNBO::MidiEventList mMIDIInList;
 		std::mutex mMutex;
+		bool mActivated = false;
 		bool mRunning = false;
 
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;

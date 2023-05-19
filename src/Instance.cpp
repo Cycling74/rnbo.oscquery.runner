@@ -614,6 +614,10 @@ Instance::~Instance() {
 	mPatcherFactory.reset();
 }
 
+void Instance::activate() {
+	mAudio->activate();
+}
+
 void Instance::connect() {
 	mAudio->connect();
 }

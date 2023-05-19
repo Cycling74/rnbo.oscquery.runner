@@ -872,7 +872,7 @@ InstanceAudioJack::InstanceAudioJack(
 		std::string name,
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback
-		) : mCore(core), mInstanceConf(conf), mRunning(false), mProgramChangeCallback(progChangeCallback) {
+		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback) {
 
 	std::string clientName = name;
 	if (conf.contains("jack") && conf["jack"].contains("client_name")) {
@@ -1107,10 +1107,10 @@ void InstanceAudioJack::addConfig(RNBO::Json& conf) {
 	conf["jack"]["client_name"] = std::string(jack_get_client_name(mJackClient));
 }
 
-void InstanceAudioJack::start() {
+void InstanceAudioJack::activate() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	//protect against double activate or deactivate
-	if (!mRunning) {
+	if (!mActivated) {
 		if (jack_set_port_registration_callback(mJackClient, ::jackPortRegistration, this) != 0) {
 			std::cerr << "failed to jack_set_port_registration_callback" << std::endl;
 		}
@@ -1119,20 +1119,24 @@ void InstanceAudioJack::start() {
 		}
 		jack_activate(mJackClient);
 		//only connects what the config indicates
-		mRunning = true;
+		mActivated = true;
 	}
+}
+
+void InstanceAudioJack::start() {
+	mRunning = true;
 }
 
 void InstanceAudioJack::stop() {
 	std::lock_guard<std::mutex> guard(mMutex);
-	if (mRunning) {
+	if (mActivated) {
 		jack_deactivate(mJackClient);
-		mRunning = false;
+		mActivated = false;
 	}
 }
 
 bool InstanceAudioJack::isActive() {
-	return mRunning;
+	return mActivated && mRunning;
 }
 
 void InstanceAudioJack::processEvents() {
@@ -1270,8 +1274,22 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 	auto midiOutBuf = jack_port_get_buffer(mJackMidiOut, nframes);
 	jack_midi_clear_buffer(midiOutBuf);
 
+	//get the buffers
+	for (auto i = 0; i < mSampleBufferPtrIn.size(); i++)
+		mSampleBufferPtrIn[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
+	for (auto i = 0; i < mSampleBufferPtrOut.size(); i++)
+		mSampleBufferPtrOut[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortOut[i], nframes));
+
+	if (!mRunning) {
+		for (auto i = 0; i < mSampleBufferPtrOut.size(); i++) {
+			memset(mSampleBufferPtrOut[i], 0, sizeof(jack_default_audio_sample_t) * nframes);
+		}
+		return;
+	}
+
 	//get the current time
 	auto nowms = mCore->getCurrentTime();
+
 	//TODO sync to jack's time?
 
 	//query the jack transport
@@ -1316,12 +1334,6 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 		mTransportPosLast = jackPos;
 		mTransportStateLast = state;
 	}
-
-	//get the buffers
-	for (auto i = 0; i < mSampleBufferPtrIn.size(); i++)
-		mSampleBufferPtrIn[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
-	for (auto i = 0; i < mSampleBufferPtrOut.size(); i++)
-		mSampleBufferPtrOut[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortOut[i], nframes));
 
 	//get midi in
 	{

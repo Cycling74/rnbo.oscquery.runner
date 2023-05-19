@@ -545,7 +545,7 @@ Controller::~Controller() {
 	mServer.reset();
 }
 
-bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
+std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
 	//clear out our last instance preset, loadLast should already have it if there is one
 	mInstanceLastPreset.reset();
 
@@ -559,7 +559,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			if (cmdId.size()) {
 				reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::VersionMismatch), errs);
 			}
-			return false;
+			return nullptr;
 		}
 
 		//activate if we need to
@@ -569,7 +569,7 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 				reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
 			}
 			reportActive();
-			return false;
+			return nullptr;
 		}
 		//make sure that no other instances can be created while this is active
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
@@ -592,14 +592,14 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			f(instNode);
 		};
 
-		auto instance = new Instance(factory, name, builder, conf, mProcessAudio, instanceIndex);
+		auto instance = std::make_shared<Instance>(factory, name, builder, conf, mProcessAudio, instanceIndex);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			//queue a save whenenever the configuration changes
 			instance->registerConfigChangeCallback([this] {
 					queueSave();
 			});
-			instance->start();
+			instance->activate();
 			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
 		}
 		if (cmdId.size()) {
@@ -613,13 +613,13 @@ bool Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::J
 			queueSave();
 		reportActive();
 		mProcessAudio->updatePorts();
-		return true;
+		return instance;
 	} catch (const std::exception& e) {
 		std::cerr << "failed to load library: " << fname << " exception: " << e.what() << std::endl;
 	} catch (...) {
 		std::cerr << "failed to load library: " << fname << std::endl;
 	}
-	return false;
+	return nullptr;
 }
 
 bool Controller::loadLast() {
@@ -651,6 +651,7 @@ bool Controller::loadLast() {
 		}
 
 		//load instances
+		std::vector<std::shared_ptr<Instance>> instances;
 		for (auto i: c[last_instances_key]) {
 			std::string so = i[last_so_key];
 
@@ -665,13 +666,16 @@ bool Controller::loadLast() {
 			}
 
 			//load library but don't save config
-			if (!loadLibrary(so, std::string(), i[last_config_key], false, index, conf_file)) {
+			auto inst = loadLibrary(so, std::string(), i[last_config_key], false, index, conf_file);
+			if (!inst) {
 				cerr << "failed to load so " << so << endl;
-				return false;
+				continue;
 			}
+			instances.push_back(inst);
 		}
 
 		//load last preset if we have it
+		//TODO get for all instances
 		if (preset) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mInstances.size()) {
@@ -685,7 +689,20 @@ bool Controller::loadLast() {
 			connected = mProcessAudio->connect(c[connections_key]);
 		}
 
-		//TODO iterate instances and connect if needed, then start
+		//iterate instances and connect if needed, then start
+		{
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			//connect, THEN start
+			if (!connected) {
+				for (auto inst: instances) {
+					inst->connect();
+				}
+			}
+
+			for (auto inst: instances) {
+				inst->start();
+			}
+		}
 
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -1057,7 +1074,11 @@ void Controller::processCommands() {
 								{"message", "compiled"},
 								{"progress", 90}
 							});
-							loadLibrary(libPath.string(), id, conf, true, instanceIndex.get(), confFilePath);
+							auto inst = loadLibrary(libPath.string(), id, conf, true, instanceIndex.get(), confFilePath);
+							if (inst) {
+								inst->connect();
+								inst->start();
+							}
 						} else {
 							reportCommandResult(id, {
 								{"code", static_cast<unsigned int>(CompileLoadStatus::Compiled)},
@@ -1227,7 +1248,13 @@ void Controller::processCommands() {
 							jack["client_name"] = instance_name;
 							config["jack"] = jack;
 						}
-						loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
+						auto inst = loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
+
+						//TODO optionally get connections from params
+						if (inst) {
+							inst->connect();
+							inst->start();
+						}
 					}
 				}
 				queueSave();

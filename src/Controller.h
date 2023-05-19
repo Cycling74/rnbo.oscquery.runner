@@ -6,6 +6,7 @@
 #include <atomic>
 #include <optional>
 #include <set>
+#include <memory>
 
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -33,8 +34,8 @@ class Controller {
 		Controller(std::string server_name = "rnbo");
 		~Controller();
 
-		//return true on success
-		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
+		//return null on failure
+		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
 		bool loadLast();
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
@@ -73,7 +74,7 @@ class Controller {
 		ossia::net::node_base * mPatchersNode;
 
 		//instance, path to SO, path to config
-		std::vector<std::tuple<std::unique_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
+		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
