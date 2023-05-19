@@ -62,6 +62,8 @@ class Controller {
 
 		void updatePatchersInfo();
 
+		unsigned int nextInstanceIndex();
+
 		DB mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
 		std::shared_ptr<ossia::net::network_context> mOssiaContext;

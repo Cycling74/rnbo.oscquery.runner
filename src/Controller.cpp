@@ -396,9 +396,7 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 							instance_name = l[2].get<std::string>();
 						}
 
-						if (index >= 0) {
-							mCommandQueue.push(cmdBuilder("instance_load", index, name, instance_name));
-						}
+						mCommandQueue.push(cmdBuilder("instance_load", index, name, instance_name));
 
 					}
 				}
@@ -822,6 +820,15 @@ void Controller::updatePatchersInfo() {
 	});
 }
 
+unsigned int Controller::nextInstanceIndex() {
+	unsigned int index = 0;
+	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+	for (auto& i: mInstances) {
+		index = std::max(std::get<0>(i)->index() + 1, index);
+	}
+	return index;
+}
+
 bool Controller::processEvents() {
 	try {
 		{
@@ -1208,7 +1215,11 @@ void Controller::processCommands() {
 						if (params["load"].is_null()) {
 							instanceIndex = boost::none;
 						} else {
-							instanceIndex = boost::make_optional(static_cast<unsigned int>(params["load"].get<int>()));
+							int index = params["load"].get<int>();
+							if (index < 0) {
+								index = nextInstanceIndex();
+							}
+							instanceIndex = boost::make_optional(static_cast<unsigned int>(index));
 							{
 								std::lock_guard<std::mutex> guard(mBuildMutex);
 								unloadInstance(guard, instanceIndex.get());
@@ -1225,6 +1236,11 @@ void Controller::processCommands() {
 				std::string instance_name;
 				if (params.contains("instance_name"))
 					instance_name = params["instance_name"].get<std::string>();
+
+				//automatically set the index if it is less than zero
+				if (index < 0) {
+					index = nextInstanceIndex();
+				}
 
 				fs::path libPath;
 				fs::path confPath;
