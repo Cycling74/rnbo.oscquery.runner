@@ -346,14 +346,15 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 	{
 		auto ctl = mInstancesNode->create_child("control");
 
-		auto cmdBuilder = [](std::string method, int index, const std::string& name) -> std::string {
+		auto cmdBuilder = [](std::string method, int index, const std::string patcher_name = std::string(), const std::string instance_name = std::string()) -> std::string {
 			RNBO::Json cmd = {
 				{"method", method},
 				{"id", "internal"},
 				{"params",
 					{
-						{"name", name},
 						{"index", index},
+						{"patcher_name", patcher_name},
+						{"instance_name", instance_name},
 					}
 				}
 			};
@@ -370,7 +371,7 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 					if (v.get_type() == ossia::val_type::INT) {
 						auto index = v.get<int>();
 						if (index >= 0) {
-							mCommandQueue.push(cmdBuilder("instance_unload", index, ""));
+							mCommandQueue.push(cmdBuilder("instance_unload", index));
 						}
 					}
 			});
@@ -381,17 +382,22 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 			mInstanceLoadNode = ctl->create_child("load");
 			auto p = mInstanceLoadNode->create_parameter(ossia::val_type::LIST);
 			mInstanceLoadNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index name");
+			mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index patcher_name [instance_name]");
 
 			p->add_callback([this, cmdBuilder](const ossia::value& v) {
 				if (v.get_type() == ossia::val_type::LIST) {
 					auto l = v.get<std::vector<ossia::value>>();
-					if (l.size() == 2 && l[1].get_type() == ossia::val_type::STRING && l[0].get_type() == ossia::val_type::INT) {
+					if (l.size() >= 2 && l[1].get_type() == ossia::val_type::STRING && l[0].get_type() == ossia::val_type::INT) {
 						auto index = l[0].get<int>();
 						auto name = l[1].get<std::string>();
+						std::string instance_name;
+
+						if (l.size() > 2 && l[2].get_type() == ossia::val_type::STRING) {
+							instance_name = l[2].get<std::string>();
+						}
 
 						if (index >= 0) {
-							mCommandQueue.push(cmdBuilder("instance_load", index, name));
+							mCommandQueue.push(cmdBuilder("instance_load", index, name, instance_name));
 						}
 
 					}
@@ -1194,7 +1200,10 @@ void Controller::processCommands() {
 
 			} else if (method == "instance_load") {
 				int index = params["index"].get<int>();
-				std::string name = params["name"].get<std::string>();
+				std::string name = params["patcher_name"].get<std::string>();
+				std::string instance_name;
+				if (params.contains("instance_name"))
+					instance_name = params["instance_name"].get<std::string>();
 
 				fs::path libPath;
 				fs::path confPath;
@@ -1209,7 +1218,16 @@ void Controller::processCommands() {
 							i >> config;
 							i.close();
 						}
-						loadLibrary(libPath.string(), std::string(), config, true, static_cast<unsigned int>(index), confPath);
+
+						//add client name to config..
+						if (instance_name.size()) {
+							RNBO::Json jack;
+							if (config.contains("jack"))
+								jack = config["jack"];
+							jack["client_name"] = instance_name;
+							config["jack"] = jack;
+						}
+						loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
 					}
 				}
 				queueSave();

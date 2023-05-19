@@ -184,7 +184,9 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				transportCallback, tempoCallback, beatTimeCallback, timeSigCallback,
 				midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
-	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, name, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
+
+	std::string audioName = name + "-" + std::to_string(mIndex);
+	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
 	mAudio->registerConfigChangeCallback([this]() {
 			if (mConfigChangeCallback != nullptr)
 			mConfigChangeCallback();
