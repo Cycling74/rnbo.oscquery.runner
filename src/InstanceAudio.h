@@ -1,12 +1,13 @@
 #pragma once
 
 #include <functional>
+#include "RNBO.h"
 
 //abstract base class for instance audio
 class InstanceAudio {
 	public:
 		virtual ~InstanceAudio() {}
-		virtual std::string name() { return std::string(); }
+		virtual void addConfig(RNBO::Json& conf) { }
 
 		virtual void activate() {}
 		virtual void connect() {}

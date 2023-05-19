@@ -263,6 +263,20 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 }
 
 bool ProcessAudioJack::connect(const RNBO::Json& config) {
+	if (config.is_object()) {
+		for (auto& [key, value]: config.items()) {
+			bool input = value["input"].get<bool>();
+			for (auto o: value["connections"]) {
+				std::string name = o.get<std::string>();
+				if (input) {
+					jack_connect(mJackClient, name.c_str(), key.c_str());
+				} else {
+					jack_connect(mJackClient, key.c_str(), name.c_str());
+				}
+			}
+		}
+		return true;
+	}
 	return false;
 }
 
@@ -859,8 +873,14 @@ InstanceAudioJack::InstanceAudioJack(
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback
 		) : mCore(core), mInstanceConf(conf), mRunning(false), mProgramChangeCallback(progChangeCallback) {
+
+	std::string clientName = name;
+	if (conf.contains("jack") && conf["jack"].contains("client_name")) {
+		clientName = conf["jack"]["client_name"];
+	}
+
 	//get jack client, fail early if we can't
-	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
+	mJackClient = jack_client_open(clientName.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
 		throw new std::runtime_error("couldn't create jack client");
 
@@ -1083,8 +1103,8 @@ InstanceAudioJack::~InstanceAudioJack() {
 	delete [] mJackPortAliases[1];
 }
 
-std::string InstanceAudioJack::name() {
-	return std::string(jack_get_client_name(mJackClient));
+void InstanceAudioJack::addConfig(RNBO::Json& conf) {
+	conf["jack"]["client_name"] = std::string(jack_get_client_name(mJackClient));
 }
 
 void InstanceAudioJack::start() {

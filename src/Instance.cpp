@@ -789,6 +789,9 @@ RNBO::Json Instance::currentConfig() {
 	}
 	config["presets"] = presets;
 	config["datarefs"] = datarefs;
+
+	mAudio->addConfig(config);
+
 	return config;
 }
 void Instance::updatePresetEntries() {

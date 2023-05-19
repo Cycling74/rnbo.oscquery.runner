@@ -62,7 +62,6 @@ namespace {
 	static const std::string last_conf_file_key = "config_path";
 	static const std::string last_config_key = "config";
 	static const std::string index_key = "index";
-
 	static const std::string connections_key = "connections";
 
 
@@ -674,6 +673,14 @@ bool Controller::loadLast() {
 			}
 		}
 		mProcessAudio->updatePorts();
+
+		bool connected = false;
+		if (c.contains(connections_key)) {
+			connected = mProcessAudio->connect(c[connections_key]);
+		}
+
+		//TODO iterate instances and connect if needed, then start
+
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
 	} catch (...) {

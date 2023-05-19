@@ -117,7 +117,7 @@ class InstanceAudioJack : public InstanceAudio {
 				);
 		virtual ~InstanceAudioJack();
 
-		virtual std::string name() override;
+		virtual void addConfig(RNBO::Json& conf) override;
 
 		virtual void connect() override;
 		virtual void start() override;
