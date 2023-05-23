@@ -85,11 +85,12 @@ Do all the normal use stuff then:
 * install conan
 * make directories for local builds and config
   ```shell
-  sudo apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
-  sudo apt-get -y --no-install-recommends install ruby python3-pip
-  sudo update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
-  sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
-  pip3 install conan==1.58.0
+  sudo -s
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
+  apt-get -y --no-install-recommends install ruby python3-pip
+  update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
+  update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
+  pip3 install conan==1.59.0
   mkdir -p ~/.conan/profiles/
   mkdir -p ~/local/src/
   ```
