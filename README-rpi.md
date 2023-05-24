@@ -86,29 +86,21 @@ Do all the normal use stuff then:
 * make directories for local builds and config
   ```shell
   sudo -s
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev cmake
   apt-get -y --no-install-recommends install ruby python3-pip
   update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
+  exit
   pip3 install conan==1.59.0
   mkdir -p ~/.conan/profiles/
   mkdir -p ~/local/src/
   ```
-* build and install the latest [cmake](https://cmake.org/install/)
-  * Alex did this in `~/local/src/`
 * send over conan default profile (from host pc)
   ```shell
   rsync config/conan-rpi-default pi@c74rpi.local:.conan/profiles/default
   ```
 
 **NOTE** at this point you can save the SD image for future *fresh* images.
-
-changes for bullseye
-
-from apt-get
-  * cmake
-  * libsdbus-c++-dev
-
 
 ### Copy and Build runner
 
@@ -158,7 +150,7 @@ mkdir jackd2
 cd jackd2
 git clone https://salsa.debian.org/multimedia-team/jackd2.git
 cd jackd2
-git chekcout debian/1.9.21_dfsg-1
+git checkout debian/1.9.21_dfsg-1
 sudo apt install git-buildpackage cdbs libsamplerate-dev libreadline-dev libraw1394-dev libffado-dev libopus-dev libsystemd-dev dh-exec dh-sequence-python3 libasound2-dev libdb-dev libsndfile1-dev libzita-alsa-pcmi-dev libzita-resampler-dev
 gbp buildpackage --git-ignore-branch --git-no-sign-tags
 ```
