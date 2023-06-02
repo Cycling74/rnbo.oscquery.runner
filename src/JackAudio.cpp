@@ -1129,6 +1129,7 @@ void InstanceAudioJack::start() {
 
 void InstanceAudioJack::stop() {
 	std::lock_guard<std::mutex> guard(mMutex);
+	mRunning = false;
 	if (mActivated) {
 		jack_deactivate(mJackClient);
 		mActivated = false;
