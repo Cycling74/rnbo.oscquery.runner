@@ -72,6 +72,19 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 			db.exec("ALTER TABLE patchers ADD COLUMN midi_inputs INTEGER DEFAULT 0");
 			db.exec("ALTER TABLE patchers ADD COLUMN midi_outputs INTEGER DEFAULT 0");
 	});
+	do_migration(5, [](SQLite::Database& db) {
+			db.exec(R"(CREATE TABLE IF NOT EXISTS sets (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					name TEXT NOT NULL,
+					filename TEXT NOT NULL,
+					runner_rnbo_version TEXT NOT NULL,
+					created_at REAL DEFAULT (datetime('now', 'localtime'))
+			)
+			)"
+			);
+			db.exec("CREATE INDEX set_version ON sets(runner_rnbo_version)");
+			db.exec("CREATE INDEX set_name_version ON sets(name, runner_rnbo_version)");
+	});
 }
 
 DB::~DB() { }
@@ -133,5 +146,49 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 		std::string created_at(s);
 
 		func(name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, created_at);
+	}
+}
+
+void DB::setSave(
+		const std::string& name,
+		const boost::filesystem::path& filename
+		)
+{
+	SQLite::Statement query(mDB, "INSERT INTO sets (name, runner_rnbo_version, filename) VALUES (?1, ?2, ?3)");
+	query.bind(1, name);
+	query.bind(2, rnbo_version);
+	query.bind(3, filename.string());
+	query.exec();
+}
+
+boost::optional<boost::filesystem::path> DB::setGet(
+		const std::string& name
+		)
+{
+	SQLite::Statement query(mDB, "SELECT filename FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+	query.bind(1, name);
+	query.bind(2, rnbo_version);
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return fs::path(s);
+	}
+	return boost::none;
+}
+
+void DB::sets(std::function<void(const std::string& name, const std::string& created)> func)
+{
+	SQLite::Statement query(mDB, R"(
+		SELECT name, datetime(created_at) FROM sets
+		WHERE id IN (SELECT MAX(id) FROM sets WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+	)");
+	query.bind(1, rnbo_version);
+	while (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string name(s);
+
+		s = query.getColumn(5);
+		std::string created_at(s);
+
+		func(name, created_at);
 	}
 }

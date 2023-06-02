@@ -2,6 +2,7 @@
 
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <boost/filesystem.hpp>
+#include <boost/optional.hpp>
 
 class DB {
 	public:
@@ -27,6 +28,17 @@ class DB {
 		);
 
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f);
+
+		void setSave(
+				const std::string& name,
+				const boost::filesystem::path& filename
+		);
+
+		boost::optional<boost::filesystem::path> setGet(
+				const std::string& name
+		);
+
+		void sets(std::function<void(const std::string& name, const std::string& created)> func);
 	private:
 		SQLite::Database mDB;
 };
