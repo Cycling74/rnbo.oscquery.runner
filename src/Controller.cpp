@@ -12,6 +12,7 @@
 #include "Defines.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
+#include "RNBO_Version.h"
 
 #include <boost/process.hpp>
 #include <boost/process/child.hpp>
@@ -55,7 +56,7 @@ namespace {
 	static const std::chrono::milliseconds compile_command_wait_timeout(5); //poll more quickly so we can get cancels
 	static const std::chrono::milliseconds save_debounce_timeout(500);
 
-	static const std::string last_file_name = "last.json";
+	static const std::string last_file_name = "last";
 
 	static const std::string last_instances_key = "instances";
 	static const std::string last_so_key = "so_path";
@@ -65,8 +66,17 @@ namespace {
 	static const std::string connections_key = "connections";
 
 
-	fs::path lastFilePath() {
-			return config::get<fs::path>(config::key::SaveDir).get() / last_file_name;
+	fs::path saveFilePath(std::string file_name = std::string(), std::string version = std::string(RNBO::version)) {
+		if (file_name.size() == 0) {
+			file_name = last_file_name;
+		} else { //for creation, we add a tag
+			//add timetag for unique file paths
+			std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+			file_name = file_name + "-" + timeTag;
+		}
+		//add version
+		file_name = file_name + "-" + version + ".json";
+		return config::get<fs::path>(config::key::SaveDir).get() / file_name;
 	}
 
 	bool base64_decode_inplace(std::string& v) {
@@ -346,61 +356,111 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 	{
 		auto ctl = mInstancesNode->create_child("control");
 
-		auto cmdBuilder = [](std::string method, int index, const std::string patcher_name = std::string(), const std::string instance_name = std::string()) -> std::string {
-			RNBO::Json cmd = {
-				{"method", method},
-				{"id", "internal"},
-				{"params",
-					{
-						{"index", index},
-						{"patcher_name", patcher_name},
-						{"instance_name", instance_name},
-					}
-				}
-			};
-			return cmd.dump();
-		};
-
 		{
-			auto n = ctl->create_child("unload");
-			auto p = n->create_parameter(ossia::val_type::INT);
-			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "Unload a running instance by index");
-
-			p->add_callback([this, cmdBuilder](const ossia::value& v) {
-					if (v.get_type() == ossia::val_type::INT) {
-						auto index = v.get<int>();
-						if (index >= 0) {
-							mCommandQueue.push(cmdBuilder("instance_unload", index));
+			auto cmdBuilder = [](std::string method, int index, const std::string patcher_name = std::string(), const std::string instance_name = std::string()) -> std::string {
+				RNBO::Json cmd = {
+					{"method", method},
+					{"id", "internal"},
+					{"params",
+						{
+							{"index", index},
+							{"patcher_name", patcher_name},
+							{"instance_name", instance_name},
 						}
 					}
-			});
+				};
+				return cmd.dump();
+			};
 
+			{
+				auto n = ctl->create_child("unload");
+				auto p = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::description_attribute{}, "Unload a running instance by index, negative will unload all");
+
+				p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::INT) {
+							auto index = v.get<int>();
+							mCommandQueue.push(cmdBuilder("instance_unload", index));
+						}
+				});
+
+			}
+
+			{
+				mInstanceLoadNode = ctl->create_child("load");
+				auto p = mInstanceLoadNode->create_parameter(ossia::val_type::LIST);
+				mInstanceLoadNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index patcher_name [instance_name]");
+
+				p->add_callback([this, cmdBuilder](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::LIST) {
+						auto l = v.get<std::vector<ossia::value>>();
+						if (l.size() >= 2 && l[1].get_type() == ossia::val_type::STRING && l[0].get_type() == ossia::val_type::INT) {
+							auto index = l[0].get<int>();
+							auto name = l[1].get<std::string>();
+							std::string instance_name;
+
+							if (l.size() > 2 && l[2].get_type() == ossia::val_type::STRING) {
+								instance_name = l[2].get<std::string>();
+							}
+
+							mCommandQueue.push(cmdBuilder("instance_load", index, name, instance_name));
+
+						}
+					}
+				});
+
+			}
 		}
 
 		{
-			mInstanceLoadNode = ctl->create_child("load");
-			auto p = mInstanceLoadNode->create_parameter(ossia::val_type::LIST);
-			mInstanceLoadNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index patcher_name [instance_name]");
+			auto sets = ctl->create_child("sets");
 
-			p->add_callback([this, cmdBuilder](const ossia::value& v) {
-				if (v.get_type() == ossia::val_type::LIST) {
-					auto l = v.get<std::vector<ossia::value>>();
-					if (l.size() >= 2 && l[1].get_type() == ossia::val_type::STRING && l[0].get_type() == ossia::val_type::INT) {
-						auto index = l[0].get<int>();
-						auto name = l[1].get<std::string>();
-						std::string instance_name;
-
-						if (l.size() > 2 && l[2].get_type() == ossia::val_type::STRING) {
-							instance_name = l[2].get<std::string>();
+			auto cmdBuilder = [](std::string method, const std::string& name) -> std::string {
+				RNBO::Json cmd = {
+					{"method", method},
+					{"id", "internal"},
+					{"params",
+						{
+							{"name", name}
 						}
-
-						mCommandQueue.push(cmdBuilder("instance_load", index, name, instance_name));
-
 					}
-				}
-			});
+				};
+				return cmd.dump();
+			};
+
+			{
+				auto n = sets->create_child("save");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::description_attribute{}, "Save a set of instances assigning the given name");
+
+				p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::STRING) {
+							auto name = v.get<std::string>();
+							if (name.size()) {
+								mCommandQueue.push(cmdBuilder("instance_set_save", name));
+							}
+						}
+				});
+			}
+
+			{
+				auto n = sets->create_child("load");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::description_attribute{}, "Load a set with the given name");
+
+				p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::STRING) {
+							auto name = v.get<std::string>();
+							if (name.size()) {
+								mCommandQueue.push(cmdBuilder("instance_set_load", name));
+							}
+						}
+				});
+			}
 
 		}
 	}
@@ -544,7 +604,7 @@ Controller::~Controller() {
 }
 
 std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
-	//clear out our last instance preset, loadLast should already have it if there is one
+	//clear out our last instance preset, loadSet should already have it if there is one
 	mInstanceLastPreset.reset();
 
 	auto fname = fs::path(path).filename().string();
@@ -620,7 +680,11 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 	return nullptr;
 }
 
-bool Controller::loadLast() {
+bool Controller::loadSet(boost::filesystem::path filename) {
+	auto setFile = saveFilePath();
+	if (!filename.empty()) {
+		setFile = config::get<fs::path>(config::key::SaveDir).get() / filename;
+	}
 	try {
 		RNBO::UniquePresetPtr preset;
 
@@ -631,20 +695,18 @@ bool Controller::loadLast() {
 			std::swap(preset, mInstanceLastPreset);
 		}
 
-
 		//try to start the last
-		auto lastFile = lastFilePath();
-		if (!fs::exists(lastFile))
+		if (!fs::exists(setFile))
 			return false;
 		RNBO::Json c;
 		{
-			std::ifstream i(lastFile.string());
+			std::ifstream i(setFile.string());
 			i >> c;
 			i.close();
 		}
 
 		if (!c[last_instances_key].is_array()) {
-			cerr << "malformed last data" << endl;
+			cerr << "malformed set data" << endl;
 			return false;
 		}
 
@@ -754,11 +816,14 @@ bool Controller::loadBuiltIn() {
 }
 #endif
 
-void Controller::saveLast() {
+boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, bool abort_empty) {
 	RNBO::Json instances = RNBO::Json::array();
-	RNBO::Json last = RNBO::Json::object();
+	RNBO::Json setData = RNBO::Json::object();
 	{
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
+		if (abort_empty && mInstances.size() == 0) {
+			return boost::none;
+		}
 		for (auto& i: mInstances) {
 			RNBO::Json data = RNBO::Json::object();
 			data[last_so_key] = std::get<1>(i).string();
@@ -773,16 +838,17 @@ void Controller::saveLast() {
 			instances.push_back(data);
 		}
 	}
-	last[last_instances_key] = instances;
+	setData[last_instances_key] = instances;
 
 	RNBO::Json connections = mProcessAudio->connections();
 	if (!connections.is_null()) {
-		last[connections_key] = connections;
+		setData[connections_key] = connections;
 	}
 
-	auto lastFile = lastFilePath();
-	std::ofstream o(lastFile.string());
-	o << std::setw(4) << last << std::endl;
+	auto filepath = saveFilePath(name);
+	std::ofstream o(filepath.string());
+	o << std::setw(4) << setData << std::endl;
+	return filepath;
 }
 
 void Controller::queueSave() {
@@ -864,7 +930,7 @@ bool Controller::processEvents() {
 			}
 		}
 		if (save) {
-			saveLast();
+			saveSet();
 		}
 	} catch (const std::exception& e) {
 		std::cerr << "exception in Controller::process thread " << e.what() << std::endl;
@@ -915,13 +981,13 @@ void Controller::reportActive() {
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
-	for (auto it = mInstances.begin(); it < mInstances.end(); it++) {
-		auto index = std::to_string(std::get<0>(*it)->index());
-		if (!mInstancesNode->remove_child(index)) {
+	for (auto it = mInstances.begin(); it < mInstances.end(); ) {
+		auto index = std::get<0>(*it)->index();
+		it = mInstances.erase(it);
+		if (!mInstancesNode->remove_child(std::to_string(index))) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
 		}
 	}
-	mInstances.clear();
 }
 
 void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index) {
@@ -1109,7 +1175,7 @@ void Controller::processCommands() {
 			if (cmdStr == "load_last") {
 				//terminate existing compile
 				compileProcess.reset();
-				loadLast();
+				loadSet();
 				continue;
 			}
 
@@ -1275,13 +1341,29 @@ void Controller::processCommands() {
 				}
 				queueSave();
 			} else if (method == "instance_unload") {
-				unsigned int index = static_cast<unsigned int>(params["index"].get<int>());
+				int index = params["index"].get<int>();
 				{
 					std::lock_guard<std::mutex> guard(mBuildMutex);
-					unloadInstance(guard, index);
+					if (index < 0) {
+						clearInstances(guard);
+					} else {
+						unloadInstance(guard, index);
+					}
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
+			} else if (method == "instance_set_save") {
+				std::string name = params["name"].get<std::string>();
+				auto p = saveSet(name, true);
+				if (p) {
+					mDB.setSave(name, p->filename());
+				}
+			} else if (method == "instance_set_load") {
+				std::string name = params["name"].get<std::string>();
+				auto path = mDB.setGet(name);
+				if (path) {
+					loadSet(path.get());
+				}
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
 					continue;

@@ -36,7 +36,7 @@ class Controller {
 
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
-		bool loadLast();
+		bool loadSet(boost::filesystem::path filename = boost::filesystem::path());
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
 #endif
@@ -56,8 +56,11 @@ class Controller {
 		void handleActive(bool active);
 		void updateDiskSpace();
 		void updateListenersList();
-		void saveLast();
-		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
+
+		//save set, return the path of the save
+		boost::optional<boost::filesystem::path> saveSet(std::string name = std::string(), bool abort_empty = false);
+
+		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
 		void updatePatchersInfo();
