@@ -6,7 +6,6 @@ unfortunately our conan deps don't work because flatpak doesn't allow us to down
 
 ./flatpak-pip-generator --runtime='org.freedesktop.Sdk//22.08' conan==1.58.0
 
-
 simply build executable and then use flatpak to copy the binary
 mkdir build && cd build
 cmake .. -DWITH_DBUS=Off -DWITH_JACKSERVER=Off -DCMAKE_BUILD_TYPE=Release
@@ -14,3 +13,7 @@ cmake --build .
 flatpak-builder --user --install --force-clean flatpak2 com.Cycling74.RNBORunner2.yaml
 flatpak run com.Cycling74.RNBORunner2
 
+
+helpful stuff:
+https://github.com/boostorg/boost/issues/334
+https://docs.flatpak.org/en/latest/first-build.html
