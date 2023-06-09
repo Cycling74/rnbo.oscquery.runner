@@ -1,0 +1,43 @@
+app-id: com.Cycling74.RNBORunner
+runtime: org.kde.Platform
+base: io.qt.qtwebengine.BaseApp
+base-version: '5.15-22.08'
+runtime-version: '5.15-22.08'
+sdk: org.kde.Sdk
+  #runtime: org.freedesktop.Platform
+  #runtime-version: '22.08'
+  #sdk: org.freedesktop.Sdk
+command: ./bin/rnbooscquery
+modules:
+  - python3-conan.json
+    #- boost.json
+  - name: conan-deps
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: /home/parallels/.conan/data/
+  - name: RNBORunner
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DWITH_DBUS=Off
+    sources:
+      - type: dir
+        path: .
+        skip: ./build
+#https://github.com/flathub/com.bitwig.BitwigStudio/blob/master/com.bitwig.BitwigStudio.yaml
+finish-args:
+  # We need MIDI, Audio, USB, DRI, and realtime performances
+  - --device=all
+  # Needed to talk with X11, Wayland, pulseaudio and pipewire
+  - --share=ipc
+  - --filesystem=xdg-run/pipewire-0
+  - --socket=pulseaudio
+  - --socket=x11
+  # Wayland access
+  - --socket=wayland
+  # Needs to talk to the network:
+  - --share=network
+  # Needs to save files locally
+  - --filesystem=host
+  - --metadata=X-DConf=migrate-path=/org/gnome/dictionary/
