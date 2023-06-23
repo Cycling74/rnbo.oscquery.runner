@@ -17,3 +17,20 @@ flatpak run com.Cycling74.RNBORunner2
 helpful stuff:
 https://github.com/boostorg/boost/issues/334
 https://docs.flatpak.org/en/latest/first-build.html
+
+
+try 3
+
+with sudo
+
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install org.freedesktop.Sdk/x86_64/22.08
+flatpak install org.freedesktop.Platform/x86_64/22.08
+flatpak-builder --install --force-clean flatpak-build com.Cycling74.RNBORunner2.yaml
+flatpak remote-modify --collection-id=com.Cycling74.RNBORunner2 rnborunner2-origin
+flatpak remote-modify --collection-id=org.flathub.flathub flathub
+flatpak create-usb ./usb com.Cycling74.RNBORunner2
+
+
+
+
