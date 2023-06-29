@@ -1,30 +1,16 @@
 app-id: com.Cycling74.RNBORunner
-runtime: org.kde.Platform
-base: io.qt.qtwebengine.BaseApp
-base-version: '5.15-22.08'
-runtime-version: '5.15-22.08'
-sdk: org.kde.Sdk
-  #runtime: org.freedesktop.Platform
-  #runtime-version: '22.08'
-  #sdk: org.freedesktop.Sdk
-command: ./bin/rnbooscquery
+runtime: org.freedesktop.Platform
+runtime-version: '22.08'
+sdk: org.freedesktop.Sdk
+command: /app/rnbooscquery
 modules:
-  - python3-conan.json
-    #- boost.json
-  - name: conan-deps
-    buildsystem: simple
-    sources:
-      - type: dir
-        path: /home/parallels/.conan/data/
+  - name:
   - name: RNBORunner
-    buildsystem: cmake-ninja
-    config-opts:
-      - -DCMAKE_BUILD_TYPE=Release
-      - -DWITH_DBUS=Off
+    buildsystem: simple
+    build-commands: ["cp ./bin/rnbooscquery ${FLATPAK_DEST}"]
     sources:
       - type: dir
-        path: .
-        skip: ./build
+        path: ./build
 #https://github.com/flathub/com.bitwig.BitwigStudio/blob/master/com.bitwig.BitwigStudio.yaml
 finish-args:
   # We need MIDI, Audio, USB, DRI, and realtime performances
