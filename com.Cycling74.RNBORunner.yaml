@@ -4,13 +4,24 @@ runtime-version: '22.08'
 sdk: org.freedesktop.Sdk
 command: /app/rnbooscquery
 modules:
-  - name:
+  - name: cmake
+    buildsystem: simple
+    build-commands:
+      - mkdir -p ${FLATPAK_DEST}/cmake
+      - mv * ${FLATPAK_DEST}/cmake/
+    sources:
+      - type: archive
+        url: https://github.com/Kitware/CMake/releases/download/v3.27.0-rc3/cmake-3.27.0-rc3-linux-x86_64.tar.gz
+        sha256: 22901396404f6784c0ee2c356b2ed68c03730dd5ab9af902ba7c41859f4df7cb
   - name: RNBORunner
     buildsystem: simple
     build-commands: ["cp ./bin/rnbooscquery ${FLATPAK_DEST}"]
     sources:
       - type: dir
         path: ./build
+cleanup:
+  - cmake-3.27.0-rc3-linux-x86_64
+
 #https://github.com/flathub/com.bitwig.BitwigStudio/blob/master/com.bitwig.BitwigStudio.yaml
 finish-args:
   # We need MIDI, Audio, USB, DRI, and realtime performances
