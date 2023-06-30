@@ -13,9 +13,19 @@ modules:
       - type: archive
         url: https://github.com/Kitware/CMake/releases/download/v3.27.0-rc3/cmake-3.27.0-rc3-linux-x86_64.tar.gz
         sha256: 22901396404f6784c0ee2c356b2ed68c03730dd5ab9af902ba7c41859f4df7cb
+  - name: ruby
+    buildsystem: autotools
+    config-opts:
+      - --prefix=/app/ruby
+    sources:
+      - type: archive
+        url: https://cache.ruby-lang.org/pub/ruby/3.2/ruby-3.2.2.tar.gz
+        sha256: 96c57558871a6748de5bc9f274e93f4b5aad06cd8f37befa0e8d94e7b8a423bc
   - name: RNBORunner
     buildsystem: simple
-    build-commands: ["cp ./bin/rnbooscquery ${FLATPAK_DEST}"]
+    build-commands:
+      - cp ./bin/rnbooscquery ${FLATPAK_DEST}
+      - ls -trl ${FLATPAK_DEST}
     sources:
       - type: dir
         path: ./build
