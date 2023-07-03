@@ -71,6 +71,23 @@ modules:
       - --with-mpc-lib=/app/lib/
       - --with-mfpr-lib=/app/lib/
       - --with-gmp-lib=/app/lib/
+  - name: binutils
+    buildsystem: autotools
+    no-autogen: true
+    config-opts:
+      - --enable-ld=default
+      - --enable-gold-yes
+      - --disable-werror
+      - --disable-libctf
+      - --disable-gdb
+      - --disable-libdecnumber
+      - --disable-readline
+      - --disable-sim
+      - --disable-nls
+    sources:
+      - type: archive
+        url: https://ftp.gnu.org/gnu/binutils/binutils-2.40.tar.xz
+        sha256: 0f8a4c272d7f17f369ded10a4aca28b8e304828e95526da482b0ccc4dfc9d8e1
   - name: RNBORunner
     buildsystem: simple
     build-commands:
@@ -101,3 +118,5 @@ finish-args:
   - --metadata=X-DConf=migrate-path=/org/gnome/dictionary/
   # setup path
   - --env=PATH=/app/bin:/usr/bin
+  - --env=CC=/app/bin/gcc
+  - --env=CXX=/app/bin/g++
