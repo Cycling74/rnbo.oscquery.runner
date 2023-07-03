@@ -67,17 +67,10 @@ modules:
       - --prefix=/app
       - --enable-languages=c,c++
       - --disable-multilib
-  # - name: clang
-  #   buildsystem: cmake-ninja
-  #   builddir: true
-  #   subdir: llvm
-  #   config-opts:
-  #     - -DLLVM_ENABLE_PROJECTS=clang;clang-tools-extra
-  #     - -DCMAKE_BUILD_TYPE=Release
-  #   sources:
-  #     - type: git
-  #       url: https://github.com/llvm/llvm-project.git
-  #       branch: llvmorg-12.0.1
+      - --with-isl-lib=/app/lib/
+      - --with-mpc-lib=/app/lib/
+      - --with-mfpr-lib=/app/lib/
+      - --with-gmp-lib=/app/lib/
   - name: RNBORunner
     buildsystem: simple
     build-commands:
