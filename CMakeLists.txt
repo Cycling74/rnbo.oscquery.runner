@@ -21,6 +21,8 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
 
+set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
+
 #libossia and sdbus require c++17
 set(CMAKE_CXX_STANDARD 17)
 
@@ -58,6 +60,17 @@ if (CMAKE_BUILD_TYPE STREQUAL Debug)
 		-DRNBO_PLATFORM_ASSERT_WARN=0
 		-DRNBO_PLATFORM_ERROR_WARN=0
 	)
+endif()
+
+if (SUPPORT_COMPILE)
+	add_definitions(-DRNBOOSCQUERY_ENABLE_COMPILE)
+endif()
+
+if (CMAKE_CXX_COMPILER_VERSION)
+	add_definitions(-DRNBOOSCQUERY_CXX_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}")
+endif()
+if (CMAKE_CXX_COMPILER_ID)
+	add_definitions(-DRNBOOSCQUERY_CXX_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}")
 endif()
 
 #dbus on linux

@@ -204,6 +204,26 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 		p->push_value(config::get_system_id());
 	}
 
+#if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
+	{
+		auto n = info->create_child("compiler_version");
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		n->set(ossia::net::description_attribute{}, "the version of the compiler that this executable was built with");
+		p->push_value(std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION));
+	}
+#endif
+
+#if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
+	{
+		auto n = info->create_child("compiler_id");
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		n->set(ossia::net::description_attribute{}, "the id of the compiler that this executable was built with");
+		p->push_value(std::string(RNBOOSCQUERY_CXX_COMPILER_ID));
+	}
+#endif
+
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
 		//might not be enough to indicate disk space
@@ -215,13 +235,36 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 
 	//add support for commands
 	{
-		std::vector<ossia::value> supported = { "file_write_extended", "compile-with_config_file", "compile-with_instance_and_name" };
+		std::vector<ossia::value> supported = {
+			"file_write_extended",
+#ifdef RNBOOSCQUERY_ENABLE_COMPILE
+			"compile-with_config_file",
+			"compile-with_instance_and_name",
+#endif
+			"patcherstore"
+		};
 
 		auto n = info->create_child("supported_cmds");
 		auto p = n->create_parameter(ossia::val_type::LIST);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "details about post 1.0 commands added");
 		p->push_value(supported);
+	}
+
+	{
+		std::vector<ossia::value> unsupported = {
+#ifndef RNBOOSCQUERY_ENABLE_COMPILE
+			"compile",
+			"compile-with_config_file",
+			"compile-with_instance_and_name"
+#endif
+		};
+
+		auto n = info->create_child("unsupported_cmds");
+		auto p = n->create_parameter(ossia::val_type::LIST);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		n->set(ossia::net::description_attribute{}, "details about post 1.0 commands removed");
+		p->push_value(unsupported);
 	}
 
 	{
@@ -851,6 +894,33 @@ boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, b
 	return filepath;
 }
 
+void Controller::patcherStore(
+		const std::string& name,
+		const boost::filesystem::path& libFile,
+		const boost::filesystem::path& configFilePath,
+		const std::string& maxRNBOVersion,
+		const RNBO::Json& conf) {
+	int audio_inputs = 0;
+	int audio_outputs = 0;
+	int midi_inputs = 0;
+	int midi_outputs = 0;
+
+	if (conf.contains("numInputChannels")) {
+		audio_inputs = conf["numInputChannels"].get<int>();
+	}
+	if (conf.contains("numOutputChannels")) {
+		audio_outputs = conf["numOutputChannels"].get<int>();
+	}
+	if (conf.contains("numMidiInputPorts")) {
+		midi_inputs = conf["numMidiInputPorts"].get<int>();
+	}
+	if (conf.contains("numMidiOutputPorts")) {
+		midi_outputs = conf["numMidiOutputPorts"].get<int>();
+	}
+
+	mDB.patcherStore(name, libFile, configFilePath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+}
+
 void Controller::queueSave() {
 	std::lock_guard<std::mutex> guard(mSaveMutex);
 	mSave = true;
@@ -1006,6 +1076,7 @@ void Controller::processCommands() {
 
 	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
+
 	//setup user defined location of the build program, if they've set it
 	auto configBuildExe = config::get<fs::path>(config::key::SOBuildExe);
 	if (configBuildExe && fs::exists(configBuildExe.get()))
@@ -1043,12 +1114,14 @@ void Controller::processCommands() {
 		return true;
 	};
 
-	auto fileCmdDir = [this, sourceCache](std::string& id, std::string filetype) -> boost::optional<fs::path> {
+	auto fileCmdDir = [this, sourceCache, compileCache](std::string& id, std::string filetype) -> boost::optional<fs::path> {
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
 			r = config::get<fs::path>(config::key::DataFileDir);
 		} else if (filetype == "sourcefile") {
 			r = sourceCache;
+		} else if (filetype == "patcherlib") {
+			r = compileCache;
 		} else {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
 			return {};
@@ -1115,25 +1188,7 @@ void Controller::processCommands() {
 						if (conf.contains("name") && conf["name"].is_string()) {
 							std::string name = conf["name"].get<std::string>();
 
-							int audio_inputs = 0;
-							int audio_outputs = 0;
-							int midi_inputs = 0;
-							int midi_outputs = 0;
-
-							if (conf.contains("numInputChannels")) {
-								audio_inputs = conf["numInputChannels"].get<int>();
-							}
-							if (conf.contains("numOutputChannels")) {
-								audio_outputs = conf["numOutputChannels"].get<int>();
-							}
-							if (conf.contains("numMidiInputPorts")) {
-								midi_inputs = conf["numMidiInputPorts"].get<int>();
-							}
-							if (conf.contains("numMidiOutputPorts")) {
-								midi_outputs = conf["numMidiOutputPorts"].get<int>();
-							}
-
-							mDB.patcherStore(name, libPath.filename(), confFilePath.filename(), maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+							patcherStore(name, libPath.filename(), confFilePath.filename(), maxRNBOVersion, conf);
 
 							{
 								std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -1364,6 +1419,24 @@ void Controller::processCommands() {
 				if (path) {
 					loadSet(path.get());
 				}
+			} else if (method == "patcherstore") {
+				std::string name = params["name"].get<std::string>();
+				std::string libFile = params["lib"].get<std::string>();
+				std::string configFileName = params["config"].get<std::string>();
+
+				RNBO::Json config;
+				fs::path confFilePath = fs::absolute(sourceCache / configFileName);
+				std::ifstream i(confFilePath.string());
+				i >> config;
+				i.close();
+
+				std::string maxRNBOVersion = "unknown";
+				if (params.contains("rnbo_version")) {
+					maxRNBOVersion = params["rnbo_version"].get<std::string>();
+				}
+
+				patcherStore(name, libFile, configFileName, maxRNBOVersion, config);
+
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
 					continue;
@@ -1387,7 +1460,8 @@ void Controller::processCommands() {
 				if (!validateFileCmd(id, cmdObj, params, true))
 					continue;
 
-				auto dir = fileCmdDir(id, params["filetype"]);
+				std::string filetype = params["filetype"];
+				auto dir = fileCmdDir(id, filetype);
 				if (!dir)
 					continue;
 

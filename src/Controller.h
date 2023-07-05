@@ -60,6 +60,13 @@ class Controller {
 		//save set, return the path of the save
 		boost::optional<boost::filesystem::path> saveSet(std::string name = std::string(), bool abort_empty = false);
 
+		void patcherStore(
+				const std::string& name,
+				const boost::filesystem::path& libFile,
+				const boost::filesystem::path& configFilePath,
+				const std::string& maxRNBOVersion,
+				const RNBO::Json& config);
+
 		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
