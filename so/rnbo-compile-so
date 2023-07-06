@@ -27,7 +27,7 @@ raise "cannot find CMakeLists.txt" unless so_build_dir
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
     [
-      "#{CMAKE} -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_DIR=#{RNBO_SRC_DIR} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}",
+      "#{CMAKE} -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_CPP_DIR=#{RNBO_SRC_DIR} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}",
       "#{CMAKE} --build ."
     ].each do |cmd|
       raise "#{cmd} failed" unless system(cmd)
