@@ -1393,6 +1393,13 @@ void Controller::processCommands() {
 							inst->start();
 						}
 					}
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "loaded"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, 1, "failed");
 				}
 				queueSave();
 			} else if (method == "instance_unload") {
@@ -1407,17 +1414,36 @@ void Controller::processCommands() {
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
+				reportCommandResult(id, {
+					{"code", 0},
+					{"message", "unloaded"},
+					{"progress", 100}
+				});
 			} else if (method == "instance_set_save") {
 				std::string name = params["name"].get<std::string>();
 				auto p = saveSet(name, true);
 				if (p) {
 					mDB.setSave(name, p->filename());
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "saved"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, 1, "failed");
 				}
 			} else if (method == "instance_set_load") {
 				std::string name = params["name"].get<std::string>();
 				auto path = mDB.setGet(name);
 				if (path) {
 					loadSet(path.get());
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "loaded"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, 1, "failed");
 				}
 			} else if (method == "patcherstore") {
 				std::string name = params["name"].get<std::string>();
@@ -1436,7 +1462,11 @@ void Controller::processCommands() {
 				}
 
 				patcherStore(name, libFile, configFileName, maxRNBOVersion, config);
-
+				reportCommandResult(id, {
+					{"code", 0},
+					{"message", "stored"},
+					{"progress", 100}
+				});
 			} else if (method == "file_delete") {
 				if (!validateFileCmd(id, cmdObj, params, false))
 					continue;
