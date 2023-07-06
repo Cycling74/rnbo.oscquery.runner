@@ -16,9 +16,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES GNU)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-gnu-unique")
 endif()
 
-set(RNBO_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../src/cpp/ CACHE FILEPATH "Location of the RNBO C++ source code")
+#default to path setup for cloud compiler, the runner appliaction will set this explicitly
+set(RNBO_CPP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../ CACHE FILEPATH "Location of the RNBO C++ source code")
 set(LIBRARY_NAME_PREFIX "RNBOso" CACHE STRING "A string to use when constructing the library file name")
-set(RNBO_CLASS_FILE ${RNBO_CPP_DIR}/../../codegen/xam/test/test.cpp CACHE STRING "The RNBO generated class file to encapsulate in this library")
+set(RNBO_CLASS_FILE ${RNBO_CPP_DIR}/../../codegen/xam/test/test.cpp CACHE FILEPATH "The RNBO generated class file to encapsulate in this library")
 
 include_directories(
 	${RNBO_CPP_DIR}
