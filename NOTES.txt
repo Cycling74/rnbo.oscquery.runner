@@ -28,7 +28,7 @@ flatpak install org.freedesktop.Sdk/x86_64/22.08
 flatpak install org.freedesktop.Platform/x86_64/22.08
 flatpak-builder --install --force-clean flatpak-build com.Cycling74.RNBORunner.yaml
 flatpak remote-modify --collection-id=com.Cycling74.RNBORunner rnborunner1-origin
-flatpak remote-modify --collection-id=org.flathub.flathub flathub
+flatpak remote-modify --collection-id=org.flathub.Stable flathub
 flatpak create-usb /media/parallels/XNORUSB/ com.Cycling74.RNBORunner
 
 couldn't figure out how to actually install it on the deck
