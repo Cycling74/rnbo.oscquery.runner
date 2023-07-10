@@ -1,0 +1,122 @@
+app-id: com.Cycling74.RNBORunner
+runtime: org.freedesktop.Platform
+runtime-version: '22.08'
+sdk: org.freedesktop.Sdk
+command: /app/bin/rnbooscquery
+modules:
+  - name: setup
+    buildsystem: simple
+    build-commands:
+      - mkdir -p ${FLATPAK_DEST}/bin
+      - mkdir -p ${FLATPAK_DEST}/share
+  - name: cmake
+    buildsystem: simple
+    build-commands:
+      - cp -r ./bin/* ${FLATPAK_DEST}/bin/
+      - cp -r ./share/* ${FLATPAK_DEST}/share/
+    sources:
+      - type: archive
+        url: https://github.com/Kitware/CMake/releases/download/v3.27.0-rc3/cmake-3.27.0-rc3-linux-x86_64.tar.gz
+        sha256: 22901396404f6784c0ee2c356b2ed68c03730dd5ab9af902ba7c41859f4df7cb
+  - name: ruby
+    buildsystem: autotools
+    config-opts:
+      - --prefix=/app
+    sources:
+      - type: archive
+        url: https://cache.ruby-lang.org/pub/ruby/3.2/ruby-3.2.2.tar.gz
+        sha256: 96c57558871a6748de5bc9f274e93f4b5aad06cd8f37befa0e8d94e7b8a423bc
+  # gcc deps
+  - name: gmp
+    buildsystem: autotools
+    no-autogen: true
+    sources:
+      - type: archive
+        url: https://gmplib.org/download/gmp/gmp-6.2.1.tar.xz
+        sha256: fd4829912cddd12f84181c3451cc752be224643e87fac497b69edddadc49b4f2
+  - name: mfpr
+    buildsystem: autotools
+    no-autogen: true
+    sources:
+      - type: archive
+        url: https://www.mpfr.org/mpfr-current/mpfr-4.2.0.tar.gz
+        sha256: f1cc1c6bb14d18f0c61cc416e083f5e697b6e0e3cf9630b9b33e8e483fc960f0
+  - name: mpc
+    buildsystem: autotools
+    no-autogen: true
+    sources:
+      - type: archive
+        url: https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz
+        sha256: ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8
+  - name: isl
+    buildsystem: autotools
+    no-autogen: true
+    sources:
+      - type: archive
+        url: https://gcc.gnu.org/pub/gcc/infrastructure/isl-0.24.tar.bz2
+        sha256: fcf78dd9656c10eb8cf9fbd5f59a0b6b01386205fe1934b3b287a0a1898145c0
+  # match the gcc version I have in my ubuntu vm
+  - name: gcc
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://bigsearcher.com/mirrors/gcc/releases/gcc-11.3.0/gcc-11.3.0.tar.gz
+        sha512: 8f84f4d0639ffeb81f57f0e2c81acdab6f1045217bc7b333e6638581abd442bf2a524480208b3a439a5880a661144dbbd1aa14c6b70c6a8388111be493163156
+    config-opts:
+      - --host=x86_64-pc-linux-gnu
+      - --prefix=/app
+      - --enable-languages=c,c++
+      - --disable-multilib
+      - --with-isl-lib=/app/lib/
+      - --with-mpc-lib=/app/lib/
+      - --with-mfpr-lib=/app/lib/
+      - --with-gmp-lib=/app/lib/
+  - name: binutils
+    buildsystem: autotools
+    no-autogen: true
+    config-opts:
+      - --enable-ld=default
+      - --enable-gold-yes
+      - --disable-werror
+      - --disable-libctf
+      - --disable-gdb
+      - --disable-libdecnumber
+      - --disable-readline
+      - --disable-sim
+      - --disable-nls
+    sources:
+      - type: archive
+        url: https://ftp.gnu.org/gnu/binutils/binutils-2.40.tar.xz
+        sha256: 0f8a4c272d7f17f369ded10a4aca28b8e304828e95526da482b0ccc4dfc9d8e1
+  - name: RNBORunner
+    buildsystem: simple
+    build-commands:
+      - cp -r ./bin/* ${FLATPAK_DEST}/bin/
+      - cp -r ./share/* ${FLATPAK_DEST}/share/
+      - mv ./src ${FLATPAK_DEST}/src
+    sources:
+      - type: dir
+        path: ./build
+cleanup:
+  - cmake-3.27.0-rc3-linux-x86_64
+
+#https://github.com/flathub/com.bitwig.BitwigStudio/blob/master/com.bitwig.BitwigStudio.yaml
+finish-args:
+  # We need MIDI, Audio, USB, DRI, and realtime performances
+  - --device=all
+  # Needed to talk with X11, Wayland, pulseaudio and pipewire
+  - --share=ipc
+  - --filesystem=xdg-run/pipewire-0
+  - --socket=pulseaudio
+  - --socket=x11
+  # Wayland access
+  - --socket=wayland
+  # Needs to talk to the network:
+  - --share=network
+  # Needs to save files locally
+  - --filesystem=host
+  - --metadata=X-DConf=migrate-path=/org/gnome/dictionary/
+  # setup path
+  - --env=PATH=/app/bin:/usr/bin
+  - --env=CC=/app/bin/gcc
+  - --env=CXX=/app/bin/g++

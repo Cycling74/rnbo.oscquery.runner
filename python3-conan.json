@@ -1,0 +1,104 @@
+{
+    "name": "python3-conan",
+    "buildsystem": "simple",
+    "build-commands": [
+        "pip3 install --verbose --exists-action=i --no-index --find-links=\"file://${PWD}\" --prefix=${FLATPAK_DEST} \"conan==1.58.0\" --no-build-isolation"
+    ],
+    "sources": [
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/bc/c3/f068337a370801f372f2f8f6bad74a5c140f6fda3d9de154052708dd3c65/Jinja2-3.1.2-py3-none-any.whl",
+            "sha256": "6088930bfe239f0e6710546ab9c19c9ef35e29792895fed6e6e31a023a182a61"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/6d/7c/59a3248f411813f8ccba92a55feaac4bf360d29e2ff05ee7d8e1ef2d7dbf/MarkupSafe-2.1.3.tar.gz",
+            "sha256": "af598ed32d6ae86f1b747b82783958b1a4ab8f617b06fe68795c7f026abbdcad"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/c7/e8/01b2e35d81e618a8212e651e10c91660bdfda49c1d15ce66f4ca1ff43649/PyJWT-2.7.0-py3-none-any.whl",
+            "sha256": "ba2b425b15ad5ef12f200dc67dd56af4e26de2331f965c5439994dad075876e1"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/36/2b/61d51a2c4f25ef062ae3f74576b01638bebad5e045f747ff12643df63844/PyYAML-6.0.tar.gz",
+            "sha256": "68fb519c14306fec9720a2a5b45bc9f0c8d1b9c72adf45c37baedfcd949c35a2"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/bb/1f/5977ea88c6a3df6199db97d320e5da816d415d1eb75a987a1f6823d5cc9d/bottle-0.12.25-py3-none-any.whl",
+            "sha256": "d6f15f9d422670b7c073d63bd8d287b135388da187a0f3e3c19293626ce034ea"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/9d/19/59961b522e6757f0c9097e4493fa906031b95b3ebe9360b2c3083561a6b4/certifi-2023.5.7-py3-none-any.whl",
+            "sha256": "c6c2e98f5c7869efca1f8916fed228dd91539f9f1b444c314c06eef02980c716"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/ff/d7/8d757f8bd45be079d76309248845a04f09619a7b17d6dfc8c9ff6433cac2/charset-normalizer-3.1.0.tar.gz",
+            "sha256": "34e0a2f9c370eb95597aae63bf85eb5e96826d81e3dcf88b8886012906f509b5"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/d1/d6/3965ed04c63042e047cb6a3e6ed1a63a35087b6a609aa3a15ed8ac56c221/colorama-0.4.6-py2.py3-none-any.whl",
+            "sha256": "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/f0/f1/876a916cd7a5f89d838842cb3d3c52251aeaa6dabc92db0f53b9c417e610/conan-1.58.0.tar.gz",
+            "sha256": "001039c40b523ac3b26bb675eb90887760b06c657a0d10d60157e382ba2f9b73"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/e1/54/d08d1ad53788515392bec14d2d6e8c410bffdc127780a9a4aa8e6854d502/distro-1.7.0-py3-none-any.whl",
+            "sha256": "d596311d707e692c2160c37807f83e3820c5d539d5a83e87cfb6babd8ba3a06b"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/bc/a2/7d35ba2c8d9963398fcec49cd814e50a6b920d213928f06fdbbf8aa3289b/fasteners-0.18-py3-none-any.whl",
+            "sha256": "1d4caf5f8db57b0e4107d94fd5a1d02510a450dced6ca77d1839064c1bacf20c"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/fc/34/3030de6f1370931b9dbb4dad48f6ab1015ab1d32447850b9fc94e60097be/idna-3.4-py3-none-any.whl",
+            "sha256": "90b77e79eaa3eba6de819a0c442c0b4ceefc341a7a2ab77d7562bf49f425c5c2"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/08/51/6cf3a2b18ca35cbe4ad3c7538a7c3dc0cb24e71629fb16e729c137d06432/node_semver-0.6.1-py3-none-any.whl",
+            "sha256": "d4bf83873894591a0cbb6591910d96917fbadc9731e8e39e782d3a2fbc2b841e"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/c1/b2/ad3cd464101435fdf642d20e0e5e782b4edaef1affdf2adfc5c75660225b/patch-ng-1.17.4.tar.gz",
+            "sha256": "627abc5bd723c8b481e96849b9734b10065426224d4d22cd44137004ac0d4ace"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/f3/07/753451e80d2b0bf3bceec1162e8d23638ac3cb18d1c38ad340c586e90b42/pluginbase-1.0.1.tar.gz",
+            "sha256": "ff6c33a98fce232e9c73841d787a643de574937069f0d18147028d70d7dee287"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/36/7a/87837f39d0296e723bb9b62bbb257d0355c7f6128853c78955f57342a56d/python_dateutil-2.8.2-py2.py3-none-any.whl",
+            "sha256": "961d03dc3453ebbc59dbdea9e4e11c5651520a876d0f4db161e8674aae935da9"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/70/8e/0e2d847013cb52cd35b38c009bb167a1a26b2ce6cd6965bf26b47bc0bf44/requests-2.31.0-py3-none-any.whl",
+            "sha256": "58cd2187c01e70e6e26505bca751777aa9f2ee0b7f4300988b709f44e013003f"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/e6/02/a2cff6306177ae6bc73bc0665065de51dfb3b9db7373e122e2735faf0d97/tqdm-4.65.0-py3-none-any.whl",
+            "sha256": "c4f53a17fe37e132815abceec022631be8ffe1b9381c2e6e30aa70edc99e9671"
+        },
+        {
+            "type": "file",
+            "url": "https://files.pythonhosted.org/packages/c5/05/c214b32d21c0b465506f95c4f28ccbcba15022e000b043b72b3df7728471/urllib3-1.26.16-py2.py3-none-any.whl",
+            "sha256": "8d36afa7616d8ab714608411b4a3b13e58f463aee519024578e062e141dce20f"
+        }
+    ]
+}

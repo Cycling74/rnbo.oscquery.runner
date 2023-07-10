@@ -1,0 +1,45 @@
+install flatpak
+https://github.com/flatpak/flatpak-builder-tools/tree/master/pip
+https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/master/pip/flatpak-pip-generator
+
+unfortunately our conan deps don't work because flatpak doesn't allow us to download
+
+./flatpak-pip-generator --runtime='org.freedesktop.Sdk//22.08' conan==1.58.0
+
+simply build executable and then use flatpak to copy the binary
+mkdir build && cd build
+cmake .. -DWITH_DBUS=Off -DWITH_JACKSERVER=Off -DCMAKE_BUILD_TYPE=Release
+cmake --build .
+flatpak-builder --user --install --force-clean flatpak2 com.Cycling74.RNBORunner2.yaml
+flatpak run com.Cycling74.RNBORunner2
+
+
+helpful stuff:
+https://github.com/boostorg/boost/issues/334
+https://docs.flatpak.org/en/latest/first-build.html
+
+
+try 3
+
+with sudo
+
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install org.freedesktop.Sdk/x86_64/22.08
+flatpak install org.freedesktop.Platform/x86_64/22.08
+flatpak-builder --install --force-clean flatpak-build com.Cycling74.RNBORunner.yaml
+flatpak remote-modify --collection-id=com.Cycling74.RNBORunner rnborunner-origin
+flatpak remote-modify --collection-id=org.flathub.flathub flathub
+flatpak create-usb /media/parallels/XNORUSB/ com.Cycling74.RNBORunner
+
+couldn't figure out how to actually install it on the deck
+can list it though
+flatpak remote-ls file:///run/media/deck/XNORUSB/.ostree/repo/
+
+success! on deck, with sudo
+flatpak remote-add --if-not-exists rnborunner-origin file:///home/deck/rnborunner-origin
+flatpak remote-modify --collection-id=com.Cycling74.RNBORunner rnborunner-origin
+flatpak install --sideload-repo=/run/media/deck/XNORUSB/.ostree/repo rnborunner-origin com.Cycling74.RNBORunner
+
+
+
+

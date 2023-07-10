@@ -7,6 +7,7 @@ find_path(
 	PATHS
 		${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
 		${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
+		${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
 	NO_DEFAULT_PATH
 	DOC "Location of the RNBO C++ source code"
 )
@@ -16,7 +17,7 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
+include("${RNBO_DIR}/cmake/RNBOConan.cmake")
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
@@ -30,6 +31,8 @@ if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
 	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
 endif()
+
+option(WITH_JACKSERVER "include jackserver library so we can create an internal server" ON)
 
 project(rnbooscquery LANGUAGES CXX)
 set(PROJECT_VERSION "${RNBO_VERSION}")
@@ -169,8 +172,13 @@ conan_cmake_install(
 )
 
 find_library(JACK_LIB "jack" REQUIRED)
-find_library(JACKSERVER_LIB "jackserver" REQUIRED)
 find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+if (WITH_JACKSERVER)
+	find_library(JACKSERVER_LIB "jackserver" REQUIRED)
+	add_definitions(-DJACK_SERVER=1)
+else()
+	add_definitions(-DJACK_SERVER=0)
+endif()
 
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
