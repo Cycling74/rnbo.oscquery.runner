@@ -9,13 +9,16 @@ modules:
     build-commands:
       - mkdir -p ${FLATPAK_DEST}/bin
       - mkdir -p ${FLATPAK_DEST}/share
-      - install -Dm0644 "icon.png" "${FLATPAK_DEST}/share/icons/hicolor/120x120/apps/RNBORunner.png"
-      - install -Dm0644 "RNBORunner.desktop" "${FLATPAK_DEST}/app/share/applications/RNBORunner.desktop"
+      - install -Dm0644 "rnbo128x128.png" "/app/share/icons/hicolor/128x128/apps/com.Cycling74.RNBORunner.png"
+      - install -Dm0644 "RNBORunner.desktop" "/app/share/applications/com.Cycling74.RNBORunner.desktop"
+      - install -Dm0644 "com.Cycling74.RNBORunner.metainfo.xml" "/app/share/metainfo/com.Cycling74.RNBORunner.metainfo.xml"
     sources:
       - type: file
-        path: ../rnbo~/package/icon.png
+        path: rnbo128x128.png
       - type: file
         path: config/RNBORunner.desktop
+      - type: file
+        path: config/com.Cycling74.RNBORunner.metainfo.xml
         #  - name: cmake
         #    buildsystem: simple
         #    build-commands:
