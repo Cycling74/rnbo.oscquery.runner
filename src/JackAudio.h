@@ -17,12 +17,23 @@
 #include "InstanceAudio.h"
 #include "ProcessAudio.h"
 #include "Defines.h"
+#include "Queue.h"
 
 namespace moodycamel {
 template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+struct PortConnectedEvent {
+	PortConnectedEvent(jack_port_id_t a, jack_port_id_t b, bool connected, bool weowninput) :
+		source(a), destination(b), connected(connected), weowninput(weowninput) {}
+	jack_port_id_t source;
+	jack_port_id_t destination;
+	bool connected;
+	bool weowninput; //otherwise, we own output
+
+	jack_port_id_t owned() const { return weowninput ? source : destination; }
+};
 
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
@@ -164,6 +175,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
+		Queue<PortConnectedEvent> mPortConnectedQueue;
 
 		//working buffer for port getting port aliases
 		char * mJackPortAliases[2];

@@ -1159,6 +1159,28 @@ void InstanceAudioJack::processEvents() {
 	while (mProgramChangeQueue->try_dequeue(c)) {
 		mProgramChangeCallback(c);
 	}
+
+	//XXX should there be some sort of debouncing?
+	while (auto e = mPortConnectedQueue.tryPop()) {
+		bool changed = false;
+		auto p = jack_port_by_id(mJackClient, e->owned());
+		auto it = mPortParamMap.find(p);
+		if (it != mPortParamMap.end()) {
+			auto param = it->second;
+			std::vector<ossia::value> names;
+			std::cout << "found port" << std::endl;
+			iterate_connections(p, [&names](std::string name) {
+					names.push_back(name);
+					std::cout << "\t connection " << name << std::endl;
+			});
+			param->push_value(names);
+			changed = true;
+		}
+
+		if (changed && mConfigChangeCallback != nullptr) {
+			mConfigChangeCallback();
+		}
+	}
 }
 
 void InstanceAudioJack::connect() {
@@ -1385,26 +1407,17 @@ void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
 	}
 }
 
-void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /*connected*/) {
-	bool changed = false;
-	auto doit = [this, &changed](jack_port_id_t id) {
+void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool connected) {
+	//XXX pipewire 0.3.71-2~ubuntu22.04 doesn't seem to notify us about connections to ports that we own
+	//push an event to the main thread
+	auto doit = [this, a, b, connected](jack_port_id_t id, bool isinput) {
 		auto p = jack_port_by_id(mJackClient, id);
 		auto it = mPortParamMap.find(p);
 		if (it != mPortParamMap.end()) {
-			auto param = it->second;
-			std::vector<ossia::value> names;
-			iterate_connections(p, [&names](std::string name) {
-					names.push_back(name);
-			});
-			param->push_value(names);
-			changed = true;
+			mPortConnectedQueue.push(PortConnectedEvent(a, b, connected, isinput));
 		}
 	};
 
-	doit(a);
-	doit(b);
-
-	if (changed && mConfigChangeCallback != nullptr) {
-		mConfigChangeCallback();
-	}
+	doit(a, true);
+	doit(b, false);
 }
