@@ -78,6 +78,18 @@ namespace {
 		reinterpret_cast<InstanceAudioJack *>(arg)->portConnected(a, b, connect != 0);
 	}
 
+	void iterate_connections(jack_port_t * port, std::function<void(std::string)> func) {
+		auto connections = jack_port_get_connections(port);
+
+		if (connections != nullptr) {
+			for (int i = 0; connections[i] != nullptr; i++) {
+				func(std::string(connections[i]));
+			}
+			jack_free(connections);
+		}
+	}
+
+#if JACK_SERVER
 	jackctl_driver_t * jackctl_server_get_driver(jackctl_server_t * server, const std::string& name) {
 		auto n = jackctl_server_get_drivers_list(server);
 		while (n) {
@@ -90,18 +102,7 @@ namespace {
 		}
 		return nullptr;
 	}
-
-	void iterate_connections(jack_port_t * port, std::function<void(std::string)> func) {
-		auto connections = jack_port_get_connections(port);
-
-		if (connections != nullptr) {
-			for (int i = 0; connections[i] != nullptr; i++) {
-				func(std::string(connections[i]));
-			}
-			jack_free(connections);
-		}
-	}
-
+#endif
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mBPMClientUUID(0) {
@@ -331,6 +332,7 @@ bool ProcessAudioJack::setActive(bool active) {
 			jack_client_close(mJackClient);
 			mJackClient = nullptr;
 		}
+#if JACK_SERVER
 		if (mJackServer) {
 			jackctl_server_stop(mJackServer);
 			if (jack_midi_driver_name.size()) {
@@ -343,6 +345,7 @@ bool ProcessAudioJack::setActive(bool active) {
 			jackctl_server_destroy(mJackServer);
 			mJackServer = nullptr;
 		}
+#endif
 		return false;
 	}
 }
@@ -713,6 +716,7 @@ void ProcessAudioJack::portRenamed(jack_port_id_t /*port*/, const char * /*old_n
 
 //XXX expects to have mutex already
 bool ProcessAudioJack::createServer() {
+#if JACK_SERVER
 	mJackServer = jackctl_server_create(NULL, NULL);
 	if (mJackServer == nullptr) {
 		std::cerr << "failed to create jack server" << std::endl;
@@ -795,6 +799,9 @@ bool ProcessAudioJack::createServer() {
 	}
 	std::this_thread::sleep_for(std::chrono::seconds(2));
 	return true;
+#else
+	return false;
+#endif
 }
 
 

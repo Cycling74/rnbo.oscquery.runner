@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="console-application">
+  <id>com.Cycling74.RNBORunner</id>
+
+  <name>RNBORunner</name>
+  <summary>Interactively run RNBO patcher exports</summary>
+
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Run RNBO patcher exports for audio and event processing.
+    </p>
+  </description>
+
+	<!-- <icon type="stock">com.Cycling74.RNBORunner</icon> -->
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Midi</category>
+  </categories>
+
+  <provides>
+    <binary>RNBORunner</binary>
+  </provides>
+</component>
