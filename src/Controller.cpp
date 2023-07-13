@@ -241,6 +241,7 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
 #endif
+			"instance_load-multi",
 			"patcherstore"
 		};
 
