@@ -1386,6 +1386,8 @@ void Controller::processCommands() {
 							jack["client_name"] = instance_name;
 							config["jack"] = jack;
 						}
+						config["name"] = name;
+
 						auto inst = loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
 
 						//TODO optionally get connections from params

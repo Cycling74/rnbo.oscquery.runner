@@ -215,6 +215,15 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 
 	builder([this, &dataRefMap, conf](ossia::net::node_base * root) {
 
+		//set name
+		if (conf.contains("name") && conf["name"].is_string()) {
+			auto n = root->create_child("name");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::description_attribute{}, "The name of the loaded patcher");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			p->push_value(conf["name"].get<std::string>());
+		}
+
 		//setup parameters
 		auto params = root->create_child("params");
 		RNBO::Json paramConfig;
