@@ -186,7 +186,7 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 		const char * s = query.getColumn(0);
 		std::string name(s);
 
-		s = query.getColumn(5);
+		s = query.getColumn(1);
 		std::string created_at(s);
 
 		func(name, created_at);
