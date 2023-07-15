@@ -72,6 +72,9 @@ class Controller {
 
 		void updatePatchersInfo();
 
+		//only to be called during setup or in the command thread
+		void updateSetNames();
+
 		unsigned int nextInstanceIndex();
 
 		DB mDB;
@@ -84,6 +87,13 @@ class Controller {
 		ossia::net::parameter_base * mResponseParam = nullptr;
 		ossia::net::node_base * mInstanceLoadNode;
 		ossia::net::node_base * mPatchersNode;
+
+		ossia::net::node_base * mSetLoadNode = nullptr;
+		ossia::net::parameter_base * mSetLoadParam = nullptr;
+
+		std::mutex mSetNamesMutex;
+		bool mSetNamesUpdated = false;
+		std::vector<ossia::value> mSetNames;
 
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;

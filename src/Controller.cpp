@@ -491,8 +491,8 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 			}
 
 			{
-				auto n = sets->create_child("load");
-				auto p = n->create_parameter(ossia::val_type::STRING);
+				auto n = mSetLoadNode = sets->create_child("load");
+				auto p = mSetLoadParam = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 				n->set(ossia::net::description_attribute{}, "Load a set with the given name");
 
@@ -506,6 +506,7 @@ Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) 
 				});
 			}
 
+			updateSetNames();
 		}
 	}
 
@@ -957,6 +958,15 @@ void Controller::updatePatchersInfo() {
 	});
 }
 
+void Controller::updateSetNames() {
+	std::lock_guard<std::mutex> guard(mSetNamesMutex);
+	mSetNames.clear();
+	mDB.sets([this](const std::string& name, const std::string& /*created*/) {
+			mSetNames.push_back(name);
+	});
+	mSetNamesUpdated = true;
+}
+
 unsigned int Controller::nextInstanceIndex() {
 	unsigned int index = 0;
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
@@ -1002,6 +1012,19 @@ bool Controller::processEvents() {
 		}
 		if (save) {
 			saveSet();
+		}
+
+		//sets
+		{
+			std::lock_guard<std::mutex> guard(mSetNamesMutex);
+			if (mSetNamesUpdated) {
+				mSetNamesUpdated = false;
+
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, mSetNames);
+				mSetLoadNode->set(ossia::net::domain_attribute{}, dom);
+				mSetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+			}
 		}
 	} catch (const std::exception& e) {
 		std::cerr << "exception in Controller::process thread " << e.what() << std::endl;
@@ -1432,6 +1455,7 @@ void Controller::processCommands() {
 						{"message", "saved"},
 						{"progress", 100}
 					});
+					updateSetNames();
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
