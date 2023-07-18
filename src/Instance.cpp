@@ -126,12 +126,12 @@ namespace {
 	}
 }
 
-Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf) {
+Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
-	auto datarefs = conf["datarefs"];
-	if (datarefs.is_object()) {
+	if (conf.contains("datarefs") && conf["datarefs"].is_object()) {
+		auto datarefs = conf["datarefs"];
 		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
 			dataRefMap[it.key()] = it.value();
 		}
@@ -184,7 +184,13 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				transportCallback, tempoCallback, beatTimeCallback, timeSigCallback,
 				midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
-	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, name, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
+
+	std::string audioName = name + "-" + std::to_string(mIndex);
+	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1)));
+	mAudio->registerConfigChangeCallback([this]() {
+			if (mConfigChangeCallback != nullptr)
+			mConfigChangeCallback();
+	});
 
 	mPresetSavedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
@@ -208,6 +214,15 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 	}
 
 	builder([this, &dataRefMap, conf](ossia::net::node_base * root) {
+
+		//set name
+		if (conf.contains("name") && conf["name"].is_string()) {
+			auto n = root->create_child("name");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::description_attribute{}, "The name of the loaded patcher");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			p->push_value(conf["name"].get<std::string>());
+		}
 
 		//setup parameters
 		auto params = root->create_child("params");
@@ -608,6 +623,14 @@ Instance::~Instance() {
 	mPatcherFactory.reset();
 }
 
+void Instance::activate() {
+	mAudio->activate();
+}
+
+void Instance::connect() {
+	mAudio->connect();
+}
+
 void Instance::start() {
 	mAudio->start();
 }
@@ -781,6 +804,9 @@ RNBO::Json Instance::currentConfig() {
 	}
 	config["presets"] = presets;
 	config["datarefs"] = datarefs;
+
+	mAudio->addConfig(config);
+
 	return config;
 }
 void Instance::updatePresetEntries() {

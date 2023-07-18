@@ -18,6 +18,7 @@
 #include <iostream>
 #include <regex>
 #include <string>
+#include <set>
 
 namespace fs = boost::filesystem;
 
@@ -60,6 +61,10 @@ namespace {
 		return 0;
 	}
 
+	static void processJackPortRenamed(jack_port_id_t port, const char *old_name, const char *new_name, void *arg) {
+		reinterpret_cast<ProcessAudioJack *>(arg)->portRenamed(port, old_name, new_name);
+	}
+
 	static int processJackInstance(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
 		return 0;
@@ -69,6 +74,22 @@ namespace {
 		reinterpret_cast<InstanceAudioJack *>(arg)->jackPortRegistration(id, reg);
 	}
 
+	static void jackInstancePortConnection(jack_port_id_t a, jack_port_id_t b, int connect, void *arg) {
+		reinterpret_cast<InstanceAudioJack *>(arg)->portConnected(a, b, connect != 0);
+	}
+
+	void iterate_connections(jack_port_t * port, std::function<void(std::string)> func) {
+		auto connections = jack_port_get_connections(port);
+
+		if (connections != nullptr) {
+			for (int i = 0; connections[i] != nullptr; i++) {
+				func(std::string(connections[i]));
+			}
+			jack_free(connections);
+		}
+	}
+
+#if JACK_SERVER
 	jackctl_driver_t * jackctl_server_get_driver(jackctl_server_t * server, const std::string& name) {
 		auto n = jackctl_server_get_drivers_list(server);
 		while (n) {
@@ -81,6 +102,7 @@ namespace {
 		}
 		return nullptr;
 	}
+#endif
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mBPMClientUUID(0) {
@@ -96,6 +118,8 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder) : mBuilder(builder), mJa
 
 	mBuilder([this](ossia::net::node_base * root) {
 			mInfoNode = root->create_child("info");
+
+			mPortInfoNode = mInfoNode->create_child("ports");
 
 			auto conf = root->create_child("config");
 			conf->set(ossia::net::description_attribute{}, "Jack configuration parameters");
@@ -239,6 +263,54 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 	}
 }
 
+bool ProcessAudioJack::connect(const RNBO::Json& config) {
+	if (config.is_object()) {
+		for (auto& [key, value]: config.items()) {
+			bool input = value["input"].get<bool>();
+			for (auto o: value["connections"]) {
+				std::string name = o.get<std::string>();
+				if (input) {
+					jack_connect(mJackClient, name.c_str(), key.c_str());
+				} else {
+					jack_connect(mJackClient, key.c_str(), name.c_str());
+				}
+			}
+		}
+		return true;
+	}
+	return false;
+}
+
+RNBO::Json ProcessAudioJack::connections() {
+	RNBO::Json conf;
+	const char ** ports = nullptr;
+	if ((ports = jack_get_ports(mJackClient, nullptr, nullptr, 0)) != nullptr) {
+		for (size_t i = 0; ports[i] != nullptr; i++) {
+			std::string name(ports[i]);
+			jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+			std::vector<std::string> connections;
+			iterate_connections(port, [&connections](std::string n) {
+					connections.push_back(n);
+			});
+
+			if (connections.size()) {
+				auto flags = jack_port_flags(port);
+
+				RNBO::Json entry;
+				entry["connections"] = connections;
+				entry["physical"] = static_cast<bool>(JackPortIsPhysical & flags);
+				entry["input"] = static_cast<bool>(JackPortIsInput & flags);
+				entry["output"] = static_cast<bool>(JackPortIsOutput & flags);
+
+				conf[name] = entry;
+			}
+		}
+		jack_free(ports);
+	}
+
+	return conf;
+}
+
 bool ProcessAudioJack::isActive() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	return mJackClient != nullptr;
@@ -260,6 +332,7 @@ bool ProcessAudioJack::setActive(bool active) {
 			jack_client_close(mJackClient);
 			mJackClient = nullptr;
 		}
+#if JACK_SERVER
 		if (mJackServer) {
 			jackctl_server_stop(mJackServer);
 			if (jack_midi_driver_name.size()) {
@@ -272,6 +345,7 @@ bool ProcessAudioJack::setActive(bool active) {
 			jackctl_server_destroy(mJackServer);
 			mJackServer = nullptr;
 		}
+#endif
 		return false;
 	}
 }
@@ -392,6 +466,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		mJackClient = jack_client_open("rnbo-info", JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
 			jack_set_process_callback(mJackClient, processJackProcess, this);
+			jack_set_port_rename_callback(mJackClient, processJackPortRenamed, this);
 
 			mBuilder([this](ossia::net::node_base * root) {
 				if (mIsRealTimeParam == nullptr) {
@@ -511,7 +586,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 				}
 			});
-			//TODO build up i/o dynamically
+			updatePorts();
 			jack_activate(mJackClient);
 		}
 	}
@@ -558,8 +633,90 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 	}
 }
 
+void ProcessAudioJack::updatePorts() {
+	mBuilder([this](ossia::net::node_base *) {
+			const char ** ports = nullptr;
+
+			char * aliases[2] = { nullptr, nullptr };
+			aliases[0] = new char[jack_port_name_size()];
+			aliases[1] = new char[jack_port_name_size()];
+
+			if (mPortAudioSinksParam == nullptr) {
+				auto audio = mPortInfoNode->create_child("audio");
+				auto midi = mPortInfoNode->create_child("midi");
+
+				auto build = [](ossia::net::node_base * parent, const std::string name) -> ossia::net::parameter_base * {
+					auto n = parent->create_child(name);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					return p;
+				};
+
+				mPortAudioSinksParam = build(audio, "sinks");
+				mPortAudioSourcesParam = build(audio, "sources");
+				mPortMidiSinksParam = build(midi, "sinks");
+				mPortMidiSourcesParam = build(midi, "sources");
+
+				mPortAliases = mPortInfoNode->create_child("aliases");
+				mPortAliases->set(ossia::net::description_attribute{}, "Ports and a list of their aliases");
+			}
+
+			std::vector<std::tuple<ossia::net::parameter_base *, const char *, unsigned long>> portTypes = {
+				{mPortAudioSourcesParam, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput},
+				{mPortAudioSinksParam, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput},
+				{mPortMidiSourcesParam, JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput},
+				{mPortMidiSinksParam, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput},
+			};
+
+			for (auto info: portTypes) {
+				auto p = std::get<0>(info);
+				std::vector<ossia::value> names;
+
+				if ((ports = jack_get_ports(mJackClient, NULL, std::get<1>(info), std::get<2>(info))) != NULL) {
+					for (size_t i = 0; ports[i] != nullptr; i++) {
+						jack_port_t * port = jack_port_by_name(mJackClient, ports[i]);
+						if (port) {
+							std::string name(ports[i]);
+							names.push_back(name);
+							auto cnt = jack_port_get_aliases(port, aliases);
+
+							//update aliases
+							if (cnt != 0) {
+								auto n = mPortAliases->find_child(name);
+								if (n == nullptr) {
+									n = mPortAliases->create_child(name);
+									n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+									n->create_parameter(ossia::val_type::LIST);
+								}
+
+								std::vector<ossia::value> aliasValues;
+								for (int i = 0; i < cnt; i++) {
+									aliasValues.push_back(std::string(aliases[i]));
+								}
+								n->get_parameter()->push_value(aliasValues);
+							} else {
+								auto n = mPortAliases->remove_child(name);
+							}
+						}
+					}
+					jack_free(ports);
+				}
+
+				p->push_value(names);
+			}
+
+			delete [] aliases[0];
+			delete [] aliases[1];
+	});
+}
+
+void ProcessAudioJack::portRenamed(jack_port_id_t /*port*/, const char * /*old_name*/, const char * /*new_name*/) {
+	updatePorts();
+}
+
 //XXX expects to have mutex already
 bool ProcessAudioJack::createServer() {
+#if JACK_SERVER
 	mJackServer = jackctl_server_create(NULL, NULL);
 	if (mJackServer == nullptr) {
 		std::cerr << "failed to create jack server" << std::endl;
@@ -642,6 +799,9 @@ bool ProcessAudioJack::createServer() {
 	}
 	std::this_thread::sleep_for(std::chrono::seconds(2));
 	return true;
+#else
+	return false;
+#endif
 }
 
 
@@ -713,16 +873,21 @@ void ProcessAudioJack::handleTransportTimeSig(double numerator, double denominat
 	});
 }
 
-
 InstanceAudioJack::InstanceAudioJack(
 		std::shared_ptr<RNBO::CoreObject> core,
 		RNBO::Json conf,
 		std::string name,
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback
-		) : mCore(core), mInstanceConf(conf), mRunning(false), mProgramChangeCallback(progChangeCallback) {
+		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback) {
+
+	std::string clientName = name;
+	if (conf.contains("jack") && conf["jack"].contains("client_name")) {
+		clientName = conf["jack"]["client_name"];
+	}
+
 	//get jack client, fail early if we can't
-	mJackClient = jack_client_open(name.c_str(), JackOptions::JackNoStartServer, nullptr);
+	mJackClient = jack_client_open(clientName.c_str(), JackOptions::JackNoStartServer, nullptr);
 	if (!mJackClient)
 		throw new std::runtime_error("couldn't create jack client");
 
@@ -742,20 +907,119 @@ InstanceAudioJack::InstanceAudioJack(
 	builder([this](ossia::net::node_base * root) {
 		//setup jack
 		auto jack = root->create_child("jack");
+		auto conn = jack->create_child("connections");
+
+		auto audio = conn->create_child("audio");
+		auto midi = conn->create_child("midi");
+
+		auto build_port_param = [this](jack_port_t * port, ossia::net::node_base * parent, const std::string& name, bool input) -> ossia::net::parameter_base * {
+
+			//remove prefix: from string
+			auto childname = name;
+			auto it = childname.find(':');
+			if (it != std::string::npos) {
+				childname = childname.substr(it + 1);
+			}
+
+			auto n = parent->create_child(childname);
+
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+			n->set(ossia::net::description_attribute{}, "Port and its connections, send port names to change, see /rnbo/jack/ports for names to connect");
+			auto param = n->create_parameter(ossia::val_type::LIST);
+
+			param->add_callback([port, input, name, this, param](const ossia::value& val) {
+				std::set<std::string> add;
+				std::set<std::string> remove;
+
+				if (val.get_type() == ossia::val_type::LIST) {
+					auto l = val.get<std::vector<ossia::value>>();
+					std::vector<ossia::value> valid;
+					bool invalidEntry = false;
+					for (auto it: l) {
+						if (it.get_type() == ossia::val_type::STRING) {
+							add.insert(it.get<std::string>());
+						} else {
+							//ERROR
+						}
+					}
+
+					iterate_connections(port, [&valid, &add, &remove](std::string n) {
+						//we don't need to add connections that are already there
+						if (add.count(n)) {
+							valid.push_back(n);
+							add.erase(n);
+						} else {
+							remove.insert(n);
+						}
+					});
+
+					for (auto n: add) {
+						int ret = 0;
+						if (input) {
+							ret = jack_connect(mJackClient, n.c_str(), name.c_str());
+						} else {
+							ret = jack_connect(mJackClient, name.c_str(), n.c_str());
+						}
+						//check response and update parameter
+						if (ret == 0 || ret == EEXIST) {
+							valid.push_back(n);
+						} else {
+							invalidEntry = true;
+						}
+					}
+					for (auto n: remove) {
+						if (input) {
+							jack_disconnect(mJackClient, n.c_str(), name.c_str());
+						} else {
+							jack_disconnect(mJackClient, name.c_str(), n.c_str());
+						}
+					}
+					//update param with valid entries
+					if (invalidEntry) {
+						//quiet to avoid recursion and deadlock
+						param->set_value_quiet(valid);
+					}
+				}
+			});
+
+			return param;
+		};
+
+		auto audio_sinks = audio->create_child("sinks");
+		auto audio_sources = audio->create_child("sources");
+		auto midi_sinks = midi->create_child("sinks");
+		auto midi_sources = midi->create_child("sources");
+
+
+		//client name
+		{
+			auto n = jack->create_child("name");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			std::string name(jack_get_client_name(mJackClient));
+
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			p->push_value(name);
+		}
 
 		//create i/o
 		{
 			std::vector<ossia::value> names;
 			for (auto i = 0; i < mCore->getNumInputChannels(); i++) {
+				//TODO metadata?
 				auto port = jack_port_register(mJackClient,
 						("in" + std::to_string(i + 1)).c_str(),
 						JACK_DEFAULT_AUDIO_TYPE,
 						JackPortFlags::JackPortIsInput,
 						0
 				);
-				names.push_back(std::string(jack_port_name(port)));
+
+				std::string name(jack_port_name(port));
+				names.push_back(name);
+
 				mSampleBufferPtrIn.push_back(nullptr);
 				mJackAudioPortIn.push_back(port);
+
+				mPortParamMap.insert({port, build_port_param(port, audio_sinks, name, true)});
 			}
 
 			{
@@ -774,9 +1038,14 @@ InstanceAudioJack::InstanceAudioJack(
 						JackPortFlags::JackPortIsOutput,
 						0
 				);
-				names.push_back(std::string(jack_port_name(port)));
+
+				std::string name(jack_port_name(port));
+				names.push_back(name);
+
 				mSampleBufferPtrOut.push_back(nullptr);
 				mJackAudioPortOut.push_back(port);
+
+				mPortParamMap.insert({port, build_port_param(port, audio_sources, name, false)});
 			}
 			{
 				auto n = jack->create_child("audio_outs");
@@ -796,7 +1065,11 @@ InstanceAudioJack::InstanceAudioJack(
 			auto n = jack->create_child("midi_ins");
 			auto midi_ins = n->create_parameter(ossia::val_type::LIST);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-			midi_ins->push_value(ossia::value({ossia::value(std::string(jack_port_name(mJackMidiIn)))}));
+
+			std::string name(jack_port_name(mJackMidiIn));
+			mPortParamMap.insert({mJackMidiIn, build_port_param(mJackMidiIn, midi_sinks, name, true)});
+
+			midi_ins->push_value(ossia::value({ossia::value(name)}));
 		}
 		{
 			mJackMidiOut = jack_port_register(mJackClient,
@@ -808,7 +1081,11 @@ InstanceAudioJack::InstanceAudioJack(
 			auto n = jack->create_child("midi_outs");
 			auto midi_outs = n->create_parameter(ossia::val_type::LIST);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-			midi_outs->push_value(ossia::value({ossia::value(std::string(jack_port_name(mJackMidiOut)))}));
+
+			std::string name(jack_port_name(mJackMidiOut));
+			mPortParamMap.insert({mJackMidiOut, build_port_param(mJackMidiOut, midi_sources, name, false)});
+
+			midi_outs->push_value(ossia::value({ossia::value(name)}));
 		}
 	});
 
@@ -833,30 +1110,41 @@ InstanceAudioJack::~InstanceAudioJack() {
 	delete [] mJackPortAliases[1];
 }
 
-void InstanceAudioJack::start() {
+void InstanceAudioJack::addConfig(RNBO::Json& conf) {
+	conf["jack"]["client_name"] = std::string(jack_get_client_name(mJackClient));
+}
+
+void InstanceAudioJack::activate() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	//protect against double activate or deactivate
-	if (!mRunning) {
+	if (!mActivated) {
 		if (jack_set_port_registration_callback(mJackClient, ::jackPortRegistration, this) != 0) {
 			std::cerr << "failed to jack_set_port_registration_callback" << std::endl;
 		}
+		if (jack_set_port_connect_callback(mJackClient, ::jackInstancePortConnection, this) != 0) {
+			std::cerr << "failed to jack_set_port_connect_callback" << std::endl;
+		}
 		jack_activate(mJackClient);
 		//only connects what the config indicates
-		connectToHardware();
-		mRunning = true;
+		mActivated = true;
 	}
+}
+
+void InstanceAudioJack::start() {
+	mRunning = true;
 }
 
 void InstanceAudioJack::stop() {
 	std::lock_guard<std::mutex> guard(mMutex);
-	if (mRunning) {
+	mRunning = false;
+	if (mActivated) {
 		jack_deactivate(mJackClient);
-		mRunning = false;
+		mActivated = false;
 	}
 }
 
 bool InstanceAudioJack::isActive() {
-	return mRunning;
+	return mActivated && mRunning;
 }
 
 void InstanceAudioJack::processEvents() {
@@ -873,7 +1161,7 @@ void InstanceAudioJack::processEvents() {
 	}
 }
 
-void InstanceAudioJack::connectToHardware() {
+void InstanceAudioJack::connect() {
 	const char ** ports;
 
 	RNBO::Json outlets;
@@ -951,42 +1239,41 @@ void InstanceAudioJack::connectToHardware() {
 		}
 	}
 
-
-	if (config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
-		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
-			for (auto ptr = ports; *ptr != nullptr; ptr++) {
-				connectToMidiIf(jack_port_by_name(mJackClient, *ptr));
-			}
-			jack_free(ports);
+	if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
+		for (auto ptr = ports; *ptr != nullptr; ptr++) {
+			connectToMidiIf(jack_port_by_name(mJackClient, *ptr));
 		}
+		jack_free(ports);
 	}
 }
 
 void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
-	std::lock_guard<std::mutex> guard(mPortMutex);
-	//if we can get the port, it isn't ours and it is a midi port
-	if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
-		//ignore through and virtual
-		auto is_through = [](const char * name) -> bool {
-			std::string lower(name);
-			transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-			return lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
-		};
-		auto name = jack_port_name(port);
-		//ditch if the port is a through or is already connected
-		if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name))
-			return;
-		//check aliases, ditch if it is a virtual or through
-		auto count = jack_port_get_aliases(port, mJackPortAliases);
-		for (auto i = 0; i < count; i++) {
-			if (is_through(mJackPortAliases[i]))
+	if (config::get<bool>(config::key::InstanceAutoConnectMIDI).value_or(false)) {
+		std::lock_guard<std::mutex> guard(mPortMutex);
+		//if we can get the port, it isn't ours and it is a midi port
+		if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
+			//ignore through and virtual
+			auto is_through = [](const char * name) -> bool {
+				std::string lower(name);
+				transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+				return lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
+			};
+			auto name = jack_port_name(port);
+			//ditch if the port is a through or is already connected
+			if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name))
 				return;
-		}
-		auto flags = jack_port_flags(port);
-		if (flags & JackPortFlags::JackPortIsInput) {
-			jack_connect(mJackClient, jack_port_name(mJackMidiOut), name);
-		} else if (flags & JackPortFlags::JackPortIsOutput) {
-			jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
+			//check aliases, ditch if it is a virtual or through
+			auto count = jack_port_get_aliases(port, mJackPortAliases);
+			for (auto i = 0; i < count; i++) {
+				if (is_through(mJackPortAliases[i]))
+					return;
+			}
+			auto flags = jack_port_flags(port);
+			if (flags & JackPortFlags::JackPortIsInput) {
+				jack_connect(mJackClient, jack_port_name(mJackMidiOut), name);
+			} else if (flags & JackPortFlags::JackPortIsOutput) {
+				jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
+			}
 		}
 	}
 }
@@ -995,8 +1282,22 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 	auto midiOutBuf = jack_port_get_buffer(mJackMidiOut, nframes);
 	jack_midi_clear_buffer(midiOutBuf);
 
+	//get the buffers
+	for (auto i = 0; i < mSampleBufferPtrIn.size(); i++)
+		mSampleBufferPtrIn[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
+	for (auto i = 0; i < mSampleBufferPtrOut.size(); i++)
+		mSampleBufferPtrOut[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortOut[i], nframes));
+
+	if (!mRunning) {
+		for (auto i = 0; i < mSampleBufferPtrOut.size(); i++) {
+			memset(mSampleBufferPtrOut[i], 0, sizeof(jack_default_audio_sample_t) * nframes);
+		}
+		return;
+	}
+
 	//get the current time
 	auto nowms = mCore->getCurrentTime();
+
 	//TODO sync to jack's time?
 
 	//query the jack transport
@@ -1042,12 +1343,6 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 		mTransportStateLast = state;
 	}
 
-	//get the buffers
-	for (auto i = 0; i < mSampleBufferPtrIn.size(); i++)
-		mSampleBufferPtrIn[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
-	for (auto i = 0; i < mSampleBufferPtrOut.size(); i++)
-		mSampleBufferPtrOut[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortOut[i], nframes));
-
 	//get midi in
 	{
 		mMIDIInList.clear();
@@ -1087,5 +1382,29 @@ void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
 	//we only care about new registrations (non zero) as jack will auto disconnect unreg
 	if (mPortQueue && reg != 0 && config::get<bool>(config::key::InstanceAutoConnectMIDI)) {
 		mPortQueue->enqueue(id);
+	}
+}
+
+void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /*connected*/) {
+	bool changed = false;
+	auto doit = [this, &changed](jack_port_id_t id) {
+		auto p = jack_port_by_id(mJackClient, id);
+		auto it = mPortParamMap.find(p);
+		if (it != mPortParamMap.end()) {
+			auto param = it->second;
+			std::vector<ossia::value> names;
+			iterate_connections(p, [&names](std::string name) {
+					names.push_back(name);
+			});
+			param->push_value(names);
+			changed = true;
+		}
+	};
+
+	doit(a);
+	doit(b);
+
+	if (changed && mConfigChangeCallback != nullptr) {
+		mConfigChangeCallback();
 	}
 }

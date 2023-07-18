@@ -7,6 +7,7 @@ find_path(
 	PATHS
 		${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
 		${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
+		${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
 	NO_DEFAULT_PATH
 	DOC "Location of the RNBO C++ source code"
 )
@@ -16,10 +17,12 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
+include("${RNBO_DIR}/cmake/RNBOConan.cmake")
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
+
+set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
 
 #libossia and sdbus require c++17
 set(CMAKE_CXX_STANDARD 17)
@@ -29,6 +32,8 @@ if (UNIX AND NOT APPLE)
 	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
 endif()
 
+option(WITH_JACKSERVER "include jackserver library so we can create an internal server" ON)
+
 project(rnbooscquery LANGUAGES CXX)
 set(PROJECT_VERSION "${RNBO_VERSION}")
 set(PROJECT_APP "rnbooscquery")
@@ -37,6 +42,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(PROJECT_SRC
 	src/main.cpp
+	src/DB.cpp
 	src/Config.cpp
 	src/Controller.cpp
 	src/Instance.cpp
@@ -57,6 +63,17 @@ if (CMAKE_BUILD_TYPE STREQUAL Debug)
 		-DRNBO_PLATFORM_ASSERT_WARN=0
 		-DRNBO_PLATFORM_ERROR_WARN=0
 	)
+endif()
+
+if (SUPPORT_COMPILE)
+	add_definitions(-DRNBOOSCQUERY_ENABLE_COMPILE)
+endif()
+
+if (CMAKE_CXX_COMPILER_VERSION)
+	add_definitions(-DRNBOOSCQUERY_CXX_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}")
+endif()
+if (CMAKE_CXX_COMPILER_ID)
+	add_definitions(-DRNBOOSCQUERY_CXX_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}")
 endif()
 
 #dbus on linux
@@ -142,14 +159,32 @@ conan_cmake_install(
 	SETTINGS ${settings}
 )
 
+conan_cmake_configure(
+	REQUIRES sqlitecpp/3.2.1
+	GENERATORS cmake_find_package
+	OPTIONS
+		sqlitecpp:shared=False
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS ${settings}
+)
+
 find_library(JACK_LIB "jack" REQUIRED)
-find_library(JACKSERVER_LIB "jackserver" REQUIRED)
 find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+if (WITH_JACKSERVER)
+	find_library(JACKSERVER_LIB "jackserver" REQUIRED)
+	add_definitions(-DJACK_SERVER=1)
+else()
+	add_definitions(-DJACK_SERVER=0)
+endif()
 
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
 find_package(SndFile REQUIRED)
+find_package(SQLiteCpp REQUIRED)
 
 include_directories(
 	./3rdparty/
@@ -164,6 +199,7 @@ include_directories(
 	${base64_INCLUDE_DIRS}
 	${SndFile_INCLUDE_DIRS}
 	${JACK_INCLUDE_DIR}
+	${SQLiteCpp_INCLUDES}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -222,6 +258,7 @@ target_link_libraries(${PROJECT_APP}
 	${JACK_LIB}
 	${JACKSERVER_LIB}
 	${SndFile_LIBRARIES}
+	${SQLiteCpp_LIBRARIES}
 	${SDBUS_LIBS}
 )
 if (LINUX)

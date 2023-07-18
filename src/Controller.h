@@ -6,6 +6,7 @@
 #include <atomic>
 #include <optional>
 #include <set>
+#include <memory>
 
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -13,6 +14,7 @@
 #include "Instance.h"
 #include "ProcessAudio.h"
 #include "Queue.h"
+#include "DB.h"
 
 //forward declarations
 namespace ossia {
@@ -32,9 +34,9 @@ class Controller {
 		Controller(std::string server_name = "rnbo");
 		~Controller();
 
-		//return true on success
-		bool loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true);
-		bool loadLast();
+		//return null on failure
+		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
+		bool loadSet(boost::filesystem::path filename = boost::filesystem::path());
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
 #endif
@@ -45,6 +47,7 @@ class Controller {
 		bool tryActivateAudio();
 		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&);
+		void unloadInstance(std::lock_guard<std::mutex>&, unsigned int index);
 		void processCommands();
 		void reportCommandResult(std::string id, RNBO::Json res);
 		void reportCommandError(std::string id, unsigned int code, std::string message);
@@ -53,21 +56,47 @@ class Controller {
 		void handleActive(bool active);
 		void updateDiskSpace();
 		void updateListenersList();
-		void saveLast();
-		//queue a saveLast, this is thread safe, saveLast will happen in the process() thread
+
+		//save set, return the path of the save
+		boost::optional<boost::filesystem::path> saveSet(std::string name = std::string(), bool abort_empty = false);
+
+		void patcherStore(
+				const std::string& name,
+				const boost::filesystem::path& libFile,
+				const boost::filesystem::path& configFilePath,
+				const std::string& maxRNBOVersion,
+				const RNBO::Json& config);
+
+		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
+		void updatePatchersInfo(std::string addedOrUpdated = std::string());
+
+		//only to be called during setup or in the command thread
+		void updateSetNames();
+
+		unsigned int nextInstanceIndex();
+
+		DB mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
 		std::shared_ptr<ossia::net::network_context> mOssiaContext;
 		ossia::net::multiplex_protocol * mProtocol;
 		std::mutex mOssiaContextMutex;
 
-		//TODO
 		ossia::net::node_base * mInstancesNode;
 		ossia::net::parameter_base * mResponseParam = nullptr;
+		ossia::net::node_base * mInstanceLoadNode;
+		ossia::net::node_base * mPatchersNode;
 
-		//instance and path to SO
-		std::vector<std::pair<std::unique_ptr<Instance>, boost::filesystem::path>> mInstances;
+		ossia::net::node_base * mSetLoadNode = nullptr;
+		ossia::net::parameter_base * mSetLoadParam = nullptr;
+
+		std::mutex mSetNamesMutex;
+		bool mSetNamesUpdated = false;
+		std::vector<ossia::value> mSetNames;
+
+		//instance, path to SO, path to config
+		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;

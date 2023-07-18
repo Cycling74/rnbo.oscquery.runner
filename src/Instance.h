@@ -29,11 +29,16 @@ class ProcessAudio;
 
 class Instance {
 	public:
-		Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio);
+		Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index);
 		~Instance();
 
+		unsigned int index() const { return mIndex; }
+
+		void activate();
+		void connect();
 		void start();
 		void stop();
+
 		//process any events in the current thread
 		void processEvents();
 
@@ -136,4 +141,5 @@ class Instance {
 		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
 
 		RNBO::Json mConfig;
+		unsigned int mIndex = 0;
 };

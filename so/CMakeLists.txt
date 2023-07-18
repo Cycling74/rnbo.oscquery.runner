@@ -16,23 +16,19 @@ if(CMAKE_CXX_COMPILER_ID MATCHES GNU)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-gnu-unique")
 endif()
 
-set(RNBO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../src/cpp/ CACHE FILEPATH "Location of the RNBO C++ source code")
+#default to path setup for cloud compiler, the runner appliaction will set this explicitly
+set(RNBO_CPP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../ CACHE FILEPATH "Location of the RNBO C++ source code")
 set(LIBRARY_NAME_PREFIX "RNBOso" CACHE STRING "A string to use when constructing the library file name")
-set(RNBO_CLASS_FILE ${RNBO_DIR}/../../codegen/xam/test/test.cpp CACHE STRING "The RNBO generated class file to encapsulate in this library")
-
-find_program(CCACHE_PROGRAM ccache)
-if(CCACHE_PROGRAM)
-	# Support Unix Makefiles and Ninja
-	set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
-endif()
+set(RNBO_CLASS_FILE ${RNBO_CPP_DIR}/../../codegen/xam/test/test.cpp CACHE FILEPATH "The RNBO generated class file to encapsulate in this library")
 
 include_directories(
-	${RNBO_DIR}
-	"${RNBO_DIR}/common"
-	"${RNBO_DIR}/src"
+	${RNBO_CPP_DIR}
+	"${RNBO_CPP_DIR}/common"
+	"${RNBO_CPP_DIR}/src"
 )
 
-include("${RNBO_DIR}/version.cmake")
+include(${RNBO_CPP_DIR}/version.cmake)
+include(${RNBO_CPP_DIR}/cmake/CCache.cmake)
 
 add_library(RNBOso SHARED
 	${RNBO_CLASS_FILE}
@@ -40,3 +36,6 @@ add_library(RNBOso SHARED
 	ConsoleLogger.cpp
 )
 set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${RNBO_VERSION}")
+
+#for the cloud compiler
+install(TARGETS RNBOso DESTINATION .)

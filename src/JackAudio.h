@@ -29,15 +29,22 @@ class ProcessAudioJack : public ProcessAudio {
 	public:
 		ProcessAudioJack(NodeBuilder builder);
 		virtual ~ProcessAudioJack();
+
 		virtual bool isActive() override;
 		virtual bool setActive(bool active) override;
 		virtual void processEvents() override;
 		void process(jack_nframes_t frames);
 
+		virtual bool connect(const RNBO::Json& config) override;
+		virtual RNBO::Json connections() override;
+
 		virtual void handleTransportState(bool running) override;
 		virtual void handleTransportTempo(double bpm) override;
 		virtual void handleTransportBeatTime(double btime) override;
 		virtual void handleTransportTimeSig(double numerator, double denominator) override;
+
+		virtual void updatePorts() override;
+		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -55,6 +62,14 @@ class ProcessAudioJack : public ProcessAudio {
 		std::atomic<jack_uuid_t> mBPMClientUUID;
 
 		ossia::net::node_base * mInfoNode = nullptr;
+		ossia::net::node_base * mPortInfoNode = nullptr;
+
+		ossia::net::node_base * mPortAliases = nullptr;
+		ossia::net::parameter_base * mPortAudioSinksParam = nullptr;
+		ossia::net::parameter_base * mPortAudioSourcesParam = nullptr;
+		ossia::net::parameter_base * mPortMidiSinksParam = nullptr;
+		ossia::net::parameter_base * mPortMidiSourcesParam = nullptr;
+
 		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
 		ossia::net::parameter_base * mIsOwnedParam = nullptr;
 		ossia::net::node_base * mTransportNode = nullptr;
@@ -101,16 +116,26 @@ class InstanceAudioJack : public InstanceAudio {
 				std::function<void(ProgramChange)> progChangeCallback
 				);
 		virtual ~InstanceAudioJack();
+
+		virtual void addConfig(RNBO::Json& conf) override;
+
+		virtual void activate() override;
+		virtual void connect() override;
 		virtual void start() override;
 		virtual void stop() override;
+
 		virtual bool isActive() override;
 		virtual void processEvents() override;
+
 		void process(jack_nframes_t frames);
 		//callback that gets called with jack adds or removes client ports
 		void jackPortRegistration(jack_port_id_t id, int reg);
+
+		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
+
+		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
 
-		void connectToHardware();
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
 		RNBO::Json mInstanceConf;
@@ -134,6 +159,7 @@ class InstanceAudioJack : public InstanceAudio {
 		RNBO::MidiEventList mMIDIOutList;
 		RNBO::MidiEventList mMIDIInList;
 		std::mutex mMutex;
+		bool mActivated = false;
 		bool mRunning = false;
 
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
@@ -148,4 +174,7 @@ class InstanceAudioJack : public InstanceAudio {
 		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
 
 		std::function<void(ProgramChange)> mProgramChangeCallback;
+
+		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
+		std::function<void()> mConfigChangeCallback = nullptr;
 };

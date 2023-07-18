@@ -17,7 +17,7 @@ RUN apt-get -y --no-install-recommends install \
 	ca-certificates
 
 #conan setup
-RUN pip3 install conan
+RUN pip3 install conan==1.58.0
 RUN mkdir -p /root/.conan/profiles
 COPY conan-rpi-xcompile /root/.conan/profiles/default
 

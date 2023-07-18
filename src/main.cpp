@@ -76,7 +76,7 @@ int main(int argc, const char * argv[]) {
 		if (options["filename"].size()) {
 			c.loadLibrary(options["filename"]);
 		} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
-			c.loadLast();
+			c.loadSet();
 		}
 #else
 			c.loadBuiltIn();
