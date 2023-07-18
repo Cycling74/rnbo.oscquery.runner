@@ -70,7 +70,7 @@ class Controller {
 		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();
 
-		void updatePatchersInfo();
+		void updatePatchersInfo(std::string addedOrUpdated = std::string());
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();

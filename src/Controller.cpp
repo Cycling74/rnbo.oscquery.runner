@@ -65,6 +65,14 @@ namespace {
 	static const std::string index_key = "index";
 	static const std::string connections_key = "connections";
 
+	ossia::net::node_base * find_or_create_child(ossia::net::node_base * parent, const std::string name) {
+			auto c = parent->find_child(name);
+			if (!c) {
+				c = parent->create_child(name);
+			}
+			return c;
+	}
+
 
 	fs::path saveFilePath(std::string file_name = std::string(), std::string version = std::string(RNBO::version)) {
 		if (file_name.size() == 0) {
@@ -928,17 +936,22 @@ void Controller::queueSave() {
 	mSave = true;
 }
 
-void Controller::updatePatchersInfo() {
+void Controller::updatePatchersInfo(std::string addedOrUpdated) {
+	mDB.patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at) {
+			if (addedOrUpdated.length() && name != addedOrUpdated) {
+				return;
+			}
 
-	mPatchersNode->clear_children();
-	mDB.patchers([this](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at) {
-			auto r = mPatchersNode->create_child(name);
+			auto r = find_or_create_child(mPatchersNode, name);
 
 			{
-				auto n = r->create_child("io");
-				auto p = n->create_parameter(ossia::val_type::LIST);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				n->set(ossia::net::description_attribute{}, "input and output counts: audio ins, audio outs, midi ins, midi outs");
+				auto n = find_or_create_child(r, "io");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "input and output counts: audio ins, audio outs, midi ins, midi outs");
+				}
 
 				std::vector<ossia::value> l;
 				l.push_back(audio_inputs);
@@ -950,9 +963,12 @@ void Controller::updatePatchersInfo() {
 			}
 
 			{
-				auto n = r->create_child("created_at");
-				auto p = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				auto n = find_or_create_child(r ,"created_at");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				}
 				p->push_value(created_at);
 			}
 	});
@@ -1216,7 +1232,7 @@ void Controller::processCommands() {
 
 							{
 								std::lock_guard<std::mutex> guard(mBuildMutex);
-								updatePatchersInfo();
+								updatePatchersInfo(name);
 							}
 						}
 
