@@ -929,6 +929,11 @@ void Controller::patcherStore(
 	}
 
 	mDB.patcherStore(name, libFile, configFilePath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		updatePatchersInfo(name);
+	}
 }
 
 void Controller::queueSave() {
@@ -1229,11 +1234,6 @@ void Controller::processCommands() {
 							std::string name = conf["name"].get<std::string>();
 
 							patcherStore(name, libPath.filename(), confFilePath.filename(), maxRNBOVersion, conf);
-
-							{
-								std::lock_guard<std::mutex> guard(mBuildMutex);
-								updatePatchersInfo(name);
-							}
 						}
 
 						if (instanceIndex != boost::none) {
@@ -1505,6 +1505,7 @@ void Controller::processCommands() {
 				}
 
 				patcherStore(name, libFile, configFileName, maxRNBOVersion, config);
+
 				reportCommandResult(id, {
 					{"code", 0},
 					{"message", "stored"},
