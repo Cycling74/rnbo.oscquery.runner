@@ -143,7 +143,8 @@ namespace {
 }
 
 
-Controller::Controller(std::string server_name) : mDB(), mProcessCommands(true) {
+Controller::Controller(std::string server_name) : mProcessCommands(true) {
+	mDB = std::make_shared<DB>();
 	mProtocol = new ossia::net::multiplex_protocol();
 	mOssiaContext = ossia::net::create_network_context();
 	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, 1234, 5678);
@@ -703,7 +704,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			f(instNode);
 		};
 
-		auto instance = std::make_shared<Instance>(factory, name, builder, conf, mProcessAudio, instanceIndex);
+		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			//queue a save whenenever the configuration changes
@@ -851,7 +852,7 @@ bool Controller::loadBuiltIn() {
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				f(instNode);
 			};
-			auto instance = new Instance(factory, "rnbo" + instIndex, builder, {}, mProcessAudio);
+			auto instance = new Instance(mDB, factory, "rnbo" + instIndex, builder, {}, mProcessAudio);
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				instance->start();
@@ -928,7 +929,15 @@ void Controller::patcherStore(
 		midi_outputs = conf["numMidiOutputPorts"].get<int>();
 	}
 
-	mDB.patcherStore(name, libFile, configFilePath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+	mDB->patcherStore(name, libFile, configFilePath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+
+	//save presets
+	if (conf.contains("presets")) {
+		for (auto& kv: conf["presets"].items()) {
+			assert(kv.value().is_object());
+			mDB->presetSave(name, kv.key(), kv.value().dump());
+		}
+	}
 
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -942,7 +951,7 @@ void Controller::queueSave() {
 }
 
 void Controller::updatePatchersInfo(std::string addedOrUpdated) {
-	mDB.patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at) {
+	mDB->patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at) {
 			if (addedOrUpdated.length() && name != addedOrUpdated) {
 				return;
 			}
@@ -982,7 +991,7 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 void Controller::updateSetNames() {
 	std::lock_guard<std::mutex> guard(mSetNamesMutex);
 	mSetNames.clear();
-	mDB.sets([this](const std::string& name, const std::string& /*created*/) {
+	mDB->sets([this](const std::string& name, const std::string& /*created*/) {
 			mSetNames.push_back(name);
 	});
 	mSetNamesUpdated = true;
@@ -1406,7 +1415,7 @@ void Controller::processCommands() {
 				fs::path libPath;
 				fs::path confPath;
 				RNBO::Json config;
-				if (mDB.patcherGetLatest(name, libPath, confPath)) {
+				if (mDB->patcherGetLatest(name, libPath, confPath)) {
 					libPath = fs::absolute(compileCache / libPath);
 					confPath = fs::absolute(sourceCache / confPath);
 
@@ -1465,7 +1474,7 @@ void Controller::processCommands() {
 				std::string name = params["name"].get<std::string>();
 				auto p = saveSet(name, true);
 				if (p) {
-					mDB.setSave(name, p->filename());
+					mDB->setSave(name, p->filename());
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "saved"},
@@ -1477,7 +1486,7 @@ void Controller::processCommands() {
 				}
 			} else if (method == "instance_set_load") {
 				std::string name = params["name"].get<std::string>();
-				auto path = mDB.setGet(name);
+				auto path = mDB->setGet(name);
 				if (path) {
 					loadSet(path.get());
 					reportCommandResult(id, {

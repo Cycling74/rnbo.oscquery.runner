@@ -18,6 +18,7 @@
 #include "InstanceAudio.h"
 #include "Defines.h"
 #include "Queue.h"
+#include "DB.h"
 
 class PatcherFactory;
 namespace moodycamel {
@@ -29,7 +30,7 @@ class ProcessAudio;
 
 class Instance {
 	public:
-		Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index);
+		Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index);
 		~Instance();
 
 		unsigned int index() const { return mIndex; }
@@ -124,7 +125,7 @@ class Instance {
 
 		//presets
 		ossia::net::parameter_base * mPresetEntries;
-		std::map<std::string, RNBO::ConstPresetPtr> mPresets;
+		std::vector<std::string> mPresetNames;
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
@@ -134,12 +135,12 @@ class Instance {
 
 		Queue<PresetCommand> mPresetCommandQueue;
 
-		//callback data from RNBO, a name and a ptr
-		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;
-
 		//simply the names of outports, for building up OSCQuery
 		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
 
 		RNBO::Json mConfig;
 		unsigned int mIndex = 0;
+
+		std::string mName;
+		std::shared_ptr<DB> mDB;
 };

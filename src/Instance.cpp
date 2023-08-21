@@ -126,7 +126,7 @@ namespace {
 	}
 }
 
-Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index) {
+Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
@@ -192,26 +192,14 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			mConfigChangeCallback();
 	});
 
-	mPresetSavedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>>(2);
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 
-	//parse out presets
-	auto presets = conf["presets"];
-	if (presets.is_object()) {
-		for (auto it = presets.begin(); it != presets.end(); ++it) {
-			auto presetJson = it.value();
-			RNBO::PresetPtr preset = std::make_shared<RNBO::Preset>();
-			RNBO::convertJSONObjToPreset(presetJson, *preset);
-			mPresets[it.key()] = std::move(preset);
-		}
-	}
-
-	//grab the initial preset and store it, so we can use it as a tree value
-	{
-		auto presetInit = conf[initial_preset_key];
-		if (presetInit.is_string())
-			mPresetInitial = presetInit;
-	}
+	mDB->presets(mName, [this](const std::string& name, bool initial) {
+			mPresetNames.push_back(name);
+			if (initial) {
+				mPresetInitial = name;
+			}
+	});
 
 	builder([this, &dataRefMap, conf](ossia::net::node_base * root) {
 
@@ -418,42 +406,31 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 			}
 
 			{
-				auto n = presets->create_child("delete");
-				auto del = n->create_parameter(ossia::val_type::STRING);
 
-				n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-				del->add_callback([this](const ossia::value& val) {
+				auto cb = [this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Delete, val.get<std::string>()));
 					}
-				});
-			}
+				};
+				{
+					auto n = presets->create_child("delete");
+					auto del = n->create_parameter(ossia::val_type::STRING);
 
-			{
-				auto n = presets->create_child("del");
-				auto del = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 
-				n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-				del->add_callback([this](const ossia::value& val) {
-					if (val.get_type() == ossia::val_type::STRING) {
-						{
-							auto ps = val.get<std::string>();
-							std::lock_guard<std::mutex> guard(mPresetMutex);
-							if (mPresets.erase(ps)) {
-								if (mPresetInitial == ps)
-									mPresetInitial.clear();
-								if (mPresetLatest == ps)
-									mPresetLatest.clear();
-							} else {
-								return;
-							}
-						}
-						updatePresetEntries();
-						queueConfigChangeSignal();
-					}
-				});
+					del->add_callback(cb);
+				}
+				//XXX why the dupe?
+				{
+					auto n = presets->create_child("del");
+					auto del = n->create_parameter(ossia::val_type::STRING);
+
+					n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+					del->add_callback(cb);
+				}
 			}
 
 			{
@@ -462,14 +439,14 @@ Instance::Instance(std::shared_ptr<PatcherFactory> factory, std::string name, No
 				n->set(ossia::net::description_attribute{}, "Indicate a preset, by name, that should be loaded every time this patch is reloaded. Set to an empty string to load the last loaded preset instead");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 
-
 				mPresetInitialParam->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Initial, val.get<std::string>()));
 					}
 				});
-				if (!mPresetInitial.empty() && mPresets.find(mPresetInitial) != mPresets.end())
+				if (!mPresetInitial.empty() && std::find(mPresetNames.begin(), mPresetNames.end(), mPresetInitial) != mPresetNames.end()) {
 					mPresetInitialParam->push_value(mPresetInitial);
+				}
 			}
 
 			{
@@ -672,14 +649,7 @@ void Instance::processEvents() {
 	}
 
 	//store any presets that we got, indicate a change if we have one
-	std::pair<std::string, RNBO::ConstPresetPtr> namePreset;
 	bool updated = false;
-	while (mPresetSavedQueue->try_dequeue(namePreset)) {
-		std::lock_guard<std::mutex> guard(mPresetMutex);
-		changed = updated = true;
-		mPresets[namePreset.first] = namePreset.second;
-		mPresetLatest = namePreset.first;
-	}
 	//only process a few events
 	auto c = 0;
 	while (auto item = mPresetCommandQueue.tryPop()) {
@@ -691,14 +661,25 @@ void Instance::processEvents() {
 				loadPreset(cmd.preset);
 				break;
 			case PresetCommand::CommandType::Save:
-				mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
-					mPresetSavedQueue->try_enqueue(std::make_pair(cmd.preset, preset));
+				mCore->getPreset([cmd, this, &changed, &updated] (RNBO::ConstPresetPtr preset) {
+						auto name = cmd.preset;
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						changed = updated = true;
+						auto j = RNBO::convertPresetToJSONObj(*preset);
+						mDB->presetSave(mName, cmd.preset, j.dump());
+						if (std::find(mPresetNames.begin(), mPresetNames.end(), name) == mPresetNames.end()) {
+							mPresetNames.push_back(name);
+						}
+						mPresetLatest = name;
 				});
 				break;
 			case PresetCommand::CommandType::Initial:
 				{
 					std::lock_guard<std::mutex> guard(mPresetMutex);
-					if (cmd.preset.size() == 0 || mPresets.find(cmd.preset) != mPresets.end()) {
+					mDB->presetSetInitial(mName, cmd.preset);
+
+					auto it = std::find(mPresetNames.begin(), mPresetNames.end(), cmd.preset);
+					if (cmd.preset.size() == 0 || it != mPresetNames.end()) {
 						if (mPresetInitial != cmd.preset) {
 							mPresetInitial = cmd.preset;
 							queueConfigChangeSignal();
@@ -711,10 +692,12 @@ void Instance::processEvents() {
 			case PresetCommand::CommandType::Delete:
 				{
 					std::lock_guard<std::mutex> guard(mPresetMutex);
-					auto it = mPresets.find(cmd.preset);
-					if (it != mPresets.end()) {
+					mDB->presetDestroy(mName, cmd.preset);
+
+					auto it = std::find(mPresetNames.begin(), mPresetNames.end(), cmd.preset);
+					if (it != mPresetNames.end()) {
 						updated = true;
-						mPresets.erase(it);
+						mPresetNames.erase(it);
 						//clear out initial and latest if they match
 						if (mPresetInitial == cmd.preset) {
 							mPresetInitial.clear();
@@ -739,29 +722,35 @@ void Instance::processEvents() {
 
 void Instance::loadPreset(std::string name) {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
-	auto it = mPresets.find(name);
-	if (it == mPresets.end()) {
-		//try to convert it to an int
+
+	//TODO look in DB for index
+	auto preset = mDB->preset(mName, name);
+	if (!preset) {
 		try {
 			int index = std::stoi(name);
-			if (index >= 0 && index < mPresets.size()) {
-				it = std::next(mPresets.begin(), index);
+			if (index < mPresetNames.size()) {
+				name = mPresetNames[index];
+				preset = mDB->preset(mName, name);
 			}
-		} catch (const std::exception&) {
+		} catch (...) {
 			//do nothing
-		}
-		if (it == mPresets.end()) {
-			std::cerr << "couldn't find preset with name or index: " << name << std::endl;
-			return;
 		}
 	}
 
-	RNBO::UniquePresetPtr preset = RNBO::make_unique<RNBO::Preset>();
-	auto shared = it->second;
-	RNBO::copyPreset(*shared, *preset);
-	mCore->setPreset(std::move(preset));
-	mPresetLatest = name;
-	queueConfigChangeSignal();
+	if (preset) {
+		try {
+			RNBO::Json j = RNBO::Json::parse(*preset);
+			RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
+			convertJSONObjToPreset(j, *unique);
+			mCore->setPreset(std::move(unique));
+			mPresetLatest = name;
+			queueConfigChangeSignal();
+		} catch (const std::exception& e) {
+			std::cerr << "error setting preset " << e.what() << std::endl;
+		}
+	} else {
+		std::cerr << "couldn't find preset with name or index: " << name << std::endl;
+	}
 }
 
 void Instance::loadPreset(RNBO::UniquePresetPtr preset) {
@@ -780,22 +769,7 @@ RNBO::Json Instance::currentConfig() {
 
 	RNBO::Json presets = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();
-	//copy presets
-	{
-		std::lock_guard<std::mutex> pguard(mPresetMutex);
-		for (auto& kv: mPresets)
-			presets[kv.first] = RNBO::convertPresetToJSONObj(*kv.second);
-		//indicate the initial and latest preset if we loaded this config again
-		if (!mPresetInitial.empty() && mPresets.find(mPresetInitial) != mPresets.end())
-			config[initial_preset_key] = mPresetInitial;
-		if (!mPresetLatest.empty() && mPresets.find(mPresetLatest) != mPresets.end())
-			config[last_preset_key] = mPresetLatest;
-		for (auto& kv: preset_midi_channel_values) {
-			if (kv.second == mPresetProgramChangeChannel) {
-				config[preset_midi_channel_key] = kv.first;
-			}
-		}
-	}
+
 	//copy datarefs
 	{
 		std::lock_guard<std::mutex> bguard(mDataRefFileNameMutex);
@@ -812,8 +786,8 @@ RNBO::Json Instance::currentConfig() {
 void Instance::updatePresetEntries() {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
 	std::vector<ossia::value> names;
-	for (auto &kv : mPresets) {
-		names.push_back(ossia::value(kv.first));
+	for (auto &name : mPresetNames) {
+		names.push_back(ossia::value(name));
 	}
 	mPresetEntries->push_value(ossia::value(names));
 }
@@ -822,19 +796,9 @@ void Instance::handleProgramChange(ProgramChange p) {
 	//filter channel
 	//0 == omni, 17 == none (won't match)
 	if (mPresetProgramChangeChannel == 0 || mPresetProgramChangeChannel == p.chan + 1) {
-		std::string name;
-		{
-			std::lock_guard<std::mutex> guard(mPresetMutex);
-			uint8_t i = 0;
-			for (auto it = mPresets.begin(); it != mPresets.end(); it++, i++) {
-				if (i == p.prog) {
-					name = it->first;
-					break;
-				}
-			}
-		}
-		if (name.size()) {
-			loadPreset(name);
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		if (p.prog < mPresetNames.size()) {
+			loadPreset(mPresetNames[p.prog]);
 		}
 	}
 }
