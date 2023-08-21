@@ -3,6 +3,7 @@
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
+#include <mutex>
 
 class DB {
 	public:
@@ -29,6 +30,25 @@ class DB {
 
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f);
 
+		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial)> f);
+		boost::optional<std::string> preset(
+				const std::string& patchername,
+				const std::string& presetName
+		);
+		void presetSave(
+				const std::string& patchername,
+				const std::string& presetName,
+				const std::string& preset
+		);
+		void presetSetInitial(
+				const std::string& patchername,
+				const std::string& presetName
+		);
+		void presetDestroy(
+				const std::string& patchername,
+				const std::string& presetName
+		);
+
 		void setSave(
 				const std::string& name,
 				const boost::filesystem::path& filename
@@ -41,4 +61,5 @@ class DB {
 		void sets(std::function<void(const std::string& name, const std::string& created)> func);
 	private:
 		SQLite::Database mDB;
+		std::mutex mMutex;
 };

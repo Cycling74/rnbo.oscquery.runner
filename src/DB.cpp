@@ -3,6 +3,7 @@
 
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/none.hpp>
 
 //https://srombauts.github.io/SQLiteCpp/
 
@@ -85,6 +86,22 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 			db.exec("CREATE INDEX set_version ON sets(runner_rnbo_version)");
 			db.exec("CREATE INDEX set_name_version ON sets(name, runner_rnbo_version)");
 	});
+	do_migration(6, [](SQLite::Database& db) {
+			db.exec(R"(CREATE TABLE IF NOT EXISTS presets (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					patcher_id INTEGER NOT NULL,
+					name TEXT NOT NULL,
+					content TEXT NOT NULL,
+					initial INTEGER NOT NULL DEFAULT 0,
+					created_at REAL DEFAULT (datetime('now', 'localtime')),
+					updated_at REAL DEFAULT (datetime('now', 'localtime')),
+					FOREIGN KEY (patcher_id) REFERENCES patchers(id),
+					UNIQUE (patcher_id, name)
+			)
+			)"
+			);
+			db.exec("CREATE INDEX preset_patcher_id ON presets(patcher_id)");
+	});
 }
 
 DB::~DB() { }
@@ -100,6 +117,8 @@ void DB::patcherStore(
 		int midi_inputs,
 		int midi_outputs
 		) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
 	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)");
 	query.bind(1, name);
 	query.bind(2, rnbo_version);
@@ -114,6 +133,8 @@ void DB::patcherStore(
 }
 
 bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
 		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
@@ -128,6 +149,8 @@ bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& 
 }
 
 void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> func) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
 	SQLite::Statement query(mDB, R"(
 		SELECT name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, datetime(created_at) FROM patchers
 		WHERE id IN (SELECT MAX(id) FROM patchers WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
@@ -149,11 +172,96 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 	}
 }
 
+void DB::presets(const std::string& patchername, std::function<void(const std::string&, bool)> f) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		SELECT name, initial FROM presets
+		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name) ORDER BY created_at DESC
+	)");
+	query.bind(1, patchername);
+	query.bind(2, rnbo_version);
+	while (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string name(s);
+
+		int initial = query.getColumn(1);
+		f(name, (bool)initial);
+	}
+}
+
+boost::optional<std::string> DB::preset(const std::string& patchername, const std::string& presetName) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		SELECT content FROM presets WHERE name = ?1 AND patcher_id IN
+		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+	)");
+
+	query.bind(1, presetName);
+	query.bind(2, patchername);
+	query.bind(3, rnbo_version);
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return std::string(s);
+	}
+	return boost::none;
+}
+
+void DB::presetSave(const std::string& patchername, const std::string& presetName, const std::string& preset) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		INSERT INTO presets (patcher_id, name, content)
+		SELECT MAX(id), ?1, ?2 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
+		ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime')
+	)");
+
+	query.bind(1, presetName);
+	query.bind(2, preset);
+	query.bind(3, patchername);
+	query.bind(4, rnbo_version);
+	query.exec();
+}
+
+void DB::presetSetInitial(const std::string& patchername, const std::string& presetName) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		UPDATE presets
+			SET initial=p.initial
+		FROM
+			(SELECT name == ?3 as initial, id FROM presets WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)) AS p
+		WHERE p.id = presets.id
+	)");
+
+	query.bind(1, patchername);
+	query.bind(2, rnbo_version);
+	query.bind(3, presetName);
+	query.exec();
+}
+
+void DB::presetDestroy(const std::string& patchername, const std::string& presetName) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		DELETE FROM presets
+		WHERE name = ?1 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+	)");
+
+	query.bind(1, presetName);
+	query.bind(2, patchername);
+	query.bind(3, rnbo_version);
+	query.exec();
+}
+
 void DB::setSave(
 		const std::string& name,
 		const boost::filesystem::path& filename
 		)
 {
+	std::lock_guard<std::mutex> guard(mMutex);
+
 	SQLite::Statement query(mDB, "INSERT INTO sets (name, runner_rnbo_version, filename) VALUES (?1, ?2, ?3)");
 	query.bind(1, name);
 	query.bind(2, rnbo_version);
@@ -165,6 +273,8 @@ boost::optional<boost::filesystem::path> DB::setGet(
 		const std::string& name
 		)
 {
+	std::lock_guard<std::mutex> guard(mMutex);
+
 	SQLite::Statement query(mDB, "SELECT filename FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 	query.bind(1, name);
 	query.bind(2, rnbo_version);
@@ -177,6 +287,8 @@ boost::optional<boost::filesystem::path> DB::setGet(
 
 void DB::sets(std::function<void(const std::string& name, const std::string& created)> func)
 {
+	std::lock_guard<std::mutex> guard(mMutex);
+
 	SQLite::Statement query(mDB, R"(
 		SELECT name, datetime(created_at) FROM sets
 		WHERE id IN (SELECT MAX(id) FROM sets WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
