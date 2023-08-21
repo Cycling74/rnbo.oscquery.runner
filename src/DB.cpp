@@ -190,11 +190,11 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 	}
 }
 
-boost::optional<std::string> DB::preset(const std::string& patchername, const std::string& presetName) {
+boost::optional<std::pair<std::string, std::string>> DB::preset(const std::string& patchername, const std::string& presetName) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT content FROM presets WHERE name = ?1 AND patcher_id IN
+		SELECT content, name FROM presets WHERE name = ?1 AND patcher_id IN
 		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
 	)");
 
@@ -203,7 +203,37 @@ boost::optional<std::string> DB::preset(const std::string& patchername, const st
 	query.bind(3, rnbo_version);
 	if (query.executeStep()) {
 		const char * s = query.getColumn(0);
-		return std::string(s);
+		std::string content(s);
+
+		s = query.getColumn(1);
+		std::string name(s);
+
+		return std::make_pair(content, name);
+	}
+	return boost::none;
+}
+
+boost::optional<std::pair<std::string, std::string>> DB::preset(const std::string& patchername, unsigned int index) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		SELECT content, name FROM presets WHERE patcher_id IN
+		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+		ORDER BY created_at
+		LIMIT 1 OFFSET ?1
+	)");
+
+	query.bind(1, index);
+	query.bind(2, patchername);
+	query.bind(3, rnbo_version);
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string content(s);
+
+		s = query.getColumn(1);
+		std::string name(s);
+
+		return std::make_pair(content, name);
 	}
 	return boost::none;
 }

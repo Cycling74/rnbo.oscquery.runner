@@ -31,9 +31,15 @@ class DB {
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f);
 
 		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial)> f);
-		boost::optional<std::string> preset(
+		//content, name
+		boost::optional<std::pair<std::string, std::string>> preset(
 				const std::string& patchername,
 				const std::string& presetName
+		);
+		//content, name
+		boost::optional<std::pair<std::string, std::string>> preset(
+				const std::string& patchername,
+				unsigned int index
 		);
 		void presetSave(
 				const std::string& patchername,
