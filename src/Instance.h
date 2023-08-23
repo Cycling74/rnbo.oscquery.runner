@@ -96,6 +96,7 @@ class Instance {
 		void handleMidiCallback(RNBO::MidiEvent e);
 
 		void handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value);
+		void handlePresetEvent(const RNBO::PresetEvent& e);
 
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
@@ -130,7 +131,8 @@ class Instance {
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
-		ossia::net::parameter_base* mPresetInitialParam;
+		ossia::net::parameter_base* mPresetInitialParam = nullptr;
+		ossia::net::parameter_base* mPresetLoadedParam = nullptr;
 		ossia::net::parameter_base* mPresetProgramChangeChannelParam;
 		int mPresetProgramChangeChannel = 0; //omni, 17 == none
 

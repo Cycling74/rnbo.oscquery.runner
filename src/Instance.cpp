@@ -182,6 +182,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				std::bind(&Instance::handleParamUpdate, this, std::placeholders::_1, std::placeholders::_2),
 				msgCallback,
 				transportCallback, tempoCallback, beatTimeCallback, timeSigCallback,
+				std::bind(&Instance::handlePresetEvent, this, std::placeholders::_1),
 				midiCallback));
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
 
@@ -402,6 +403,14 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Load, val.get<std::string>()));
 					}
 				});
+			}
+
+			{
+				auto n = presets->create_child("loaded");
+				mPresetLoadedParam = n->create_parameter(ossia::val_type::IMPULSE);
+
+				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 			}
 
 			{
@@ -1020,5 +1029,11 @@ void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValu
 		} else {
 			it->second.first->push_value(value);
 		}
+	}
+}
+
+void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
+	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
+		mPresetLoadedParam->push_value(ossia::impulse());
 	}
 }

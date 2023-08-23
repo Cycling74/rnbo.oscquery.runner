@@ -8,6 +8,7 @@ EventHandler::EventHandler(
 		TempoEventCallback tempoCallback,
 		BeatTimeEventCallback beatTimeCallback,
 		TimeSignatureEventCallback timeSigCallback,
+		PresetEventCallback presetCallback,
 
 		MidiEventEventCallback midiCallback) :
 	mParameterCallback(paramCallback),
@@ -17,6 +18,7 @@ EventHandler::EventHandler(
 	mTempoCallback(tempoCallback),
 	mBeatTimeCallback(beatTimeCallback),
 	mTimeSigCallback(timeSigCallback),
+	mPresetEventCallback(presetCallback),
 
 	mMidiCallback(midiCallback) {
 }
@@ -30,7 +32,8 @@ void EventHandler::eventsAvailable() {
 }
 
 void EventHandler::handlePresetEvent(const RNBO::PresetEvent& event) {
-	//TODO
+	if (mPresetEventCallback)
+		mPresetEventCallback(event);
 }
 
 void EventHandler::handleParameterEvent(const RNBO::ParameterEvent& event) {
