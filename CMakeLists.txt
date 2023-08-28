@@ -22,6 +22,9 @@ include("${RNBO_DIR}/cmake/RNBOConan.cmake")
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
 
+set(BUILTIN_PATCHER_CONF_PATH "" CACHE FILEPATH "path to a rnbo export config to build into this runner, useful for debugging")
+mark_as_advanced(BUILTIN_PATCHER_CONF_PATH)
+
 set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
 
 #libossia and sdbus require c++17
@@ -85,7 +88,11 @@ if (WITH_DBUS)
 endif()
 
 if (BUILTIN_PATCHER_PATH)
+	if (NOT EXISTS ${BUILTIN_PATCHER_CONF_PATH})
+		message(FATAL_ERROR "no BUILTIN_PATCHER_CONF_PATH set")
+	endif()
 	add_definitions(-DRNBO_OSCQUERY_BUILTIN_PATCHER)
+	add_definitions(-DRNBO_OSCQUERY_BUILTIN_PATCHER_CONF_PATH="${BUILTIN_PATCHER_CONF_PATH}")
 	list(APPEND PROJECT_SRC ${BUILTIN_PATCHER_PATH})
 endif()
 

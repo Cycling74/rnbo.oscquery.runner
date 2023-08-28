@@ -830,6 +830,10 @@ bool Controller::loadSet(boost::filesystem::path filename) {
 bool Controller::loadBuiltIn() {
 	mSave = false;
 	try {
+		fs::path confFilePath(RNBO_OSCQUERY_BUILTIN_PATCHER_CONF_PATH);
+		RNBO::Json config;
+		std::ifstream i(confFilePath.string());
+		i >> config;
 		if (!tryActivateAudio()) {
 			reportActive();
 			cerr << "audio is not active, cannot create builtin instance" << endl;
@@ -852,12 +856,22 @@ bool Controller::loadBuiltIn() {
 				std::lock_guard<std::mutex> guard(mBuildMutex);
 				f(instNode);
 			};
-			auto instance = new Instance(mDB, factory, "rnbo" + instIndex, builder, {}, mProcessAudio);
+
+			std::string name("builtin");
+			auto instance = std::make_shared<Instance>(mDB, factory, name, builder, config, mProcessAudio, 0);
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
-				instance->start();
+				instance->registerConfigChangeCallback([this] { queueSave(); });
+				instance->activate();
 				mInstances.emplace_back(std::make_tuple(instance, fs::path(), fs::path()));
 			}
+
+			instance->connect();
+			instance->start();
+
+			fs::path libFile;
+
+			mDB->patcherStore(name, libFile, confFilePath, RNBO::version, 0, 0, 0, 0);
 		}
 		reportActive();
 		return true;
