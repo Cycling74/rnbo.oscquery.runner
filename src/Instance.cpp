@@ -669,10 +669,10 @@ void Instance::processEvents() {
 			case PresetCommand::CommandType::Save:
 				mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
 						auto name = cmd.preset;
+						auto j = RNBO::convertPresetToJSONObj(*preset);
+						mDB->presetSave(mName, cmd.preset, j.dump());
 						{
 							std::lock_guard<std::mutex> guard(mPresetMutex);
-							auto j = RNBO::convertPresetToJSONObj(*preset);
-							mDB->presetSave(mName, cmd.preset, j.dump());
 							mPresetLatest = name;
 						}
 						updatePresetEntries();
@@ -681,26 +681,27 @@ void Instance::processEvents() {
 			case PresetCommand::CommandType::Initial:
 				{
 					auto name = cmd.preset;
-					std::lock_guard<std::mutex> guard(mPresetMutex);
 					mDB->presetSetInitial(mName, name);
 
 					auto preset = mDB->preset(mName, name);
 
-					if (cmd.preset.size() == 0 || preset) {
-						if (mPresetInitial != name) {
-							mPresetInitial = name;
+					{
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						if (cmd.preset.size() == 0 || preset) {
+							if (mPresetInitial != name) {
+								mPresetInitial = name;
+							}
+						} else if (name != mPresetInitial) {
+							mPresetInitialParam->push_value(mPresetInitial);
 						}
-					} else if (name != mPresetInitial) {
-						mPresetInitialParam->push_value(mPresetInitial);
 					}
 				}
 				break;
 			case PresetCommand::CommandType::Delete:
+				mDB->presetDestroy(mName, cmd.preset);
 				{
-					std::lock_guard<std::mutex> guard(mPresetMutex);
-					mDB->presetDestroy(mName, cmd.preset);
-
 					//clear out initial and latest if they match
+					std::lock_guard<std::mutex> guard(mPresetMutex);
 					if (mPresetInitial == cmd.preset) {
 						mPresetInitial.clear();
 						mPresetInitialParam->push_value(mPresetInitial);
@@ -767,12 +768,11 @@ bool Instance::loadJsonPreset(const std::string& preset) {
 		RNBO::Json j = RNBO::Json::parse(preset);
 		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
 		convertJSONObjToPreset(j, *unique);
-		{
-			std::lock_guard<std::mutex> guard(mPresetMutex);
-			mCore->setPreset(std::move(unique));
-		}
+		mCore->setPreset(std::move(unique));
+		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;
+		return false;
 	}
 }
 
