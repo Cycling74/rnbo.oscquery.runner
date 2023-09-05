@@ -71,6 +71,7 @@ class Controller {
 		void queueSave();
 
 		void updatePatchersInfo(std::string addedOrUpdated = std::string());
+		void destroyPatcher(const std::string& name);
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();

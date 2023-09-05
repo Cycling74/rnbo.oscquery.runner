@@ -991,7 +991,7 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 			}
 
 			{
-				auto n = find_or_create_child(r ,"created_at");
+				auto n = find_or_create_child(r, "created_at");
 				auto p = n->get_parameter();
 				if (!p) {
 					p = n->create_parameter(ossia::val_type::STRING);
@@ -999,7 +999,44 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 				}
 				p->push_value(created_at);
 			}
+
+			{
+				auto n = find_or_create_child(r, "destroy");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::IMPULSE);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "delete this patcher");
+					p->add_callback([this, name](const ossia::value&) {
+							RNBO::Json cmd = {
+								{"method", "patcher_destroy"},
+								{"id", "internal"},
+								{"params",
+									{
+										{"name", name}
+									}
+								}
+							};
+							mCommandQueue.push(cmd.dump());
+					});
+				}
+			}
 	});
+}
+
+void Controller::destroyPatcher(const std::string& name) {
+	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
+	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
+
+	mDB->patcherDestroy(name, [sourceCache, compileCache](fs::path& so_name, fs::path& config_name) {
+			boost::system::error_code ec;
+			fs::remove(fs::absolute(compileCache / so_name), ec);
+			fs::remove(fs::absolute(sourceCache / config_name), ec);
+	});
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		mPatchersNode->remove_child(name);
+	}
 }
 
 void Controller::updateSetNames() {
@@ -1414,6 +1451,9 @@ void Controller::processCommands() {
 					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, maxRNBOVersion, instanceIndex);
 				}
 
+			} else if (method == "patcher_destroy") {
+				std::string name = params["name"].get<std::string>();
+				destroyPatcher(name);
 			} else if (method == "instance_load") {
 				int index = params["index"].get<int>();
 				std::string name = params["patcher_name"].get<std::string>();
