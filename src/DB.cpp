@@ -102,6 +102,38 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 			);
 			db.exec("CREATE INDEX preset_patcher_id ON presets(patcher_id)");
 	});
+	//add on delete CASCADE
+	//https://www.sqlite.org/foreignkeys.html
+	//https://www.techonthenet.com/sqlite/foreign_keys/foreign_delete.php
+	do_migration(7, [](SQLite::Database& db) {
+			db.exec(R"(
+PRAGMA foreign_keys=off;
+
+BEGIN TRANSACTION;
+
+ALTER TABLE presets RENAME TO _presets_old;
+
+CREATE TABLE presets
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	patcher_id INTEGER NOT NULL,
+	name TEXT NOT NULL,
+	content TEXT NOT NULL,
+	initial INTEGER NOT NULL DEFAULT 0,
+	created_at REAL DEFAULT (datetime('now', 'localtime')),
+	updated_at REAL DEFAULT (datetime('now', 'localtime')),
+	FOREIGN KEY (patcher_id) REFERENCES patchers(id) ON DELETE CASCADE,
+	UNIQUE (patcher_id, name)
+);
+
+INSERT INTO presets SELECT * FROM _presets_old;
+
+COMMIT;
+
+PRAGMA foreign_keys=on;
+			)"
+			);
+	});
 }
 
 DB::~DB() { }
@@ -146,6 +178,29 @@ bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& 
 			return true;
 		}
 		return false;
+}
+
+void DB::patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f) {
+	//TODO what about sets?
+	std::lock_guard<std::mutex> guard(mMutex);
+	{
+		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC");
+		query.bind(1, name);
+		query.bind(2, rnbo_version);
+		while (query.executeStep()) {
+			const char * s = query.getColumn(0);
+			fs::path so_name(s);
+			s = query.getColumn(1);
+			fs::path config_name(s);
+			f(so_name, config_name);
+		}
+	}
+	{
+		SQLite::Statement query(mDB, "DELETE FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
+		query.bind(1, name);
+		query.bind(2, rnbo_version);
+		query.executeStep();
+	}
 }
 
 void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> func) {

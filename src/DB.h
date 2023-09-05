@@ -27,6 +27,7 @@ class DB {
 				boost::filesystem::path& so_name,
 				boost::filesystem::path& config_name
 		);
+		void patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f);
 
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f);
 
