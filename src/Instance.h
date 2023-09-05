@@ -18,6 +18,7 @@
 #include "InstanceAudio.h"
 #include "Defines.h"
 #include "Queue.h"
+#include "DB.h"
 
 class PatcherFactory;
 namespace moodycamel {
@@ -29,15 +30,21 @@ class ProcessAudio;
 
 class Instance {
 	public:
-		Instance(std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio);
+		Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index);
 		~Instance();
 
+		unsigned int index() const { return mIndex; }
+
+		void activate();
+		void connect();
 		void start();
 		void stop();
+
 		//process any events in the current thread
 		void processEvents();
 
 		void loadPreset(std::string name);
+		void loadPreset(unsigned int index);
 
 		//does not save "latest".. used for loading between audio sessions
 		void loadPreset(RNBO::UniquePresetPtr preset);
@@ -51,6 +58,7 @@ class Instance {
 		//this will be called in the same thread as `processEvents`
 		void registerConfigChangeCallback(std::function<void()> cb);
 	private:
+		bool loadJsonPreset(const std::string& content);
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::mutex mConfigChangedMutex;
@@ -88,6 +96,7 @@ class Instance {
 		void handleMidiCallback(RNBO::MidiEvent e);
 
 		void handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value);
+		void handlePresetEvent(const RNBO::PresetEvent& e);
 
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
@@ -119,21 +128,22 @@ class Instance {
 
 		//presets
 		ossia::net::parameter_base * mPresetEntries;
-		std::map<std::string, RNBO::ConstPresetPtr> mPresets;
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
-		ossia::net::parameter_base* mPresetInitialParam;
+		ossia::net::parameter_base* mPresetInitialParam = nullptr;
+		ossia::net::parameter_base* mPresetLoadedParam = nullptr;
 		ossia::net::parameter_base* mPresetProgramChangeChannelParam;
 		int mPresetProgramChangeChannel = 0; //omni, 17 == none
 
 		Queue<PresetCommand> mPresetCommandQueue;
 
-		//callback data from RNBO, a name and a ptr
-		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 2>> mPresetSavedQueue;
-
 		//simply the names of outports, for building up OSCQuery
 		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
 
 		RNBO::Json mConfig;
+		unsigned int mIndex = 0;
+
+		std::string mName;
+		std::shared_ptr<DB> mDB;
 };

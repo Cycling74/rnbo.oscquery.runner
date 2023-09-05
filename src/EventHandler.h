@@ -10,6 +10,7 @@ class EventHandler : public RNBO::EventHandler {
 		typedef std::function<void(RNBO::TempoEvent)> TempoEventCallback;
 		typedef std::function<void(RNBO::BeatTimeEvent)> BeatTimeEventCallback;
 		typedef std::function<void(RNBO::TimeSignatureEvent)> TimeSignatureEventCallback;
+		typedef std::function<void(const RNBO::PresetEvent&)> PresetEventCallback;
 
 		EventHandler(
 				ParameterEventCallback paramCallback,
@@ -19,6 +20,7 @@ class EventHandler : public RNBO::EventHandler {
 				TempoEventCallback tempoCallback,
 				BeatTimeEventCallback beatTimeCallback,
 				TimeSignatureEventCallback timeSigCallback,
+				PresetEventCallback presetCallback,
 
 				MidiEventEventCallback midiCallback = nullptr
 				);
@@ -44,6 +46,8 @@ class EventHandler : public RNBO::EventHandler {
 		TempoEventCallback mTempoCallback;
 		BeatTimeEventCallback mBeatTimeCallback;
 		TimeSignatureEventCallback mTimeSigCallback;
+
+		PresetEventCallback mPresetEventCallback;
 
 		MidiEventEventCallback mMidiCallback;
 };

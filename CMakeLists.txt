@@ -7,6 +7,7 @@ find_path(
 	PATHS
 		${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
 		${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
+		${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
 	NO_DEFAULT_PATH
 	DOC "Location of the RNBO C++ source code"
 )
@@ -16,10 +17,15 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/common/conan.cmake")
+include("${RNBO_DIR}/cmake/RNBOConan.cmake")
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
+
+set(BUILTIN_PATCHER_CONF_PATH "" CACHE FILEPATH "path to a rnbo export config to build into this runner, useful for debugging")
+mark_as_advanced(BUILTIN_PATCHER_CONF_PATH)
+
+set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
 
 #libossia and sdbus require c++17
 set(CMAKE_CXX_STANDARD 17)
@@ -29,6 +35,8 @@ if (UNIX AND NOT APPLE)
 	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
 endif()
 
+option(WITH_JACKSERVER "include jackserver library so we can create an internal server" ON)
+
 project(rnbooscquery LANGUAGES CXX)
 set(PROJECT_VERSION "${RNBO_VERSION}")
 set(PROJECT_APP "rnbooscquery")
@@ -37,6 +45,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(PROJECT_SRC
 	src/main.cpp
+	src/DB.cpp
 	src/Config.cpp
 	src/Controller.cpp
 	src/Instance.cpp
@@ -59,6 +68,17 @@ if (CMAKE_BUILD_TYPE STREQUAL Debug)
 	)
 endif()
 
+if (SUPPORT_COMPILE)
+	add_definitions(-DRNBOOSCQUERY_ENABLE_COMPILE)
+endif()
+
+if (CMAKE_CXX_COMPILER_VERSION)
+	add_definitions(-DRNBOOSCQUERY_CXX_COMPILER_VERSION="${CMAKE_CXX_COMPILER_VERSION}")
+endif()
+if (CMAKE_CXX_COMPILER_ID)
+	add_definitions(-DRNBOOSCQUERY_CXX_COMPILER_ID="${CMAKE_CXX_COMPILER_ID}")
+endif()
+
 #dbus on linux
 if (WITH_DBUS)
 	#handle sdbus for linux, common between this and the update lib
@@ -68,7 +88,11 @@ if (WITH_DBUS)
 endif()
 
 if (BUILTIN_PATCHER_PATH)
+	if (NOT EXISTS ${BUILTIN_PATCHER_CONF_PATH})
+		message(FATAL_ERROR "no BUILTIN_PATCHER_CONF_PATH set")
+	endif()
 	add_definitions(-DRNBO_OSCQUERY_BUILTIN_PATCHER)
+	add_definitions(-DRNBO_OSCQUERY_BUILTIN_PATCHER_CONF_PATH="${BUILTIN_PATCHER_CONF_PATH}")
 	list(APPEND PROJECT_SRC ${BUILTIN_PATCHER_PATH})
 endif()
 
@@ -122,14 +146,52 @@ conan_cmake_install(
 	SETTINGS ${settings}
 )
 
+#unfortunately libmpg123 doesn't compile on the pi, so we disable it
+set(SNDFILE_WITH_MPEG True)
+if (LINUX)
+	set(SNDFILE_WITH_MPEG False)
+endif()
+
+conan_cmake_configure(
+	REQUIRES libsndfile/1.2.0
+	GENERATORS cmake_find_package
+	OPTIONS
+		libsndfile:shared=False
+		libsndfile:programs=False
+		libsndfile:with_mpeg=${SNDFILE_WITH_MPEG}
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS ${settings}
+)
+
+conan_cmake_configure(
+	REQUIRES sqlitecpp/3.2.1
+	GENERATORS cmake_find_package
+	OPTIONS
+		sqlitecpp:shared=False
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS ${settings}
+)
+
 find_library(JACK_LIB "jack" REQUIRED)
-find_library(JACKSERVER_LIB "jackserver" REQUIRED)
-find_library(SNDFILE_LIB "sndfile" REQUIRED)
-find_path(SNDFILE_INCLUDE_DIR sndfile.hh REQUIRED)
+find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+if (WITH_JACKSERVER)
+	find_library(JACKSERVER_LIB "jackserver" REQUIRED)
+	add_definitions(-DJACK_SERVER=1)
+else()
+	add_definitions(-DJACK_SERVER=0)
+endif()
 
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
+find_package(SndFile REQUIRED)
+find_package(SQLiteCpp REQUIRED)
 
 include_directories(
 	./3rdparty/
@@ -142,7 +204,9 @@ include_directories(
 	${cpp-optparse_INCLUDE_DIRS}
 	${libossia_INCLUDE_DIRS}
 	${base64_INCLUDE_DIRS}
-	${SNDFILE_INCLUDE_DIR}
+	${SndFile_INCLUDE_DIRS}
+	${JACK_INCLUDE_DIR}
+	${SQLiteCpp_INCLUDES}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -200,7 +264,8 @@ target_link_libraries(${PROJECT_APP}
 	${cpp-optparse_LIBRARIES}
 	${JACK_LIB}
 	${JACKSERVER_LIB}
-	${SNDFILE_LIB}
+	${SndFile_LIBRARIES}
+	${SQLiteCpp_LIBRARIES}
 	${SDBUS_LIBS}
 )
 if (LINUX)
@@ -287,7 +352,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libsndfile1 (>= 1.0.20), libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsdbus-c++0 (>= 0.8.3)")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsdbus-c++0 (>= 0.8.3)")
 
 		#packages that are also installed by default but don't have to be
 		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.1.1)")

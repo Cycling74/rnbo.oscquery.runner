@@ -31,6 +31,7 @@ namespace {
 	static fs::path default_src_cache = config::make_path("~/Documents/rnbo/cache/src");
 	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
+	static fs::path default_db_path = config::make_path("~/Documents/rnbo/oscqueryrunner.sqlite");
 
 	static fs::path home_dir_config_file_path = config::make_path("~/.config/rnbo/runner.json");
 
@@ -54,6 +55,7 @@ namespace {
 		{config::key::SourceCacheDir, default_src_cache.string()},
 		{config::key::SaveDir, default_save_dir.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
+		{config::key::DBPath, default_db_path.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectAudioIndexed, true},

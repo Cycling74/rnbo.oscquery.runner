@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=RNBO Runner
+Exec=com.Cycling74.RNBORunner
+Type=Application
+Icon=com.Cycling74.RNBORunner
+Categories=Audio
