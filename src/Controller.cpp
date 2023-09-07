@@ -569,6 +569,34 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 				}
 			});
 		}
+		{
+			auto key = config::key::InstanceAudioFadeIn;
+			auto n = conf->create_child("audio_fade_in");
+			n->set(ossia::net::description_attribute{}, "Fade in milliseconds when creating new instances");
+			auto p = n->create_parameter(ossia::val_type::FLOAT);
+			mInstFadeInMs = static_cast<float>(config::get<double>(key).value_or(10.0));
+			p->push_value(mInstFadeInMs);
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::FLOAT) {
+					mInstFadeInMs = v.get<float>();
+					config::set(static_cast<double>(mInstFadeInMs), key);
+				}
+			});
+		}
+		{
+			auto key = config::key::InstanceAudioFadeOut;
+			auto n = conf->create_child("audio_fade_out");
+			n->set(ossia::net::description_attribute{}, "Fade out milliseconds when closing instances");
+			auto p = n->create_parameter(ossia::val_type::FLOAT);
+			mInstFadeOutMs = static_cast<float>(config::get<double>(key).value_or(10.0));
+			p->push_value(mInstFadeOutMs);
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::FLOAT) {
+					mInstFadeOutMs = v.get<float>();
+					config::set(static_cast<double>(mInstFadeOutMs), key);
+				}
+			});
+		}
 	}
 
 
