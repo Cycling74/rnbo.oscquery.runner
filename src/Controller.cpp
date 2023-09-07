@@ -814,7 +814,7 @@ bool Controller::loadSet(boost::filesystem::path filename) {
 			}
 
 			for (auto inst: instances) {
-				inst->start();
+				inst->start(mInstFadeInMs);
 			}
 		}
 
@@ -1071,6 +1071,16 @@ bool Controller::processEvents() {
 				mProcessAudio->processEvents();
 			for (auto& i: mInstances)
 				std::get<0>(i)->processEvents();
+			//manage stopping instances
+			for (auto it = mStoppingInstances.begin(); it != mStoppingInstances.end();) {
+				auto p = *it;
+				p->processEvents();
+				if (p->audioState() == AudioState::Stopped) {
+					it = mStoppingInstances.erase(it);
+				} else {
+					it++;
+				}
+			}
 		}
 		if (mDiskSpacePollNext <= now) {
 			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
@@ -1157,7 +1167,10 @@ void Controller::reportActive() {
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 	for (auto it = mInstances.begin(); it < mInstances.end(); ) {
-		auto index = std::get<0>(*it)->index();
+		auto inst = std::get<0>(*it);
+		auto index = inst->index();
+		inst->stop(mInstFadeOutMs);
+		mStoppingInstances.push_back(inst);
 		it = mInstances.erase(it);
 		if (!mInstancesNode->remove_child(std::to_string(index))) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
@@ -1167,8 +1180,11 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&) {
 
 void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index) {
 	for (auto it = mInstances.begin(); it < mInstances.end(); it++) {
-		if (std::get<0>(*it)->index() == index) {
+		auto inst = std::get<0>(*it);
+		if (inst->index() == index) {
 			mInstances.erase(it);
+			inst->stop(mInstFadeOutMs);
+			mStoppingInstances.push_back(inst);
 			if (!mInstancesNode->remove_child(std::to_string(index))) {
 				std::cerr << "failed to remove instance node with index " << index << std::endl;
 			}
@@ -1305,7 +1321,7 @@ void Controller::processCommands() {
 							auto inst = loadLibrary(libPath.string(), id, conf, true, instanceIndex.get(), confFilePath);
 							if (inst) {
 								inst->connect();
-								inst->start();
+								inst->start(mInstFadeInMs);
 							}
 						} else {
 							reportCommandResult(id, {
@@ -1495,7 +1511,7 @@ void Controller::processCommands() {
 						//TODO optionally get connections from params
 						if (inst) {
 							inst->connect();
-							inst->start();
+							inst->start(mInstFadeInMs);
 						}
 					}
 					reportCommandResult(id, {

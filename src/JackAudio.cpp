@@ -1097,10 +1097,15 @@ InstanceAudioJack::InstanceAudioJack(
 }
 
 InstanceAudioJack::~InstanceAudioJack() {
-	stop(); //stop locks
+	if (mAudioState.load() != AudioState::Stopped) {
+		stop(0.0); //stop locks
+	}
 	{
 		std::lock_guard<std::mutex> guard(mMutex);
 		if (mJackClient) {
+			if (mActivated) {
+				jack_deactivate(mJackClient);
+			}
 			jack_client_close(mJackClient);
 			mJackClient = nullptr;
 		}
@@ -1124,40 +1129,66 @@ void InstanceAudioJack::activate() {
 		if (jack_set_port_connect_callback(mJackClient, ::jackInstancePortConnection, this) != 0) {
 			std::cerr << "failed to jack_set_port_connect_callback" << std::endl;
 		}
-		jack_activate(mJackClient);
 		//only connects what the config indicates
 		mActivated = true;
+		mAudioState.store(AudioState::Idle);
+
+		jack_activate(mJackClient);
 	}
 }
 
-void InstanceAudioJack::start() {
-	mRunning = true;
+float computeFadeIncr(jack_client_t *client, float ms) {
+	float sample_rate = static_cast<float>(jack_get_sample_rate(client));
+	return 1000.0 / (sample_rate * ms);
 }
 
-void InstanceAudioJack::stop() {
+void InstanceAudioJack::start(float fadems) {
+	if (fadems > 0.0f) {
+		mFadeIncr.store(computeFadeIncr(mJackClient, fadems));
+		mFade.store(0.0f);
+		mAudioState.store(AudioState::Starting);
+	} else {
+		mAudioState.store(AudioState::Running);
+	}
+}
+
+void InstanceAudioJack::stop(float fadems) {
 	std::lock_guard<std::mutex> guard(mMutex);
-	mRunning = false;
-	if (mActivated) {
-		jack_deactivate(mJackClient);
-		mActivated = false;
+	if (fadems > 0.0f) {
+		mFadeIncr.store(-computeFadeIncr(mJackClient, fadems));
+		mFade.store(1.0f);
+		mAudioState.store(AudioState::Stopping);
+	} else {
+		mAudioState.store(AudioState::Stopped);
 	}
-}
-
-bool InstanceAudioJack::isActive() {
-	return mActivated && mRunning;
 }
 
 void InstanceAudioJack::processEvents() {
+	if (!mActivated) {
+		return;
+	}
 	//process events from audio thread and notifications
 
-	jack_port_id_t id;
-	while (mPortQueue->try_dequeue(id)) {
-		connectToMidiIf(jack_port_by_id(mJackClient, id));
+	//deactivate
+	auto state = mAudioState.load();
+	if (state == AudioState::Stopped) {
+		mActivated = false;
+		jack_deactivate(mJackClient);
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		return;
 	}
 
-	ProgramChange c;
-	while (mProgramChangeQueue->try_dequeue(c)) {
-		mProgramChangeCallback(c);
+	//only process events while running/starting
+	if (state == AudioState::Starting || state == AudioState::Running) {
+		jack_port_id_t id;
+		while (mPortQueue->try_dequeue(id)) {
+			connectToMidiIf(jack_port_by_id(mJackClient, id));
+		}
+
+		ProgramChange c;
+		while (mProgramChangeQueue->try_dequeue(c)) {
+			mProgramChangeCallback(c);
+		}
 	}
 }
 
@@ -1245,6 +1276,7 @@ void InstanceAudioJack::connect() {
 		}
 		jack_free(ports);
 	}
+	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
@@ -1288,92 +1320,114 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 	for (auto i = 0; i < mSampleBufferPtrOut.size(); i++)
 		mSampleBufferPtrOut[i] = reinterpret_cast<jack_default_audio_sample_t *>(jack_port_get_buffer(mJackAudioPortOut[i], nframes));
 
-	if (!mRunning) {
+	const auto state = mAudioState.load();
+	if (state == AudioState::Idle || state == AudioState::Stopped) {
 		for (auto i = 0; i < mSampleBufferPtrOut.size(); i++) {
 			memset(mSampleBufferPtrOut[i], 0, sizeof(jack_default_audio_sample_t) * nframes);
 		}
-		return;
-	}
+	} else {
+		//get the current time
+		auto nowms = mCore->getCurrentTime();
 
-	//get the current time
-	auto nowms = mCore->getCurrentTime();
+		//TODO sync to jack's time?
 
-	//TODO sync to jack's time?
+		//query the jack transport
+		if (sync_transport.load()) {
+			jack_position_t jackPos;
+			auto state = jack_transport_query(mJackClient, &jackPos);
 
-	//query the jack transport
-	if (sync_transport.load()) {
-		jack_position_t jackPos;
-		auto state = jack_transport_query(mJackClient, &jackPos);
+			//only use JackTransportRolling and JackTransportStopped
+			bool rolling = state == jack_transport_state_t::JackTransportRolling;
+			if (state != mTransportStateLast && (rolling || state == jack_transport_state_t::JackTransportStopped)) {
+				RNBO::TransportEvent event(nowms, rolling ? RNBO::TransportState::RUNNING : RNBO::TransportState::STOPPED);
+				mCore->scheduleEvent(event);
+			}
+			//if bbt is valid, check details
+			if (jackPos.valid & JackPositionBBT) {
+				auto lastValid = mTransportPosLast.valid & JackPositionBBT;
 
-		//only use JackTransportRolling and JackTransportStopped
-		bool rolling = state == jack_transport_state_t::JackTransportRolling;
-		if (state != mTransportStateLast && (rolling || state == jack_transport_state_t::JackTransportStopped)) {
-			RNBO::TransportEvent event(nowms, rolling ? RNBO::TransportState::RUNNING : RNBO::TransportState::STOPPED);
-			mCore->scheduleEvent(event);
+				//TODO check bbt_offset valid and compute
+
+				//tempo
+				if (!lastValid || mTransportPosLast.beats_per_minute != jackPos.beats_per_minute) {
+					mCore->scheduleEvent(RNBO::TempoEvent(nowms, jackPos.beats_per_minute));
+				}
+
+				//time sig
+				if (!lastValid || mTransportPosLast.beats_per_bar != jackPos.beats_per_bar || mTransportPosLast.beat_type != jackPos.beat_type) {
+					mCore->scheduleEvent(RNBO::TimeSignatureEvent(nowms, static_cast<int>(std::ceil(jackPos.beats_per_bar)), static_cast<int>(std::ceil(jackPos.beat_type))));
+				}
+
+				//beat time
+				if (!lastValid || mTransportPosLast.beat != jackPos.beat || mTransportPosLast.bar != jackPos.bar || mTransportPosLast.tick != jackPos.tick) {
+					if (jackPos.ticks_per_beat > 0.0 && jackPos.beat_type > 0.0) { //should always be true, but just in case
+																																				 //beat and bar start a 1
+						double beatTime = static_cast<double>(jackPos.beat - 1) * 4.0 / jackPos.beat_type;
+						beatTime +=  static_cast<double>(jackPos.bar - 1)  * jackPos.beats_per_bar * 4.0 / jackPos.beat_type;
+						beatTime += static_cast<double>(jackPos.tick) / jackPos.ticks_per_beat;
+						mCore->scheduleEvent(RNBO::BeatTimeEvent(nowms, beatTime));
+					}
+				}
+			}
+
+			mTransportPosLast = jackPos;
+			mTransportStateLast = state;
 		}
-		//if bbt is valid, check details
-		if (jackPos.valid & JackPositionBBT) {
-			auto lastValid = mTransportPosLast.valid & JackPositionBBT;
 
-			//TODO check bbt_offset valid and compute
-
-			//tempo
-			if (!lastValid || mTransportPosLast.beats_per_minute != jackPos.beats_per_minute) {
-				mCore->scheduleEvent(RNBO::TempoEvent(nowms, jackPos.beats_per_minute));
-			}
-
-			//time sig
-			if (!lastValid || mTransportPosLast.beats_per_bar != jackPos.beats_per_bar || mTransportPosLast.beat_type != jackPos.beat_type) {
-				mCore->scheduleEvent(RNBO::TimeSignatureEvent(nowms, static_cast<int>(std::ceil(jackPos.beats_per_bar)), static_cast<int>(std::ceil(jackPos.beat_type))));
-			}
-
-			//beat time
-			if (!lastValid || mTransportPosLast.beat != jackPos.beat || mTransportPosLast.bar != jackPos.bar || mTransportPosLast.tick != jackPos.tick) {
-				if (jackPos.ticks_per_beat > 0.0 && jackPos.beat_type > 0.0) { //should always be true, but just in case
-					//beat and bar start a 1
-					double beatTime = static_cast<double>(jackPos.beat - 1) * 4.0 / jackPos.beat_type;
-					beatTime +=  static_cast<double>(jackPos.bar - 1)  * jackPos.beats_per_bar * 4.0 / jackPos.beat_type;
-					beatTime += static_cast<double>(jackPos.tick) / jackPos.ticks_per_beat;
-					mCore->scheduleEvent(RNBO::BeatTimeEvent(nowms, beatTime));
+		//get midi in
+		{
+			mMIDIInList.clear();
+			auto midi_buf = jack_port_get_buffer(mJackMidiIn, nframes);
+			jack_nframes_t count = jack_midi_get_event_count(midi_buf);
+			jack_midi_event_t evt;
+			for (auto i = 0; i < count; i++) {
+				jack_midi_event_get(&evt, midi_buf, i);
+				//time is in frames since the first frame in this callback
+				RNBO::MillisecondTime off = (RNBO::MillisecondTime)evt.time * mFrameMillis;
+				mMIDIInList.addEvent(RNBO::MidiEvent(nowms + off, 0, evt.buffer, evt.size));
+				//look for program change to change preset
+				if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
+					mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });
 				}
 			}
 		}
 
-		mTransportPosLast = jackPos;
-		mTransportStateLast = state;
-	}
+		//RNBO process
+		mCore->process(
+				static_cast<jack_default_audio_sample_t **>(mSampleBufferPtrIn.size() == 0 ? nullptr : &mSampleBufferPtrIn.front()), mSampleBufferPtrIn.size(),
+				static_cast<jack_default_audio_sample_t **>(mSampleBufferPtrOut.size() == 0 ? nullptr : &mSampleBufferPtrOut.front()), mSampleBufferPtrOut.size(),
+				nframes, &mMIDIInList, &mMIDIOutList);
 
-	//get midi in
-	{
-		mMIDIInList.clear();
-		auto midi_buf = jack_port_get_buffer(mJackMidiIn, nframes);
-		jack_nframes_t count = jack_midi_get_event_count(midi_buf);
-		jack_midi_event_t evt;
-		for (auto i = 0; i < count; i++) {
-			jack_midi_event_get(&evt, midi_buf, i);
-			//time is in frames since the first frame in this callback
-			RNBO::MillisecondTime off = (RNBO::MillisecondTime)evt.time * mFrameMillis;
-			mMIDIInList.addEvent(RNBO::MidiEvent(nowms + off, 0, evt.buffer, evt.size));
-			//look for program change to change preset
-			if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
-				mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });
+		//process midi out
+		if (mMIDIOutList.size()) {
+			for (const auto& e : mMIDIOutList) {
+				jack_nframes_t frame = std::max(0.0, e.getTime() - nowms) * mMilliFrame;
+				jack_midi_event_write(midiOutBuf, frame, e.getData(), e.getLength());
+			}
+			mMIDIOutList.clear();
+		}
+
+		if (state != AudioState::Running) {
+			float fade = mFade.load();
+			float incr = mFadeIncr.load();
+			for (auto i = 0; i < nframes; i++) {
+				float mul = std::clamp(fade, 0.0f, 1.0f);
+				for (auto it: mSampleBufferPtrOut) {
+					it[i] *= mul;
+				}
+				fade += incr;
+				if (fade >= 1.0f)
+					break;
+			}
+			mFade.store(fade);
+			if (fade >= 1.0f || fade <= 0.0) {
+				if (state == AudioState::Starting) {
+					mAudioState.store(AudioState::Running);
+				} else {
+					mAudioState.store(AudioState::Stopped);
+				}
 			}
 		}
-	}
-
-	//RNBO process
-	mCore->process(
-			static_cast<jack_default_audio_sample_t **>(mSampleBufferPtrIn.size() == 0 ? nullptr : &mSampleBufferPtrIn.front()), mSampleBufferPtrIn.size(),
-			static_cast<jack_default_audio_sample_t **>(mSampleBufferPtrOut.size() == 0 ? nullptr : &mSampleBufferPtrOut.front()), mSampleBufferPtrOut.size(),
-			nframes, &mMIDIInList, &mMIDIOutList);
-
-	//process midi out
-	if (mMIDIOutList.size()) {
-		for (const auto& e : mMIDIOutList) {
-			jack_nframes_t frame = std::max(0.0, e.getTime() - nowms) * mMilliFrame;
-			jack_midi_event_write(midiOutBuf, frame, e.getData(), e.getLength());
-		}
-		mMIDIOutList.clear();
 	}
 }
 

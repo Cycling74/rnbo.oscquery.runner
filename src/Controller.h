@@ -99,6 +99,8 @@ class Controller {
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
 
+		std::vector<std::shared_ptr<Instance>> mStoppingInstances;
+
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
 		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
@@ -124,6 +126,9 @@ class Controller {
 
 		std::set<std::pair<std::string, uint16_t>> mListeners;
 		ossia::net::parameter_base * mListenersListParam = nullptr;
+
+		float mInstFadeInMs = 20.0f;
+		float mInstFadeOutMs = 20.0f;
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;

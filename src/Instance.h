@@ -37,8 +37,10 @@ class Instance {
 
 		void activate();
 		void connect();
-		void start();
-		void stop();
+		void start(float fadems = 10.0);
+		void stop(float fadems = 10.0);
+
+		AudioState audioState();
 
 		//process any events in the current thread
 		void processEvents();
