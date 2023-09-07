@@ -616,12 +616,16 @@ void Instance::connect() {
 	mAudio->connect();
 }
 
-void Instance::start() {
-	mAudio->start();
+void Instance::start(float fadems) {
+	mAudio->start(fadems);
 }
 
-void Instance::stop() {
-	mAudio->stop();
+void Instance::stop(float fadems) {
+	mAudio->stop(fadems);
+}
+
+AudioState Instance::audioState() {
+	return mAudio->state();
 }
 
 void Instance::registerConfigChangeCallback(std::function<void()> cb) {

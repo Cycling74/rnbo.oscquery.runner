@@ -50,7 +50,8 @@ namespace {
 			return f();
 		}
 
-	const RNBO::Json config_default = {
+	const RNBO::Json config_default =
+	{
 		{config::key::CompileCacheDir, default_so_cache.string()},
 		{config::key::SourceCacheDir, default_src_cache.string()},
 		{config::key::SaveDir, default_save_dir.string()},
@@ -60,6 +61,8 @@ namespace {
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectAudioIndexed, true},
 		{config::key::InstanceAutoConnectMIDI, true},
+		{config::key::InstanceAudioFadeIn, 20.0},
+		{config::key::InstanceAudioFadeOut, 20.0},
 		{config::key::PresetMIDIProgramChangeChannel, "omni"},
 	};
 

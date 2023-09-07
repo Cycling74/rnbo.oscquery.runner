@@ -121,10 +121,9 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void activate() override;
 		virtual void connect() override;
-		virtual void start() override;
-		virtual void stop() override;
+		virtual void start(float fadems=0.0f) override;
+		virtual void stop(float fadems=0.0f) override;
 
-		virtual bool isActive() override;
 		virtual void processEvents() override;
 
 		void process(jack_nframes_t frames);
@@ -135,6 +134,8 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
+		std::atomic<float> mFade = 1.0;
+		std::atomic<float> mFadeIncr = 0.1;
 
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
