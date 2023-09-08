@@ -801,6 +801,10 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 }
 
 bool Controller::loadSet(boost::filesystem::path filename) {
+	if (!tryActivateAudio()) {
+		std::cerr << "cannot activate audio, cannot load set" << std::endl;
+		return;
+	}
 	auto setFile = saveFilePath();
 	if (!filename.empty()) {
 		setFile = config::get<fs::path>(config::key::SaveDir).get() / filename;
@@ -1860,5 +1864,9 @@ void Controller::updateListenersList() {
 }
 
 void Controller::handleProgramChange(ProgramChange p) {
+	auto chan = mPatcherProgramChangeChannel;
+	if (chan == 0 || chan == (p.chan + 1)) {
+		std::cout << "should change patchers" << std::endl;
+	}
 }
 
