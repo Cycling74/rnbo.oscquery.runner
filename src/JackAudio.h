@@ -27,7 +27,7 @@ class ReaderWriterQueue;
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
-		ProcessAudioJack(NodeBuilder builder);
+		ProcessAudioJack(NodeBuilder builder, std::function<void(ProgramChange)> progChangeCallback = nullptr);
 		virtual ~ProcessAudioJack();
 
 		virtual bool isActive() override;
@@ -45,6 +45,7 @@ class ProcessAudioJack : public ProcessAudio {
 
 		virtual void updatePorts() override;
 		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
+		void jackPortRegistration(jack_port_id_t id, int reg);
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -55,6 +56,9 @@ class ProcessAudioJack : public ProcessAudio {
 
 		bool createClient(bool startServer);
 		bool createServer();
+
+		void connectToMidiIf(jack_port_t * port);
+
 		jack_client_t * mJackClient = nullptr;
 		jackctl_server_t * mJackServer = nullptr;
 		jack_uuid_t mJackClientUUID = 0;
@@ -103,6 +107,14 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mCardListNode = nullptr;
 		//name -> Description
 		std::map<std::string, std::string> mCardNamesAndDescriptions;
+
+		std::function<void(ProgramChange)> mProgramChangeCallback;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
+		jack_port_t * mJackMidiIn;
+
+		//working buffer for port getting port aliases
+		char * mJackPortAliases[2];
 };
 
 //Processing and handling for a specific rnbo instance.

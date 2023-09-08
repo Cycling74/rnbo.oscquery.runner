@@ -78,6 +78,8 @@ class Controller {
 
 		unsigned int nextInstanceIndex();
 
+		void handleProgramChange(ProgramChange);
+
 		std::shared_ptr<DB> mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
 		std::shared_ptr<ossia::net::network_context> mOssiaContext;
@@ -129,6 +131,8 @@ class Controller {
 
 		float mInstFadeInMs = 20.0f;
 		float mInstFadeOutMs = 20.0f;
+
+		int mPatcherProgramChangeChannel = 17; //omni, 17 == none
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;

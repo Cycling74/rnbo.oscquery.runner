@@ -10,6 +10,7 @@
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
+#include "Defines.h"
 #include "Config.h"
 #include "Instance.h"
 #include "JackAudio.h"
@@ -28,26 +29,6 @@ namespace {
 	static const std::string initial_preset_key = "preset_initial";
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
-	static const std::map<std::string, int> preset_midi_channel_values = {
-		{"omni", 0},
-		{"1", 1},
-		{"2", 2},
-		{"3", 3},
-		{"4", 4},
-		{"5", 5},
-		{"6", 6},
-		{"7", 7},
-		{"8", 8},
-		{"9", 9},
-		{"10", 10},
-		{"11", 11},
-		{"12", 12},
-		{"13", 13},
-		{"14", 14},
-		{"15", 15},
-		{"16", 16},
-		{"none", 17} //17 will never be valid
-	};
 
 	//recursively get values, if we can
 	boost::optional<ossia::value> get_value(const RNBO::Json& meta) {
@@ -146,8 +127,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		} else if (auto o = config::get<std::string>(config::key::PresetMIDIProgramChangeChannel)) {
 			chanName = *o;
 		}
-		auto it = preset_midi_channel_values.find(chanName);
-		if (it != preset_midi_channel_values.end()) {
+		auto it = config_midi_channel_values.find(chanName);
+		if (it != config_midi_channel_values.end()) {
 			mPresetProgramChangeChannel = it->second;
 		}
 	} catch (const std::exception& e) {
@@ -461,7 +442,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				auto n = presets->create_child("midi_channel");
 
 				std::vector<ossia::value> values;
-				for (auto& kv: preset_midi_channel_values) {
+				for (auto& kv: config_midi_channel_values) {
 					values.push_back(kv.first);
 				}
 
@@ -474,7 +455,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 
-				for (auto& kv: preset_midi_channel_values) {
+				for (auto& kv: config_midi_channel_values) {
 					if (kv.second == mPresetProgramChangeChannel) {
 						mPresetProgramChangeChannelParam->push_value(kv.first);
 						break;
@@ -483,8 +464,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 				mPresetProgramChangeChannelParam->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
-						auto it = preset_midi_channel_values.find(val.get<std::string>());
-						if (it != preset_midi_channel_values.end()) {
+						auto it = config_midi_channel_values.find(val.get<std::string>());
+						if (it != config_midi_channel_values.end()) {
 							mPresetProgramChangeChannel = it->second;
 							queueConfigChangeSignal();
 						}
@@ -813,6 +794,7 @@ RNBO::Json Instance::currentConfig() {
 
 	return config;
 }
+
 void Instance::updatePresetEntries() {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
 	std::vector<ossia::value> names;

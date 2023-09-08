@@ -24,10 +24,13 @@ namespace config {
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
 		const static std::string InstanceAudioFadeIn = "instance_audio_fade_in"; //fade in time when creating new instances
 		const static std::string InstanceAudioFadeOut = "instance_audio_fade_out"; //fade out time when creating new instances
+																																							 //
+		const static std::string ControlAutoConnectMIDI = "control_auto_connect_midi"; //if applicable (Jack), should the control code (for switching patchers via program change) be automatically connected to midi
 
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
 
-		const static std::string PresetMIDIProgramChangeChannel = "preset_midi_program_change_channel"; //0 for omni 1..16 for specific, null for none
+		const static std::string PresetMIDIProgramChangeChannel = "preset_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
+		const static std::string PatcherMIDIProgramChangeChannel = "patcher_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
 	}
 
 	//initialize the configuration system

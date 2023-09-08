@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <inttypes.h>
+#include <map>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -69,4 +70,25 @@ enum class InstallProgramError : unsigned int {
 struct ProgramChange {
 	uint8_t chan = 0;
 	uint8_t prog = 0;
+};
+
+static const std::map<std::string, int> config_midi_channel_values = {
+	{"omni", 0},
+	{"1", 1},
+	{"2", 2},
+	{"3", 3},
+	{"4", 4},
+	{"5", 5},
+	{"6", 6},
+	{"7", 7},
+	{"8", 8},
+	{"9", 9},
+	{"10", 10},
+	{"11", 11},
+	{"12", 12},
+	{"13", 13},
+	{"14", 14},
+	{"15", 15},
+	{"16", 16},
+	{"none", 17} //17 will never be valid
 };
