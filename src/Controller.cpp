@@ -1866,7 +1866,23 @@ void Controller::updateListenersList() {
 void Controller::handleProgramChange(ProgramChange p) {
 	auto chan = mPatcherProgramChangeChannel;
 	if (chan == 0 || chan == (p.chan + 1)) {
-		std::cout << "should change patchers" << std::endl;
+		auto name = mDB->patcherNameByIndex(p.prog);
+		if (name) {
+			RNBO::Json cmd = {
+				{"method", "instance_load"},
+				{"id", "internal"},
+				{"params",
+					{
+						{"index", 0},
+						{"patcher_name", name.get()},
+					}
+				}
+			};
+			mCommandQueue.push(cmd.dump());
+		} else {
+			std::cerr << "no patcher at index " << (int)p.prog << std::endl;
+		}
+
 	}
 }
 
