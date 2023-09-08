@@ -410,9 +410,16 @@ bool ProcessAudioJack::setActive(bool active) {
 
 //Controller is holding onto build mutex, so feel free to build and don't lock it
 void ProcessAudioJack::processEvents() {
-	jack_port_id_t id;
-	while (mPortQueue->try_dequeue(id)) {
-		connectToMidiIf(jack_port_by_id(mJackClient, id));
+	{
+		jack_port_id_t id;
+		while (mPortQueue->try_dequeue(id)) {
+			connectToMidiIf(jack_port_by_id(mJackClient, id));
+		}
+
+		ProgramChange c;
+		while (mProgramChangeQueue->try_dequeue(c)) {
+			mProgramChangeCallback(c);
+		}
 	}
 
 	if (auto _lock = std::unique_lock<std::mutex> (mMutex, std::try_to_lock)) {
