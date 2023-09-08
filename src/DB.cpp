@@ -180,6 +180,25 @@ bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& 
 		return false;
 }
 
+boost::optional<std::string> DB::patcherNameByIndex(int index) {
+
+	SQLite::Statement query(mDB, R"(
+		SELECT name FROM patchers
+		WHERE id IN (SELECT MAX(id) FROM patchers WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+		LIMIT 1 OFFSET ?2
+	)");
+	query.bind(1, rnbo_version);
+	query.bind(2, index);
+
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return std::string(s);
+	}
+
+	return boost::none;
+}
+
+
 void DB::patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f) {
 	//TODO what about sets?
 	std::lock_guard<std::mutex> guard(mMutex);
