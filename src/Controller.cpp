@@ -384,7 +384,10 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		f(j);
 	};
 
-	mProcessAudio = std::make_shared<ProcessAudioJack>(builder);
+	mProcessAudio = std::make_shared<ProcessAudioJack>(
+			builder,
+			std::bind(&Controller::handleProgramChange, this, std::placeholders::_1)
+	);
 
 	{
 		auto n = j->create_child("active");
@@ -519,6 +522,11 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		}
 	}
 
+	std::vector<ossia::value> midivalues;
+	for (auto& kv: config_midi_channel_values) {
+		midivalues.push_back(kv.first);
+	}
+
 	{
 		auto conf = mInstancesNode->create_child("config");
 		{
@@ -594,6 +602,77 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 				if (v.get_type() == ossia::val_type::FLOAT) {
 					mInstFadeOutMs = v.get<float>();
 					config::set(static_cast<double>(mInstFadeOutMs), key);
+				}
+			});
+		}
+		{
+			auto key = config::key::PresetMIDIProgramChangeChannel;
+			auto n = conf->create_child(key);
+
+			n->set(ossia::net::description_attribute{}, "Which channel (or none or omni) should listen for program changes to load a preset by index");
+			auto dom = ossia::init_domain(ossia::val_type::STRING);
+			ossia::set_values(dom, midivalues);
+			n->set(ossia::net::domain_attribute{}, dom);
+
+			auto p = n->create_parameter(ossia::val_type::STRING);
+
+			auto s = config::get<std::string>(key).value_or("none");
+			if (config_midi_channel_values.find(s) == config_midi_channel_values.end()) {
+				s = "none";
+			}
+			p->push_value(s);
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					std::string s = v.get<std::string>();
+					if (config_midi_channel_values.find(s) != config_midi_channel_values.end()) {
+						config::set(s, key);
+					}
+				}
+			});
+		}
+	}
+
+	{
+		auto conf = root->create_child("config");
+		{
+			auto key = config::key::PatcherMIDIProgramChangeChannel;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Which channel (or none or omni) should listen for program changes to load a patcher by index");
+			auto dom = ossia::init_domain(ossia::val_type::STRING);
+			ossia::set_values(dom, midivalues);
+			n->set(ossia::net::domain_attribute{}, dom);
+
+			auto p = n->create_parameter(ossia::val_type::STRING);
+
+			auto s = config::get<std::string>(key).value_or("none");
+			auto it = config_midi_channel_values.find(s);
+			if (it != config_midi_channel_values.end()) {
+				mPatcherProgramChangeChannel = it->second;
+			} else {
+				s = "none";
+			}
+			p->push_value(s);
+
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					std::string s = v.get<std::string>();
+					auto it = config_midi_channel_values.find(s);
+					if (it != config_midi_channel_values.end()) {
+						mPatcherProgramChangeChannel = it->second;
+						config::set(s, key);
+					}
+				}
+			});
+		}
+		{
+			auto key = config::key::ControlAutoConnectMIDI;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Automatically connect control to midi outs");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
 				}
 			});
 		}
@@ -763,6 +842,10 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 }
 
 bool Controller::loadSet(boost::filesystem::path filename) {
+	if (!tryActivateAudio()) {
+		std::cerr << "cannot activate audio, cannot load set" << std::endl;
+		return;
+	}
 	auto setFile = saveFilePath();
 	if (!filename.empty()) {
 		setFile = config::get<fs::path>(config::key::SaveDir).get() / filename;
@@ -1819,5 +1902,28 @@ void Controller::updateListenersList() {
 		l.push_back(kv.first + ":" + std::to_string(kv.second));
 	}
 	mListenersListParam->push_value(l);
+}
+
+void Controller::handleProgramChange(ProgramChange p) {
+	auto chan = mPatcherProgramChangeChannel;
+	if (chan == 0 || chan == (p.chan + 1)) {
+		auto name = mDB->patcherNameByIndex(p.prog);
+		if (name) {
+			RNBO::Json cmd = {
+				{"method", "instance_load"},
+				{"id", "internal"},
+				{"params",
+					{
+						{"index", 0},
+						{"patcher_name", name.get()},
+					}
+				}
+			};
+			mCommandQueue.push(cmd.dump());
+		} else {
+			std::cerr << "no patcher at index " << (int)p.prog << std::endl;
+		}
+
+	}
 }
 
