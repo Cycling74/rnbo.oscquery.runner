@@ -17,6 +17,8 @@ namespace config {
 		const static std::string DataFileDir = "datafile_dir"; //the directory where data (audio) files can be read from or written to
 		const static std::string SaveDir = "save_dir"; //where do we persist saved data, for auto start on restart
 		const static std::string DBPath = "db_path"; //where is the database file?
+																																																			//
+		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
 																								 //
 		const static std::string InstanceAutoStartLast = "instance_auto_start_last"; //try to restart the last run instance (and its settings) on startup.
 		const static std::string InstanceAutoConnectAudio = "instance_auto_connect_audio"; //if applicable (Jack), should an instance be automatically connected to audio
@@ -27,10 +29,9 @@ namespace config {
 																																							 //
 		const static std::string ControlAutoConnectMIDI = "control_auto_connect_midi"; //if applicable (Jack), should the control code (for switching patchers via program change) be automatically connected to midi
 
-		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
-
 		const static std::string PresetMIDIProgramChangeChannel = "preset_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
 		const static std::string PatcherMIDIProgramChangeChannel = "patcher_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
+
 	}
 
 	//initialize the configuration system
