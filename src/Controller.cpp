@@ -522,6 +522,11 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		}
 	}
 
+	std::vector<ossia::value> midivalues;
+	for (auto& kv: config_midi_channel_values) {
+		midivalues.push_back(kv.first);
+	}
+
 	{
 		auto conf = mInstancesNode->create_child("config");
 		{
@@ -601,16 +606,40 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 			});
 		}
 		{
-			std::vector<ossia::value> values;
-			for (auto& kv: config_midi_channel_values) {
-				values.push_back(kv.first);
-			}
+			auto key = config::key::PresetMIDIProgramChangeChannel;
+			auto n = conf->create_child(key);
 
+			n->set(ossia::net::description_attribute{}, "Which channel (or none or omni) should listen for program changes to load a preset by index");
+			auto dom = ossia::init_domain(ossia::val_type::STRING);
+			ossia::set_values(dom, midivalues);
+			n->set(ossia::net::domain_attribute{}, dom);
+
+			auto p = n->create_parameter(ossia::val_type::STRING);
+
+			auto s = config::get<std::string>(key).value_or("none");
+			if (config_midi_channel_values.find(s) == config_midi_channel_values.end()) {
+				s = "none";
+			}
+			p->push_value(s);
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					std::string s = v.get<std::string>();
+					if (config_midi_channel_values.find(s) != config_midi_channel_values.end()) {
+						config::set(s, key);
+					}
+				}
+			});
+		}
+	}
+
+	{
+		auto conf = root->create_child("config");
+		{
 			auto key = config::key::PatcherMIDIProgramChangeChannel;
-			auto n = conf->create_child("patcher_control_midi_channel");
+			auto n = conf->create_child(key);
 			n->set(ossia::net::description_attribute{}, "Which channel (or none or omni) should listen for program changes to load a patcher by index");
 			auto dom = ossia::init_domain(ossia::val_type::STRING);
-			ossia::set_values(dom, values);
+			ossia::set_values(dom, midivalues);
 			n->set(ossia::net::domain_attribute{}, dom);
 
 			auto p = n->create_parameter(ossia::val_type::STRING);
@@ -632,6 +661,18 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 						mPatcherProgramChangeChannel = it->second;
 						config::set(s, key);
 					}
+				}
+			});
+		}
+		{
+			auto key = config::key::ControlAutoConnectMIDI;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Automatically connect control to midi outs");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
 				}
 			});
 		}

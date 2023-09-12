@@ -12,6 +12,7 @@
 #include <jack/jack.h>
 #include <jack/metadata.h>
 #include <jack/control.h>
+#include <boost/optional.hpp>
 
 #include "RNBO.h"
 #include "InstanceAudio.h"
@@ -46,6 +47,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void updatePorts() override;
 		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
 		void jackPortRegistration(jack_port_id_t id, int reg);
+		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -111,10 +113,20 @@ class ProcessAudioJack : public ProcessAudio {
 		std::function<void(ProgramChange)> mProgramChangeCallback;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
+
+		ossia::net::parameter_base * mMidiInParam = nullptr;
 		jack_port_t * mJackMidiIn;
 
 		//working buffer for port getting port aliases
 		char * mJackPortAliases[2];
+
+		std::mutex mMidiInNamesMutex;
+		std::vector<std::string> mMidiInPortNames;
+		bool mMidiPortNamesUpdated = false;
+
+		//should we poll midi input connections?
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mMidiInPoll;
+		std::mutex mMidiInPollMutex;
 };
 
 //Processing and handling for a specific rnbo instance.
