@@ -844,7 +844,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 bool Controller::loadSet(boost::filesystem::path filename) {
 	if (!tryActivateAudio()) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
-		return;
+		return false;
 	}
 	auto setFile = saveFilePath();
 	if (!filename.empty()) {
