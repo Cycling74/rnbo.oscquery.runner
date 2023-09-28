@@ -1616,8 +1616,12 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 
 		//process midi out
 		if (mMIDIOutList.size()) {
+			//TODO do we need to sort the list??
+			jack_nframes_t last = 0; //assure that we always got up
 			for (const auto& e : mMIDIOutList) {
-				jack_nframes_t frame = std::max(0.0, e.getTime() - nowms) * mMilliFrame;
+				auto t = e.getTime();
+				jack_nframes_t frame = static_cast<jack_nframes_t>(std::max(0.0, t - nowms) * mMilliFrame);
+				last = frame = std::max(last, frame);
 				jack_midi_event_write(midiOutBuf, frame, e.getData(), e.getLength());
 			}
 			mMIDIOutList.clear();
