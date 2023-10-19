@@ -388,7 +388,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 			{
 				auto n = presets->create_child("loaded");
-				mPresetLoadedParam = n->create_parameter(ossia::val_type::IMPULSE);
+				mPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 
 				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
@@ -723,10 +723,7 @@ void Instance::loadPreset(std::string name) {
 	}
 
 	if (preset) {
-		if (loadJsonPreset(preset->first)) {
-			std::lock_guard<std::mutex> guard(mPresetMutex);
-			mPresetLatest = preset->second;
-		}
+		loadJsonPreset(preset->first, preset->second);
 	} else {
 		std::cerr << "couldn't find preset with name or index: " << name << std::endl;
 	}
@@ -735,10 +732,7 @@ void Instance::loadPreset(std::string name) {
 void Instance::loadPreset(unsigned int index) {
 	auto preset = mDB->preset(mName, index);
 	if (preset) {
-		if (loadJsonPreset(preset->first)) {
-			std::lock_guard<std::mutex> guard(mPresetMutex);
-			mPresetLatest = preset->second;
-		}
+		loadJsonPreset(preset->first, preset->second);
 	} else {
 		std::cerr << "couldn't find preset with index: " << index << std::endl;
 	}
@@ -748,7 +742,14 @@ void Instance::loadPreset(RNBO::UniquePresetPtr preset) {
 	mCore->setPreset(std::move(preset));
 }
 
-bool Instance::loadJsonPreset(const std::string& preset) {
+bool Instance::loadJsonPreset(const std::string& preset, const std::string& name) {
+	//set preset latest so we can correctly send loaded param
+	std::string last;
+	{
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		last = mPresetLatest;
+		mPresetLatest = name;
+	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
 		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
@@ -757,6 +758,11 @@ bool Instance::loadJsonPreset(const std::string& preset) {
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;
+		{
+			std::lock_guard<std::mutex> guard(mPresetMutex);
+			//revert if preset fails
+			mPresetLatest = last;
+		}
 		return false;
 	}
 }
@@ -1020,6 +1026,7 @@ void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValu
 
 void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
 	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
-		mPresetLoadedParam->push_value(ossia::impulse());
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		mPresetLoadedParam->push_value(mPresetLatest);
 	}
 }
