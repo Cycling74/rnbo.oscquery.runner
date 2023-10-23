@@ -188,6 +188,7 @@ class InstanceAudioJack : public InstanceAudio {
 		bool mRunning = false;
 
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortConnectedQueue;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
 
 		//working buffer for port getting port aliases

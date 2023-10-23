@@ -1116,6 +1116,7 @@ InstanceAudioJack::InstanceAudioJack(
 
 	//setup queues, these might come from different threads?
 	mPortQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
+	mPortConnectedQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>>(32);
 	mProgramChangeQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<ProgramChange, 32>>(32);
 
 	//init aliases
@@ -1326,6 +1327,8 @@ InstanceAudioJack::~InstanceAudioJack() {
 		if (mJackClient) {
 			if (mActivated) {
 				jack_deactivate(mJackClient);
+				jack_set_port_registration_callback(mJackClient, nullptr, nullptr);
+				jack_set_port_connect_callback(mJackClient, nullptr, nullptr);
 			}
 			jack_client_close(mJackClient);
 			mJackClient = nullptr;
@@ -1404,6 +1407,29 @@ void InstanceAudioJack::processEvents() {
 		jack_port_id_t id;
 		while (mPortQueue->try_dequeue(id)) {
 			connectToMidiIf(jack_port_by_id(mJackClient, id));
+		}
+
+		//react to port connection changes
+		std::set<jack_port_id_t> connections;
+		while (mPortConnectedQueue->try_dequeue(id)) {
+			connections.insert(id);
+		}
+		bool changed = false;
+		for (auto id: connections) {
+			auto p = jack_port_by_id(mJackClient, id);
+			auto it = mPortParamMap.find(p);
+			if (it != mPortParamMap.end()) {
+				auto param = it->second;
+				std::vector<ossia::value> names;
+				iterate_connections(p, [&names](std::string name) {
+						names.push_back(name);
+				});
+				param->push_value(names);
+				changed = true;
+			}
+		}
+		if (changed && mConfigChangeCallback != nullptr) {
+			mConfigChangeCallback();
 		}
 
 		ProgramChange c;
@@ -1660,25 +1686,6 @@ void InstanceAudioJack::jackPortRegistration(jack_port_id_t id, int reg) {
 }
 
 void InstanceAudioJack::portConnected(jack_port_id_t a, jack_port_id_t b, bool /*connected*/) {
-	bool changed = false;
-	auto doit = [this, &changed](jack_port_id_t id) {
-		auto p = jack_port_by_id(mJackClient, id);
-		auto it = mPortParamMap.find(p);
-		if (it != mPortParamMap.end()) {
-			auto param = it->second;
-			std::vector<ossia::value> names;
-			iterate_connections(p, [&names](std::string name) {
-					names.push_back(name);
-			});
-			param->push_value(names);
-			changed = true;
-		}
-	};
-
-	doit(a);
-	doit(b);
-
-	if (changed && mConfigChangeCallback != nullptr) {
-		mConfigChangeCallback();
-	}
+	mPortConnectedQueue->enqueue(a);
+	mPortConnectedQueue->enqueue(b);
 }
