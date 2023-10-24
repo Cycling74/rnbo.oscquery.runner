@@ -1379,8 +1379,8 @@ void InstanceAudioJack::start(float fadems) {
 void InstanceAudioJack::stop(float fadems) {
 	std::lock_guard<std::mutex> guard(mMutex);
 	if (fadems > 0.0f) {
-		mFadeIncr.store(-computeFadeIncr(mJackClient, fadems));
-		mFade.store(1.0f);
+		//fade out, if mFade is less than 1.0, it'll be quicker
+		mFadeIncr.store(-computeFadeIncr(mJackClient, fadems * mFade.load()));
 		mAudioState.store(AudioState::Stopping);
 	} else {
 		mAudioState.store(AudioState::Stopped);
@@ -1665,7 +1665,7 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 				if (fade >= 1.0f)
 					break;
 			}
-			mFade.store(fade);
+			mFade.store(std::clamp(fade, 0.0f, 1.0f));
 			if (fade >= 1.0f || fade <= 0.0) {
 				if (state == AudioState::Starting) {
 					mAudioState.store(AudioState::Running);
