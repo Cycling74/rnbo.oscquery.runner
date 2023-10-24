@@ -447,7 +447,7 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 				mInstanceLoadNode = ctl->create_child("load");
 				auto p = mInstanceLoadNode->create_parameter(ossia::val_type::LIST);
 				mInstanceLoadNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-				mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index args: index patcher_name [instance_name]");
+				mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index. args: index patcher_name [instance_name], a negative index will create a new instance at the next available index");
 
 				p->add_callback([this, cmdBuilder](const ossia::value& v) {
 					if (v.get_type() == ossia::val_type::LIST) {
