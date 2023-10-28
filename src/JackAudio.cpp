@@ -26,6 +26,8 @@ namespace {
 	const auto card_poll_period = std::chrono::seconds(2);
 	const auto midi_in_poll_timeout = std::chrono::milliseconds(20);
 
+	const std::string CONTROL_CLIENT_NAME("rnbo-control");
+
 	boost::optional<std::string> ns("jack");
 
 #ifdef __APPLE__
@@ -627,7 +629,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		}
 
 		jack_status_t status;
-		mJackClient = jack_client_open("rnbo-control", JackOptions::JackNoStartServer, &status);
+		mJackClient = jack_client_open(CONTROL_CLIENT_NAME.c_str(), JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
 
 			mJackMidiIn = jack_port_register(mJackClient,
@@ -1012,14 +1014,18 @@ void ProcessAudioJack::connectToMidiIf(jack_port_t * port) {
 		if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)).compare(std::string(JACK_DEFAULT_MIDI_TYPE)) == 0) {
 			auto flags = jack_port_flags(port);
 			auto name = jack_port_name(port);
+
 			//we don't want through, reconnecting to ports we're already connected to, or inputs
 			if (is_through(name) || jack_port_connected_to(mJackMidiIn, name) || flags & JackPortFlags::JackPortIsInput) {
 				return;
 			}
+			//check aliases and don't auto connect to rnbo midi outputs or through
 			auto count = jack_port_get_aliases(port, mJackPortAliases);
 			for (auto i = 0; i < count; i++) {
-				if (is_through(mJackPortAliases[i]))
+				std::string alias(mJackPortAliases[i]);
+				if (is_through(mJackPortAliases[i]) || alias.find("rnbomidi") != std::string::npos) {
 					return;
+				}
 			}
 			jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
 		}
@@ -1300,6 +1306,10 @@ InstanceAudioJack::InstanceAudioJack(
 					JackPortFlags::JackPortIsOutput,
 					0
 			);
+			//add alias so we can avoid connecting control to it
+			std::string alias = std::string(jack_get_client_name(mJackClient)) + ":rnbomidiout1";
+			jack_port_set_alias(mJackMidiOut, alias.c_str());
+
 			auto n = jack->create_child("midi_outs");
 			auto midi_outs = n->create_parameter(ossia::val_type::LIST);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
@@ -1533,8 +1543,10 @@ void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
 		if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
 			//ignore through and virtual
 			auto name = jack_port_name(port);
-			//ditch if the port is a through or is already connected
-			if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name))
+			std::string name_s(name);
+
+			//ditch if the port is a through, if is already connected or if it is the control port
+			if (is_through(name) || jack_port_connected_to(mJackMidiOut, name) || jack_port_connected_to(mJackMidiIn, name) || name_s.find(CONTROL_CLIENT_NAME) != std::string::npos)
 				return;
 			//check aliases, ditch if it is a virtual or through
 			auto count = jack_port_get_aliases(port, mJackPortAliases);
