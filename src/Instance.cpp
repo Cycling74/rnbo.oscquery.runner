@@ -626,86 +626,94 @@ void Instance::processDataRefCommands() {
 }
 
 void Instance::processEvents() {
-	mEventHandler->processEvents();
+	const auto state = audioState();
+	const auto active = state == AudioState::Starting || state == AudioState::Running;
+	if (active) {
+		mEventHandler->processEvents();
+	}
 	mAudio->processEvents();
+
 	//clear
 	while (mDataRefCleanupQueue->pop()) {
 		//clear out/dealloc
 	}
 
-	//see if we should signal a change
-	auto changed = false;
-	{
-		std::lock_guard<std::mutex> guard(mConfigChangedMutex);
-		changed = mConfigChanged;
-		mConfigChanged = false;
-	}
+	if (active) {
+		//see if we should signal a change
+		auto changed = false;
+		{
+			std::lock_guard<std::mutex> guard(mConfigChangedMutex);
+			changed = mConfigChanged;
+			mConfigChanged = false;
+		}
 
-	//store any presets that we got
-	bool updated = false;
-	//only process a few events
-	auto c = 0;
-	while (auto item = mPresetCommandQueue.tryPop()) {
-		auto cmd = item.get();
-		switch (cmd.type) {
-			case PresetCommand::CommandType::Load:
-				loadPreset(cmd.preset);
-				break;
-			case PresetCommand::CommandType::Save:
-				mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
-						auto name = cmd.preset;
-						auto j = RNBO::convertPresetToJSONObj(*preset);
-						mDB->presetSave(mName, cmd.preset, j.dump());
-						{
+		//store any presets that we got
+		bool updated = false;
+		//only process a few events
+		auto c = 0;
+		while (auto item = mPresetCommandQueue.tryPop()) {
+			auto cmd = item.get();
+			switch (cmd.type) {
+				case PresetCommand::CommandType::Load:
+					loadPreset(cmd.preset);
+					break;
+				case PresetCommand::CommandType::Save:
+					mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
+							auto name = cmd.preset;
+							auto j = RNBO::convertPresetToJSONObj(*preset);
+							mDB->presetSave(mName, cmd.preset, j.dump());
+							{
 							std::lock_guard<std::mutex> guard(mPresetMutex);
 							mPresetLatest = name;
-						}
-						updatePresetEntries();
-				});
-				break;
-			case PresetCommand::CommandType::Initial:
-				{
-					auto name = cmd.preset;
-					mDB->presetSetInitial(mName, name);
-
-					auto preset = mDB->preset(mName, name);
-
-					{
-						std::lock_guard<std::mutex> guard(mPresetMutex);
-						if (cmd.preset.size() == 0 || preset) {
-							if (mPresetInitial != name) {
-								mPresetInitial = name;
 							}
-						} else if (name != mPresetInitial) {
+							updatePresetEntries();
+							});
+					break;
+				case PresetCommand::CommandType::Initial:
+					{
+						auto name = cmd.preset;
+						mDB->presetSetInitial(mName, name);
+
+						auto preset = mDB->preset(mName, name);
+
+						{
+							std::lock_guard<std::mutex> guard(mPresetMutex);
+							if (cmd.preset.size() == 0 || preset) {
+								if (mPresetInitial != name) {
+									mPresetInitial = name;
+								}
+							} else if (name != mPresetInitial) {
+								mPresetInitialParam->push_value(mPresetInitial);
+							}
+						}
+					}
+					break;
+				case PresetCommand::CommandType::Delete:
+					mDB->presetDestroy(mName, cmd.preset);
+					{
+						//clear out initial and latest if they match
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						if (mPresetInitial == cmd.preset) {
+							mPresetInitial.clear();
 							mPresetInitialParam->push_value(mPresetInitial);
 						}
+						if (mPresetLatest == cmd.preset) {
+							mPresetLatest.clear();
+						}
+						updated = true;
 					}
-				}
-				break;
-			case PresetCommand::CommandType::Delete:
-				mDB->presetDestroy(mName, cmd.preset);
-				{
-					//clear out initial and latest if they match
-					std::lock_guard<std::mutex> guard(mPresetMutex);
-					if (mPresetInitial == cmd.preset) {
-						mPresetInitial.clear();
-						mPresetInitialParam->push_value(mPresetInitial);
-					}
-					if (mPresetLatest == cmd.preset) {
-						mPresetLatest.clear();
-					}
-					updated = true;
-				}
+					break;
+			}
+			if (c++ > 10)
 				break;
 		}
-		if (c++ > 10)
-			break;
-	}
-	if (updated)
-		updatePresetEntries();
 
-	if (changed && mConfigChangeCallback != nullptr) {
-		mConfigChangeCallback();
+		if (updated)
+			updatePresetEntries();
+
+		if (changed && mConfigChangeCallback != nullptr) {
+			mConfigChangeCallback();
+		}
 	}
 }
 
