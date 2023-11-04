@@ -5,7 +5,7 @@
 #include <vector>
 #include <atomic>
 #include <thread>
-
+#include <set>
 #include <ossia-cpp/ossia-cpp98.hpp>
 
 #include <jack/types.h>
@@ -24,6 +24,12 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+enum class JackPortChange {
+	Register,
+	Unregister,
+	Rename,
+	Connection
+};
 
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
@@ -70,6 +76,9 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mInfoNode = nullptr;
 		ossia::net::node_base * mPortInfoNode = nullptr;
 
+		ossia::net::node_base * mPortAudioSourceConnectionsNode = nullptr;
+		ossia::net::node_base * mPortMIDISourceConnectionsNode = nullptr;
+
 		ossia::net::node_base * mPortAliases = nullptr;
 		ossia::net::parameter_base * mPortAudioSinksParam = nullptr;
 		ossia::net::parameter_base * mPortAudioSourcesParam = nullptr;
@@ -111,7 +120,7 @@ class ProcessAudioJack : public ProcessAudio {
 		std::map<std::string, std::string> mCardNamesAndDescriptions;
 
 		std::function<void(ProgramChange)> mProgramChangeCallback;
-		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<jack_port_id_t, JackPortChange>, 32>> mPortQueue;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
 
 		ossia::net::parameter_base * mMidiInParam = nullptr;
@@ -120,13 +129,16 @@ class ProcessAudioJack : public ProcessAudio {
 		//working buffer for port getting port aliases
 		char * mJackPortAliases[2];
 
-		std::mutex mMidiInNamesMutex;
-		std::vector<std::string> mMidiInPortNames;
-		bool mMidiPortNamesUpdated = false;
+		//from libossia
+		bool mMidiPortConnectionsChanged = false;
+		std::set<std::string> mSourceAudioPortConnectionUpdates;
+		std::set<std::string> mSourceMIDIPortConnectionUpdates;
 
-		//should we poll midi input connections?
-		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mMidiInPoll;
-		std::mutex mMidiInPollMutex;
+		//should we poll ports, connections?
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortPoll;
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortConnectionPoll;
+		//which ports got updates?
+		std::set<jack_port_id_t> mPortConnectionUpdates;
 };
 
 //Processing and handling for a specific rnbo instance.
