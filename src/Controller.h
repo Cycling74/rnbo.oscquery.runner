@@ -58,7 +58,7 @@ class Controller {
 		void updateListenersList();
 
 		//save set, return the path of the save
-		boost::optional<boost::filesystem::path> saveSet(std::string name = std::string(), bool abort_empty = false);
+		boost::optional<boost::filesystem::path> saveSet(std::string name, std::string meta, bool abort_empty);
 
 		void patcherStore(
 				const std::string& name,
@@ -93,6 +93,8 @@ class Controller {
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
 		ossia::net::parameter_base * mSetLoadParam = nullptr;
+
+		ossia::net::parameter_base * mSetMetaParam = nullptr;
 
 		std::mutex mSetNamesMutex;
 		bool mSetNamesUpdated = false;

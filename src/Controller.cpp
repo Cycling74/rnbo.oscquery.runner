@@ -64,6 +64,7 @@ namespace {
 	static const std::string last_config_key = "config";
 	static const std::string index_key = "index";
 	static const std::string connections_key = "connections";
+	static const std::string meta_key = "meta";
 
 	ossia::net::node_base * find_or_create_child(ossia::net::node_base * parent, const std::string name) {
 			auto c = parent->find_child(name);
@@ -473,18 +474,30 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		{
 			auto sets = ctl->create_child("sets");
 
-			auto cmdBuilder = [](std::string method, const std::string& name) -> std::string {
+			auto cmdBuilder = [](std::string method, const std::string& name, std::string meta = std::string()) -> std::string {
 				RNBO::Json cmd = {
 					{"method", method},
 					{"id", "internal"},
 					{"params",
 						{
-							{"name", name}
+							{"name", name},
+							{"meta", meta}
 						}
 					}
 				};
 				return cmd.dump();
 			};
+
+			{
+				auto n = sets->create_child("meta");
+				mSetMetaParam = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::description_attribute{}, "Set/get the metadata for the current set");
+
+				mSetMetaParam->add_callback([this](const ossia::value&) {
+					queueSave();
+				});
+			}
 
 			{
 				auto n = sets->create_child("save");
@@ -496,7 +509,13 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 						if (v.get_type() == ossia::val_type::STRING) {
 							auto name = v.get<std::string>();
 							if (name.size()) {
-								mCommandQueue.push(cmdBuilder("instance_set_save", name));
+								//get metadata
+								auto metav = mSetMetaParam->value();
+								std::string meta;
+								if (metav.get_type() == ossia::val_type::STRING) {
+									meta = metav.get<std::string>();
+								}
+								mCommandQueue.push(cmdBuilder("instance_set_save", name, meta));
 							}
 						}
 				});
@@ -928,7 +947,13 @@ bool Controller::loadSet(boost::filesystem::path filename) {
 				inst->start(mInstFadeInMs);
 			}
 		}
-
+		if (mSetMetaParam) {
+			std::string meta;
+			if (c.contains(meta_key) && c[meta_key].is_string()) {
+				meta = c[meta_key].get<std::string>();
+			}
+			mSetMetaParam->push_value(meta);
+		}
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
 	} catch (...) {
@@ -995,7 +1020,7 @@ bool Controller::loadBuiltIn() {
 }
 #endif
 
-boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, bool abort_empty) {
+boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, std::string meta, bool abort_empty) {
 	RNBO::Json instances = RNBO::Json::array();
 	RNBO::Json setData = RNBO::Json::object();
 	{
@@ -1018,6 +1043,7 @@ boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, b
 		}
 	}
 	setData[last_instances_key] = instances;
+	setData[meta_key] = meta;
 
 	RNBO::Json connections = mProcessAudio->connections();
 	if (!connections.is_null()) {
@@ -1213,7 +1239,14 @@ bool Controller::processEvents() {
 			}
 		}
 		if (save) {
-			saveSet();
+			std::string meta;
+			if (mSetMetaParam) {
+				auto v = mSetMetaParam->value();
+				if (v.get_type() == ossia::val_type::STRING) {
+					meta = v.get<std::string>();
+				}
+			}
+			saveSet(std::string(), meta, false);
 		}
 
 		//sets
@@ -1653,7 +1686,8 @@ void Controller::processCommands() {
 				});
 			} else if (method == "instance_set_save") {
 				std::string name = params["name"].get<std::string>();
-				auto p = saveSet(name, true);
+				std::string meta = params["meta"].get<std::string>();
+				auto p = saveSet(name, meta, true);
 				if (p) {
 					mDB->setSave(name, p->filename());
 					reportCommandResult(id, {
@@ -1667,9 +1701,9 @@ void Controller::processCommands() {
 				}
 			} else if (method == "instance_set_load") {
 				std::string name = params["name"].get<std::string>();
-				auto path = mDB->setGet(name);
-				if (path) {
-					loadSet(path.get());
+				auto res = mDB->setGet(name);
+				if (res) {
+					loadSet(res.get());
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "loaded"},
