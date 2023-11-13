@@ -47,7 +47,7 @@ class Controller {
 	private:
 		bool tryActivateAudio();
 		void reportActive();
-		void clearInstances(std::lock_guard<std::mutex>&);
+		void clearInstances(std::lock_guard<std::mutex>&, float fadeTime);
 		void unloadInstance(std::lock_guard<std::mutex>&, unsigned int index);
 
 		void registerCommands();
@@ -113,7 +113,7 @@ class Controller {
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
 		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
-		std::chrono::time_point<std::chrono::system_clock> mDiskSpacePollNext;
+		std::chrono::time_point<std::chrono::steady_clock> mDiskSpacePollNext;
 
 		std::shared_ptr<ProcessAudio> mProcessAudio;
 		ossia::net::parameter_base * mAudioActive;
@@ -128,7 +128,9 @@ class Controller {
 		std::mutex mSaveMutex;
 		bool mSave = false;
 		//a timeout for when to save, debouncing
-		boost::optional<std::chrono::time_point<std::chrono::system_clock>> mSaveNext;
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mSaveNext;
+
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mProcessNext;
 
 		std::set<std::pair<std::string, uint16_t>> mListeners;
 		ossia::net::parameter_base * mListenersListParam = nullptr;

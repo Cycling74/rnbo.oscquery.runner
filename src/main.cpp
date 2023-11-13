@@ -15,7 +15,7 @@ using optparse::OptionParser;
 using std::cout;
 using std::cerr;
 using std::endl;
-using std::chrono::system_clock;
+using std::chrono::steady_clock;
 
 namespace fs = boost::filesystem;
 
@@ -83,11 +83,11 @@ int main(int argc, const char * argv[]) {
 #endif
 
 		auto config_timeout = std::chrono::seconds(1);
-		std::chrono::time_point<std::chrono::system_clock> config_poll_next = system_clock::now() + config_timeout;
+		std::chrono::time_point<std::chrono::steady_clock> config_poll_next = steady_clock::now() + config_timeout;
 		while (c.processEvents() && mRun.load()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-			if (config_poll_next <= system_clock::now()) {
-				config_poll_next = system_clock::now() + config_timeout;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			if (config_poll_next <= steady_clock::now()) {
+				config_poll_next = steady_clock::now() + config_timeout;
 				config::write_if_dirty();
 			}
 		}

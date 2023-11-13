@@ -39,7 +39,7 @@
 using std::cout;
 using std::cerr;
 using std::endl;
-using std::chrono::system_clock;
+using std::chrono::steady_clock;
 
 namespace fs = boost::filesystem;
 namespace bp = boost::process;
@@ -52,9 +52,9 @@ namespace {
 
 	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
 
-	static const std::chrono::milliseconds command_wait_timeout(1);
-	static const std::chrono::milliseconds compile_command_wait_timeout(5); //poll more quickly so we can get cancels
 	static const std::chrono::milliseconds save_debounce_timeout(500);
+
+	static const std::chrono::milliseconds process_poll_period(5);
 
 	static const std::string last_file_name = "last";
 
@@ -163,6 +163,8 @@ Controller::Controller(std::string server_name) {
 	auto configBuildExe = config::get<fs::path>(config::key::SOBuildExe);
 	if (configBuildExe && fs::exists(configBuildExe.get()))
 		build_program = configBuildExe.get().string();
+
+	mProcessNext = steady_clock::now();
 
 	auto root = mServer->create_child("rnbo");
 
@@ -811,7 +813,7 @@ Controller::Controller(std::string server_name) {
 Controller::~Controller() {
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
-		clearInstances(guard);
+		clearInstances(guard, 0.0f);
 	}
 	mProtocol = nullptr;
 	mProcessAudio.reset();
@@ -909,7 +911,7 @@ bool Controller::loadSet(boost::filesystem::path filename) {
 
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			clearInstances(guard);
+			clearInstances(guard, mInstFadeOutMs);
 			//get the last preset (saved before clearing);
 			std::swap(preset, mInstanceLastPreset);
 		}
@@ -1019,7 +1021,7 @@ bool Controller::loadBuiltIn() {
 			std::string instIndex;
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
-				clearInstances(guard);
+				clearInstances(guard, 0.0f);
 				instIndex = std::to_string(mInstances.size());
 				instNode = mInstancesNode->create_child(instIndex);
 			}
@@ -1227,15 +1229,21 @@ unsigned int Controller::nextInstanceIndex() {
 }
 
 bool Controller::processEvents() {
+	auto now = steady_clock::now();
 	try {
 		{
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 			ossia::net::poll_network_context(*mOssiaContext);
 		}
 
+		if (mProcessNext < now) {
+			mProcessNext = now + process_poll_period;
+		} else {
+			return true;
+		}
+
 		processCommands();
 
-		auto now = system_clock::now();
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mProcessAudio)
@@ -1267,7 +1275,7 @@ bool Controller::processEvents() {
 			std::lock_guard<std::mutex> guard(mSaveMutex);
 			if (mSave) {
 				mSave = false;
-				mSaveNext = system_clock::now() + save_debounce_timeout;
+				mSaveNext = steady_clock::now() + save_debounce_timeout;
 			} else if (mSaveNext && mSaveNext.get() < now) {
 				save = true;
 				mSaveNext.reset();
@@ -1315,7 +1323,8 @@ void Controller::handleActive(bool active) {
 		} else {
 			mInstanceLastPreset.reset();
 		}
-		clearInstances(guard);
+		clearInstances(guard, 0.0f);
+		mStoppingInstances.clear();
 	}
 
 	bool wasActive = mProcessAudio->isActive();
@@ -1342,12 +1351,14 @@ void Controller::reportActive() {
 	mAudioActive->set_value(mProcessAudio->isActive());
 }
 
-void Controller::clearInstances(std::lock_guard<std::mutex>&) {
+void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
 	for (auto it = mInstances.begin(); it < mInstances.end(); ) {
 		auto inst = std::get<0>(*it);
 		auto index = inst->index();
-		inst->stop(mInstFadeOutMs);
-		mStoppingInstances.push_back(inst);
+		inst->stop(fadeTime);
+		if (fadeTime > 0.0f) {
+			mStoppingInstances.push_back(inst);
+		}
 		it = mInstances.erase(it);
 		if (!mInstancesNode->remove_child(std::to_string(index))) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
@@ -1458,7 +1469,7 @@ void Controller::registerCommands() {
 				{
 					std::lock_guard<std::mutex> guard(mBuildMutex);
 					if (index < 0) {
-						clearInstances(guard);
+						clearInstances(guard, mInstFadeOutMs);
 					} else {
 						unloadInstance(guard, index);
 					}
@@ -1792,11 +1803,8 @@ void Controller::registerCommands() {
 
 void Controller::processCommands() {
 	try {
-		//adjust timeout
-		auto wait = command_wait_timeout;
 		const bool compiling = compileProcess && compileProcess->valid();
 		if (compiling) {
-			wait = compile_command_wait_timeout;
 			//see if the process has completed
 			if (!compileProcess->mProcess.running()) {
 				//need to wait to get the correct exit code
@@ -1843,141 +1851,140 @@ void Controller::processCommands() {
 			}
 		}
 
-		auto cmd = mCommandQueue.popTimeout(wait);
-		if (!cmd)
-			return;
-		std::string cmdStr = cmd.get();
+		while (auto cmd = mCommandQueue.tryPop()) {
+			std::string cmdStr = cmd.get();
 
-		//internal commands
-		if (cmdStr == "load_last") {
-			//terminate existing compile
-			compileProcess.reset();
-			loadSet();
-			return;
-		}
-
-		auto cmdObj = RNBO::Json::parse(cmdStr);
-		if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
-			cerr << "invalid cmd json" << cmdStr << endl;
-			return;
-		}
-		std::string id = cmdObj["id"];
-		std::string method = cmdObj["method"];
-		RNBO::Json params = cmdObj["params"];
-		if (method == "compile_cancel") {
-			//should terminate
-			compileProcess.reset();
-			reportCommandResult(id, {
-				{"code", static_cast<unsigned int>(CompileLoadStatus::Cancelled)},
-				{"message", "cancelled"},
-				{"progress", 100}
-			});
-			return;
-		} else if (method == "compile") {
-			//terminate existing
-			compileProcess.reset();
-
-			std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-#if RNBO_USE_DBUS
-			//update the outpdated package list
-			if (mUpdateServiceProxy && params.contains("update_outdated") && params["update_outdated"].get<bool>()) {
-				try {
-					mUpdateServiceProxy->UpdateOutdated();
-				} catch (...) { }
+			//internal commands
+			if (cmdStr == "load_last") {
+				//terminate existing compile
+				compileProcess.reset();
+				loadSet();
+				continue;
 			}
+
+			auto cmdObj = RNBO::Json::parse(cmdStr);
+			if (!cmdObj.contains("method") || !cmdObj.contains("id")) {
+				cerr << "invalid cmd json" << cmdStr << endl;
+				continue;
+			}
+			std::string id = cmdObj["id"];
+			std::string method = cmdObj["method"];
+			RNBO::Json params = cmdObj["params"];
+			if (method == "compile_cancel") {
+				//should terminate
+				compileProcess.reset();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(CompileLoadStatus::Cancelled)},
+					{"message", "cancelled"},
+					{"progress", 100}
+				});
+				continue;
+			} else if (method == "compile") {
+				//terminate existing
+				compileProcess.reset();
+
+				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+#if RNBO_USE_DBUS
+				//update the outpdated package list
+				if (mUpdateServiceProxy && params.contains("update_outdated") && params["update_outdated"].get<bool>()) {
+					try {
+						mUpdateServiceProxy->UpdateOutdated();
+					} catch (...) { }
+				}
 #endif
 
-			//support either a pre-written file or embedded "code"
-			if (!params.is_object() || !(params.contains("filename") || params.contains("code"))) {
-				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
-				return;
-			}
-			//get filename or generate one
-			std::string fileName = params.contains("filename") ? params["filename"].get<std::string>() : ("rnbogen." + timeTag + ".cpp");
-			fs::path sourceFile = fs::absolute(mSourceCache / fileName);
-
-			//write code if we have it
-			if (params.contains("code")) {
-				std::string code = params["code"];
-				std::fstream f;
-				f.open(sourceFile.string(), std::fstream::out | std::fstream::trunc);
-				if (!f.is_open()) {
-					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + sourceFile.string());
-					return;
+				//support either a pre-written file or embedded "code"
+				if (!params.is_object() || !(params.contains("filename") || params.contains("code"))) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
+					continue;
 				}
-				f << code;
-				f.close();
-			}
+				//get filename or generate one
+				std::string fileName = params.contains("filename") ? params["filename"].get<std::string>() : ("rnbogen." + timeTag + ".cpp");
+				fs::path sourceFile = fs::absolute(mSourceCache / fileName);
 
-			//make sure the source file exists
-			if (!fs::exists(sourceFile)) {
-				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceFileDoesNotExist), "cannot file source file: " + sourceFile.string());
-				return;
-			}
-			reportCommandResult(id, {
-				{"code", static_cast<unsigned int>(CompileLoadStatus::Received)},
-				{"message", "received"},
-				{"progress", 10}
-			});
-
-			//create library name, based on time so we don't have to unload existing
-			std::string libName = "RNBORunnerSO" + timeTag;
-
-			fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
-			//program path_to_generated.cpp libraryName pathToConfigFile
-			std::vector<std::string> args = {
-				sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
-			};
-			auto cmake = config::get<fs::path>(config::key::CMakePath);
-			if (cmake) {
-				args.push_back(cmake.get().string());
-			}
-
-			//start compile
-			{
-				//config might be in a file
-				RNBO::Json config;
-				boost::optional<unsigned int> instanceIndex = 0;
-				fs::path confFilePath;
-				std::string maxRNBOVersion = "unknown";
-				if (params.contains("config_file")) {
-					confFilePath = params["config_file"].get<std::string>();
-					confFilePath = fs::absolute(mSourceCache / confFilePath);
-					std::ifstream i(confFilePath.string());
-					i >> config;
-					i.close();
-				} else if (params.contains("config")) {
-					config = params["config"];
-				}
-
-				if (params.contains("rnbo_version")) {
-					maxRNBOVersion = params["rnbo_version"].get<std::string>();
-				}
-
-				if (params.contains("load")) {
-					if (params["load"].is_null()) {
-						instanceIndex = boost::none;
-					} else {
-						int index = params["load"].get<int>();
-						if (index < 0) {
-							index = nextInstanceIndex();
-						}
-						instanceIndex = boost::make_optional(static_cast<unsigned int>(index));
-						{
-							std::lock_guard<std::mutex> guard(mBuildMutex);
-							unloadInstance(guard, instanceIndex.get());
-						}
-						mProcessAudio->updatePorts();
+				//write code if we have it
+				if (params.contains("code")) {
+					std::string code = params["code"];
+					std::fstream f;
+					f.open(sourceFile.string(), std::fstream::out | std::fstream::trunc);
+					if (!f.is_open()) {
+						reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceWriteFailed), "failed to open file for write: " + sourceFile.string());
+						continue;
 					}
+					f << code;
+					f.close();
 				}
-				compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, maxRNBOVersion, instanceIndex);
-			}
-		} else {
-			auto f = mCommandHandlers.find(method);
-			if (f != mCommandHandlers.end()) {
-				f->second(method, id, params);
+
+				//make sure the source file exists
+				if (!fs::exists(sourceFile)) {
+					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::SourceFileDoesNotExist), "cannot file source file: " + sourceFile.string());
+					continue;
+				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(CompileLoadStatus::Received)},
+					{"message", "received"},
+					{"progress", 10}
+				});
+
+				//create library name, based on time so we don't have to unload existing
+				std::string libName = "RNBORunnerSO" + timeTag;
+
+				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
+				//program path_to_generated.cpp libraryName pathToConfigFile
+				std::vector<std::string> args = {
+					sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
+				};
+				auto cmake = config::get<fs::path>(config::key::CMakePath);
+				if (cmake) {
+					args.push_back(cmake.get().string());
+				}
+
+				//start compile
+				{
+					//config might be in a file
+					RNBO::Json config;
+					boost::optional<unsigned int> instanceIndex = 0;
+					fs::path confFilePath;
+					std::string maxRNBOVersion = "unknown";
+					if (params.contains("config_file")) {
+						confFilePath = params["config_file"].get<std::string>();
+						confFilePath = fs::absolute(mSourceCache / confFilePath);
+						std::ifstream i(confFilePath.string());
+						i >> config;
+						i.close();
+					} else if (params.contains("config")) {
+						config = params["config"];
+					}
+
+					if (params.contains("rnbo_version")) {
+						maxRNBOVersion = params["rnbo_version"].get<std::string>();
+					}
+
+					if (params.contains("load")) {
+						if (params["load"].is_null()) {
+							instanceIndex = boost::none;
+						} else {
+							int index = params["load"].get<int>();
+							if (index < 0) {
+								index = nextInstanceIndex();
+							}
+							instanceIndex = boost::make_optional(static_cast<unsigned int>(index));
+							{
+								std::lock_guard<std::mutex> guard(mBuildMutex);
+								unloadInstance(guard, instanceIndex.get());
+							}
+							mProcessAudio->updatePorts();
+						}
+					}
+					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, maxRNBOVersion, instanceIndex);
+				}
 			} else {
-				cerr << "unknown method " << method << endl;
+				auto f = mCommandHandlers.find(method);
+				if (f != mCommandHandlers.end()) {
+					f->second(method, id, params);
+				} else {
+					cerr << "unknown method " << method << endl;
+				}
 			}
 		}
 	} catch (const std::exception& e) {
@@ -2022,7 +2029,7 @@ void Controller::updateDiskSpace() {
 			if (mDiskSpaceParam)
 				mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
 		}
-		mDiskSpacePollNext = system_clock::now() + mDiskSpacePollPeriod;
+		mDiskSpacePollNext = steady_clock::now() + mDiskSpacePollPeriod;
 }
 
 void Controller::updateListenersList() {
