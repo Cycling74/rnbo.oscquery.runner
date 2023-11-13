@@ -1760,7 +1760,7 @@ void Controller::registerCommands() {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
 					return;
 				}
-				if (!cmdObj.contains("params") || !params.contains("version")) {
+				if (!params.is_object() || !params.contains("version")) {
 					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
 					return;
 				}
@@ -1888,7 +1888,7 @@ void Controller::processCommands() {
 #endif
 
 			//support either a pre-written file or embedded "code"
-			if (!cmdObj.contains("params") || !(params.contains("filename") || params.contains("code"))) {
+			if (!params.is_object() || !(params.contains("filename") || params.contains("code"))) {
 				reportCommandError(id, static_cast<unsigned int>(CompileLoadError::InvalidRequestObject), "request object invalid");
 				return;
 			}
