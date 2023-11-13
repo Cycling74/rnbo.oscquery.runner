@@ -155,6 +155,9 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
 
+	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
+	mCompileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
+
 	auto root = mServer->create_child("rnbo");
 
 	//expose some information
@@ -768,6 +771,7 @@ Controller::Controller(std::string server_name) : mProcessCommands(true) {
 		p->push_value(supports_install);
 	}
 
+	registerCommands();
 	mCommandThread = std::thread(&Controller::processCommands, this);
 }
 
@@ -1162,13 +1166,10 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 }
 
 void Controller::destroyPatcher(const std::string& name) {
-	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
-	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
-
-	mDB->patcherDestroy(name, [sourceCache, compileCache](fs::path& so_name, fs::path& config_name) {
+	mDB->patcherDestroy(name, [this](fs::path& so_name, fs::path& config_name) {
 			boost::system::error_code ec;
-			fs::remove(fs::absolute(compileCache / so_name), ec);
-			fs::remove(fs::absolute(sourceCache / config_name), ec);
+			fs::remove(fs::absolute(mCompileCache / so_name), ec);
+			fs::remove(fs::absolute(mSourceCache / config_name), ec);
 	});
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -1337,20 +1338,164 @@ void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index
 	}
 }
 
-void Controller::processCommands() {
+void Controller::registerCommands() {
 
-	fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
-	fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
+	mCommandHandlers.insert({
+			"patcher_destroy",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				destroyPatcher(name);
+			}
+	});
+	mCommandHandlers.insert({
+			"instance_load",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				int index = params["index"].get<int>();
+				std::string name = params["patcher_name"].get<std::string>();
+				std::string instance_name;
+				if (params.contains("instance_name"))
+					instance_name = params["instance_name"].get<std::string>();
 
-	//setup user defined location of the build program, if they've set it
-	auto configBuildExe = config::get<fs::path>(config::key::SOBuildExe);
-	if (configBuildExe && fs::exists(configBuildExe.get()))
-		build_program = configBuildExe.get().string();
+				//automatically set the index if it is less than zero
+				if (index < 0) {
+					index = nextInstanceIndex();
+				}
+
+				fs::path libPath;
+				fs::path confPath;
+				RNBO::Json config;
+				if (mDB->patcherGetLatest(name, libPath, confPath)) {
+					libPath = fs::absolute(mCompileCache / libPath);
+					confPath = fs::absolute(mSourceCache / confPath);
+
+					if (fs::exists(libPath)) {
+						if (fs::exists(confPath)) {
+							std::ifstream i(confPath.string());
+							i >> config;
+							i.close();
+						}
+
+						//add client name to config..
+						if (instance_name.size()) {
+							RNBO::Json jack;
+							if (config.contains("jack"))
+								jack = config["jack"];
+							jack["client_name"] = instance_name;
+							config["jack"] = jack;
+						}
+						config["name"] = name;
+
+						auto inst = loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
+
+						//TODO optionally get connections from params
+						if (inst) {
+							inst->connect();
+							inst->start(mInstFadeInMs);
+						}
+					}
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "loaded"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, 1, "failed");
+				}
+				queueSave();
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_unload",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				int index = params["index"].get<int>();
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+					if (index < 0) {
+						clearInstances(guard);
+					} else {
+						unloadInstance(guard, index);
+					}
+				}
+				mProcessAudio->updatePorts();
+				queueSave();
+				reportCommandResult(id, {
+					{"code", 0},
+					{"message", "unloaded"},
+					{"progress", 100}
+				});
+			}
+	});
+	mCommandHandlers.insert({
+			"instance_set_save",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string meta = params["meta"].get<std::string>();
+				auto p = saveSet(name, meta, true);
+				if (p) {
+					mDB->setSave(name, p->filename());
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "saved"},
+						{"progress", 100}
+					});
+					updateSetNames();
+				} else {
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_load",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				auto res = mDB->setGet(name);
+				if (res) {
+					loadSet(res.get());
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "loaded"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"patcherstore",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string libFile = params["lib"].get<std::string>();
+				std::string configFileName = params["config"].get<std::string>();
+
+				RNBO::Json config;
+				fs::path confFilePath = fs::absolute(mSourceCache / configFileName);
+				std::ifstream i(confFilePath.string());
+				i >> config;
+				i.close();
+
+				std::string maxRNBOVersion = "unknown";
+				if (params.contains("rnbo_version")) {
+					maxRNBOVersion = params["rnbo_version"].get<std::string>();
+				}
+
+				patcherStore(name, libFile, configFileName, maxRNBOVersion, config);
+
+				reportCommandResult(id, {
+					{"code", 0},
+					{"message", "stored"},
+					{"progress", 100}
+				});
+			}
+	});
 
 	//helper to validate and report as there are 2 different commands
-	auto validateFileCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, bool withData) -> bool {
+	auto validateFileCmd = [this](const std::string& id, const RNBO::Json& params, bool withData) -> bool {
 		//TODO assert that filename doesn't contain slashes so you can't specify files outside of the desired dir?
-		if (!cmdObj.contains("params") || !params.contains("filename") || !params.contains("filetype") || (withData && !params.contains("data"))) {
+		if (!params.is_object() || !params.contains("filename") || !params.contains("filetype") || (withData && !params.contains("data"))) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "request object invalid");
 			return false;
 		}
@@ -1363,8 +1508,96 @@ void Controller::processCommands() {
 	};
 
 	//helper to validate and report as there are 2 different commands
-	auto validateListenerCmd = [this](std::string& id, RNBO::Json& cmdObj, RNBO::Json& params, std::pair<std::string, uint16_t>& key) -> bool {
-		if (!cmdObj.contains("params") || !params.contains("ip") || !params.contains("port")) {
+	auto fileCmdDir = [this](const std::string& id, std::string filetype) -> boost::optional<fs::path> {
+		boost::optional<fs::path> r;
+		if (filetype == "datafile") {
+			r = config::get<fs::path>(config::key::DataFileDir);
+		} else if (filetype == "sourcefile") {
+			r = mSourceCache;
+		} else if (filetype == "patcherlib") {
+			r = mCompileCache;
+		} else {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
+			return {};
+		}
+		if (!r) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::Unknown), "no entry in config for filetype: " + filetype);
+		}
+		return r;
+	};
+
+	mCommandHandlers.insert({
+			"file_delete",
+			[this, validateFileCmd, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				if (!validateFileCmd(id, params, false))
+					return;
+				auto dir = fileCmdDir(id, params["filetype"]);
+				if (!dir)
+					return;
+
+				std::string fileName = params["filename"];
+				fs::path filePath = dir.get() / fs::path(fileName);
+				boost::system::error_code ec;
+				if (fs::remove(filePath, ec)) {
+					reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+						{"message", "deleted"},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DeleteFailed), "delete failed with message " + ec.message());
+				}
+			}
+	});
+
+	auto file_write =  [this, validateFileCmd, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+		if (!validateFileCmd(id, params, true))
+			return;
+
+		std::string filetype = params["filetype"];
+		auto dir = fileCmdDir(id, filetype);
+		if (!dir)
+			return;
+
+		//file_write_extended base64 encodes the file name so we can have non ascii in there
+		std::string fileName = params["filename"];
+		if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
+			return;
+		}
+		fs::path filePath = dir.get() / fs::path(fileName);
+		std::fstream fs;
+		//allow for "append" to add to the end of an existing file
+		bool append = params["append"].is_boolean() && params["append"].get<bool>();
+		fs.open(filePath.string(), std::fstream::out | std::fstream::binary | (append ? std::fstream::app : std::fstream::trunc));
+		if (!fs.is_open()) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
+			return;
+		}
+
+		std::string data = params["data"];
+		std::vector<char> out(data.size()); //out will be smaller than the in data
+		size_t read = 0;
+		if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode data");
+			return;
+		}
+		fs.write(&out.front(), sizeof(char) * read);
+		fs.close();
+
+		reportCommandResult(id, {
+			{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+			{"message", "written"},
+			{"progress", 100}
+		});
+	};
+
+	mCommandHandlers.insert({ "file_write", file_write });
+	mCommandHandlers.insert({ "file_write_extended", file_write });
+
+
+	auto validateListenerCmd = [this](const std::string& id, const RNBO::Json& params, std::pair<std::string, uint16_t>& key) -> bool {
+		if (!params.is_object() || !params.contains("ip") || !params.contains("port")) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "request object invalid");
 			return false;
 		}
@@ -1377,24 +1610,6 @@ void Controller::processCommands() {
 		auto port = static_cast<uint16_t>(params["port"].get<int>());
 		key = std::make_pair(ip, port);
 		return true;
-	};
-
-	auto fileCmdDir = [this, sourceCache, compileCache](std::string& id, std::string filetype) -> boost::optional<fs::path> {
-		boost::optional<fs::path> r;
-		if (filetype == "datafile") {
-			r = config::get<fs::path>(config::key::DataFileDir);
-		} else if (filetype == "sourcefile") {
-			r = sourceCache;
-		} else if (filetype == "patcherlib") {
-			r = compileCache;
-		} else {
-			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
-			return {};
-		}
-		if (!r) {
-			reportCommandError(id, static_cast<unsigned int>(FileCommandError::Unknown), "no entry in config for filetype: " + filetype);
-		}
-		return r;
 	};
 
 	//clear all but oscquery
@@ -1423,6 +1638,118 @@ void Controller::processCommands() {
 			);
 		mProtocol->expose_to(std::move(protocol));
 	};
+
+	mCommandHandlers.insert({
+			"listener_add",
+			[this, validateListenerCmd, listeners_add](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::pair<std::string, uint16_t> key;
+				if (!validateListenerCmd(id, params, key))
+					return;
+
+				if (mListeners.find(key) == mListeners.end()) {
+					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+					listeners_add(key.first, key.second);
+					mListeners.insert(key);
+				}
+
+				updateListenersList();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
+					{"message", "created"},
+					{"progress", 100}
+				});
+			}
+	});
+	mCommandHandlers.insert({
+			"listener_del",
+			[this, validateListenerCmd, listeners_clear, listeners_add](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::pair<std::string, uint16_t> key;
+				if (!validateListenerCmd(id, params, key))
+					return;
+
+				//TODO visit listeners and only remove the one we care to remove.
+				//at this point, finding the type is hard so we just remove them all and then add back the ones we care about
+				if (mListeners.erase(key) != 0) {
+					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+					listeners_clear();
+					for (auto& kv: mListeners) {
+						listeners_add(kv.first, kv.second);
+					}
+					updateListenersList();
+				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
+					{"message", "deleted"},
+					{"progress", 100}
+				});
+			}
+	});
+	mCommandHandlers.insert({
+			"listener_clear",
+			[this, validateListenerCmd, listeners_clear](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::pair<std::string, uint16_t> key;
+				if (!validateListenerCmd(id, params, key))
+					return;
+
+				std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+				mListeners.clear();
+				listeners_clear();
+				updateListenersList();
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
+					{"message", "cleared"},
+					{"progress", 100}
+				});
+			}
+	});
+
+	mCommandHandlers.insert({
+			"install",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+#ifndef RNBO_USE_DBUS
+				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
+				return;
+#else
+				if (!mUpdateServiceProxy) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
+					return;
+				}
+				if (!cmdObj.contains("params") || !params.contains("version")) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
+					return;
+				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(InstallProgramStatus::Received)},
+					{"message", "signaling update service"},
+					{"progress", 10}
+				});
+				std::string version = params["version"];
+				try {
+					if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
+						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+						return;
+					}
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
+							{"message", "installation initiated"},
+							{"progress", 100}
+					});
+				} catch (...) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
+					return;
+				}
+#endif
+			}
+	});
+
+}
+
+void Controller::processCommands() {
+
+	//setup user defined location of the build program, if they've set it
+	auto configBuildExe = config::get<fs::path>(config::key::SOBuildExe);
+	if (configBuildExe && fs::exists(configBuildExe.get()))
+		build_program = configBuildExe.get().string();
 
 	boost::optional<CompileInfo> compileProcess;
 
@@ -1485,7 +1812,6 @@ void Controller::processCommands() {
 				continue;
 			std::string cmdStr = cmd.get();
 
-
 			//internal commands
 			if (cmdStr == "load_last") {
 				//terminate existing compile
@@ -1532,7 +1858,7 @@ void Controller::processCommands() {
 				}
 				//get filename or generate one
 				std::string fileName = params.contains("filename") ? params["filename"].get<std::string>() : ("rnbogen." + timeTag + ".cpp");
-				fs::path sourceFile = fs::absolute(sourceCache / fileName);
+				fs::path sourceFile = fs::absolute(mSourceCache / fileName);
 
 				//write code if we have it
 				if (params.contains("code")) {
@@ -1561,7 +1887,7 @@ void Controller::processCommands() {
 				//create library name, based on time so we don't have to unload existing
 				std::string libName = "RNBORunnerSO" + timeTag;
 
-				fs::path libPath = fs::absolute(compileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
+				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::vector<std::string> args = {
 					sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
@@ -1580,7 +1906,7 @@ void Controller::processCommands() {
 					std::string maxRNBOVersion = "unknown";
 					if (params.contains("config_file")) {
 						confFilePath = params["config_file"].get<std::string>();
-						confFilePath = fs::absolute(sourceCache / confFilePath);
+						confFilePath = fs::absolute(mSourceCache / confFilePath);
 						std::ifstream i(confFilePath.string());
 						i >> config;
 						i.close();
@@ -1610,278 +1936,13 @@ void Controller::processCommands() {
 					}
 					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, maxRNBOVersion, instanceIndex);
 				}
-
-			} else if (method == "patcher_destroy") {
-				std::string name = params["name"].get<std::string>();
-				destroyPatcher(name);
-			} else if (method == "instance_load") {
-				int index = params["index"].get<int>();
-				std::string name = params["patcher_name"].get<std::string>();
-				std::string instance_name;
-				if (params.contains("instance_name"))
-					instance_name = params["instance_name"].get<std::string>();
-
-				//automatically set the index if it is less than zero
-				if (index < 0) {
-					index = nextInstanceIndex();
-				}
-
-				fs::path libPath;
-				fs::path confPath;
-				RNBO::Json config;
-				if (mDB->patcherGetLatest(name, libPath, confPath)) {
-					libPath = fs::absolute(compileCache / libPath);
-					confPath = fs::absolute(sourceCache / confPath);
-
-					if (fs::exists(libPath)) {
-						if (fs::exists(confPath)) {
-							std::ifstream i(confPath.string());
-							i >> config;
-							i.close();
-						}
-
-						//add client name to config..
-						if (instance_name.size()) {
-							RNBO::Json jack;
-							if (config.contains("jack"))
-								jack = config["jack"];
-							jack["client_name"] = instance_name;
-							config["jack"] = jack;
-						}
-						config["name"] = name;
-
-						auto inst = loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
-
-						//TODO optionally get connections from params
-						if (inst) {
-							inst->connect();
-							inst->start(mInstFadeInMs);
-						}
-					}
-					reportCommandResult(id, {
-						{"code", 0},
-						{"message", "loaded"},
-						{"progress", 100}
-					});
-				} else {
-					reportCommandError(id, 1, "failed");
-				}
-				queueSave();
-			} else if (method == "instance_unload") {
-				int index = params["index"].get<int>();
-				{
-					std::lock_guard<std::mutex> guard(mBuildMutex);
-					if (index < 0) {
-						clearInstances(guard);
-					} else {
-						unloadInstance(guard, index);
-					}
-				}
-				mProcessAudio->updatePorts();
-				queueSave();
-				reportCommandResult(id, {
-					{"code", 0},
-					{"message", "unloaded"},
-					{"progress", 100}
-				});
-			} else if (method == "instance_set_save") {
-				std::string name = params["name"].get<std::string>();
-				std::string meta = params["meta"].get<std::string>();
-				auto p = saveSet(name, meta, true);
-				if (p) {
-					mDB->setSave(name, p->filename());
-					reportCommandResult(id, {
-						{"code", 0},
-						{"message", "saved"},
-						{"progress", 100}
-					});
-					updateSetNames();
-				} else {
-					reportCommandError(id, 1, "failed");
-				}
-			} else if (method == "instance_set_load") {
-				std::string name = params["name"].get<std::string>();
-				auto res = mDB->setGet(name);
-				if (res) {
-					loadSet(res.get());
-					reportCommandResult(id, {
-						{"code", 0},
-						{"message", "loaded"},
-						{"progress", 100}
-					});
-				} else {
-					reportCommandError(id, 1, "failed");
-				}
-			} else if (method == "patcherstore") {
-				std::string name = params["name"].get<std::string>();
-				std::string libFile = params["lib"].get<std::string>();
-				std::string configFileName = params["config"].get<std::string>();
-
-				RNBO::Json config;
-				fs::path confFilePath = fs::absolute(sourceCache / configFileName);
-				std::ifstream i(confFilePath.string());
-				i >> config;
-				i.close();
-
-				std::string maxRNBOVersion = "unknown";
-				if (params.contains("rnbo_version")) {
-					maxRNBOVersion = params["rnbo_version"].get<std::string>();
-				}
-
-				patcherStore(name, libFile, configFileName, maxRNBOVersion, config);
-
-				reportCommandResult(id, {
-					{"code", 0},
-					{"message", "stored"},
-					{"progress", 100}
-				});
-			} else if (method == "file_delete") {
-				if (!validateFileCmd(id, cmdObj, params, false))
-					continue;
-				auto dir = fileCmdDir(id, params["filetype"]);
-				if (!dir)
-					continue;
-
-				std::string fileName = params["filename"];
-				fs::path filePath = dir.get() / fs::path(fileName);
-				boost::system::error_code ec;
-				if (fs::remove(filePath, ec)) {
-					reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
-						{"message", "deleted"},
-						{"progress", 100}
-					});
-				} else {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DeleteFailed), "delete failed with message " + ec.message());
-				}
-			} else if (method == "file_write_extended" || method == "file_write") {
-				if (!validateFileCmd(id, cmdObj, params, true))
-					continue;
-
-				std::string filetype = params["filetype"];
-				auto dir = fileCmdDir(id, filetype);
-				if (!dir)
-					continue;
-
-				//file_write_extended base64 encodes the file name so we can have non ascii in there
-				std::string fileName = params["filename"];
-				if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
-					continue;
-				}
-				fs::path filePath = dir.get() / fs::path(fileName);
-				std::fstream fs;
-				//allow for "append" to add to the end of an existing file
-				bool append = params["append"].is_boolean() && params["append"].get<bool>();
-				fs.open(filePath.string(), std::fstream::out | std::fstream::binary | (append ? std::fstream::app : std::fstream::trunc));
-				if (!fs.is_open()) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
-					continue;
-				}
-
-				std::string data = params["data"];
-				std::vector<char> out(data.size()); //out will be smaller than the in data
-				size_t read = 0;
-				if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode data");
-					continue;
-				}
-				fs.write(&out.front(), sizeof(char) * read);
-				fs.close();
-
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
-					{"message", "written"},
-					{"progress", 100}
-				});
-			} else if (method == "listener_add") {
-				std::pair<std::string, uint16_t> key;
-				if (!validateListenerCmd(id, cmdObj, params, key))
-					continue;
-
-				if (mListeners.find(key) == mListeners.end()) {
-					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-					listeners_add(key.first, key.second);
-					mListeners.insert(key);
-				}
-
-				updateListenersList();
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
-					{"message", "created"},
-					{"progress", 100}
-				});
-			} else if (method == "listener_del") {
-				std::pair<std::string, uint16_t> key;
-				if (!validateListenerCmd(id, cmdObj, params, key))
-					continue;
-
-				//TODO visit listeners and only remove the one we care to remove.
-				//at this point, finding the type is hard so we just remove them all and then add back the ones we care about
-				if (mListeners.erase(key) != 0) {
-					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-					listeners_clear();
-					for (auto& kv: mListeners) {
-						listeners_add(kv.first, kv.second);
-					}
-					updateListenersList();
-				}
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
-					{"message", "deleted"},
-					{"progress", 100}
-				});
-			} else if (method == "listener_clear") {
-				std::pair<std::string, uint16_t> key;
-				if (!validateListenerCmd(id, cmdObj, params, key))
-					continue;
-
-				std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-				mListeners.clear();
-				listeners_clear();
-				updateListenersList();
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
-					{"message", "cleared"},
-					{"progress", 100}
-				});
-			} else if (method == "install") {
-#ifndef RNBO_USE_DBUS
-				reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "self update not enabled for this runner instance");
-				continue;
-#else
-				if (!mUpdateServiceProxy) {
-					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
-					continue;
-				}
-				if (!cmdObj.contains("params") || !params.contains("version")) {
-					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
-					continue;
-				}
-				reportCommandResult(id, {
-					{"code", static_cast<unsigned int>(InstallProgramStatus::Received)},
-					{"message", "signaling update service"},
-					{"progress", 10}
-				});
-				std::string version = params["version"];
-				try {
-					if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
-						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
-						continue;
-					}
-					reportCommandResult(id, {
-							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
-							{"message", "installation initiated"},
-							{"progress", 100}
-					});
-				} catch (...) {
-					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
-					continue;
-				}
-#endif
 			} else {
-				cerr << "unknown method " << method << endl;
-				continue;
+				auto f = mCommandHandlers.find(method);
+				if (f != mCommandHandlers.end()) {
+					f->second(method, id, params);
+				} else {
+					cerr << "unknown method " << method << endl;
+				}
 			}
 		} catch (const std::exception& e) {
 			cerr << "exception processing command " << e.what() << endl;

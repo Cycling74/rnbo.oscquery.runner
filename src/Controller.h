@@ -7,6 +7,7 @@
 #include <optional>
 #include <set>
 #include <memory>
+#include <functional>
 
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -48,6 +49,8 @@ class Controller {
 		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&);
 		void unloadInstance(std::lock_guard<std::mutex>&, unsigned int index);
+
+		void registerCommands();
 		void processCommands();
 		void reportCommandResult(std::string id, RNBO::Json res);
 		void reportCommandError(std::string id, unsigned int code, std::string message);
@@ -56,6 +59,8 @@ class Controller {
 		void handleActive(bool active);
 		void updateDiskSpace();
 		void updateListenersList();
+
+		std::unordered_map<std::string, std::function<void(const std::string& method, const std::string& id, const RNBO::Json& params)>> mCommandHandlers;
 
 		//save set, return the path of the save
 		boost::optional<boost::filesystem::path> saveSet(std::string name, std::string meta, bool abort_empty);
@@ -135,6 +140,9 @@ class Controller {
 		float mInstFadeOutMs = 20.0f;
 
 		int mPatcherProgramChangeChannel = 17; //omni, 17 == none
+
+		boost::filesystem::path mSourceCache;
+		boost::filesystem::path mCompileCache;
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
