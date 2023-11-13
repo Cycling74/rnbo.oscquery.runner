@@ -123,9 +123,6 @@ class Controller {
 		//for saving/restoring while toggling audio settings
 		RNBO::UniquePresetPtr mInstanceLastPreset;
 
-		std::atomic<bool> mProcessCommands;
-		std::thread mCommandThread;
-
 		Queue<std::string> mCommandQueue;
 
 		std::mutex mSaveMutex;

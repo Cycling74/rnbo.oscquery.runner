@@ -22,6 +22,8 @@
 
 namespace fs = boost::filesystem;
 
+using std::chrono::steady_clock;
+
 namespace {
 	const auto card_poll_period = std::chrono::seconds(2);
 	const auto port_poll_timeout = std::chrono::milliseconds(20);
@@ -225,7 +227,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 			mCardNode->set(ossia::net::description_attribute{}, "ALSA device name");
 
 			updateCards();
-			mCardsUpdated.store(false);
+			mCardsPollNext = std::chrono::steady_clock::now() + card_poll_period;
 			updateCardNodes();
 
 			if (!mCardName.empty()) {
@@ -251,12 +253,6 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 					mCardName = val.get<std::string>();
 					jconfig_set(mCardName, "card_name");
 				}
-			});
-			mCardThread = std::thread([this]() {
-					while (mPollCards.load()) {
-						updateCards();
-						std::this_thread::sleep_for(card_poll_period);
-					}
 			});
 
 			{
@@ -338,10 +334,6 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 }
 
 ProcessAudioJack::~ProcessAudioJack() {
-	mPollCards.store(false);
-	if (mCardThread.joinable()) {
-		mCardThread.join();
-	}
 	setActive(false);
 
 	delete [] mJackPortAliases[0];
@@ -435,7 +427,9 @@ bool ProcessAudioJack::isActive() {
 
 bool ProcessAudioJack::setActive(bool active) {
 	if (active) {
-		return createClient(true);
+		//only force a server if we have done it before or we've never created a client
+		auto createServer = (mHasCreatedServer || !mHasCreatedClient);
+		return createClient(createServer);
 	} else {
 		mBuilder([this](ossia::net::node_base * root) {
 			if (mTransportNode) {
@@ -469,180 +463,185 @@ bool ProcessAudioJack::setActive(bool active) {
 
 //Controller is holding onto build mutex, so feel free to build and don't lock it
 void ProcessAudioJack::processEvents() {
-	{
-		std::pair<jack_port_id_t, JackPortChange> entry;
-		while (mPortQueue->try_dequeue(entry)) {
-			if (entry.second == JackPortChange::Register) {
-				connectToMidiIf(jack_port_by_id(mJackClient, entry.first));
-			}
-
-			if (entry.second == JackPortChange::Connection) {
-				mPortConnectionUpdates.insert(entry.first);
-				mPortConnectionPoll = std::chrono::steady_clock::now() + port_poll_timeout;
-			} else {
-				mPortPoll = std::chrono::steady_clock::now() + port_poll_timeout;
-			}
-		}
-
-		ProgramChange c;
-		while (mProgramChangeQueue->try_dequeue(c)) {
-			mProgramChangeCallback(c);
-		}
-	}
-
-
-	//manage port connections/disconnections to and from oscquery
-	auto doConnectDisconnectFromParam = [this](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
-		std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
-		std::set<std::string> toConnect;
-		auto val = param->value();
-		if (val.get_type() == ossia::val_type::LIST) {
-			auto l = val.get<std::vector<ossia::value>>();
-			for (auto it: l) {
-				if (it.get_type() == ossia::val_type::STRING) {
-					toConnect.insert(it.get<std::string>());
-				}
-			}
-		}
-
-		//check existing connections, disconnect anything that is connected but not in the list
-		iterate_connections(port, [&toConnect, &portname, this, isSource, &values](std::string n) {
-				if (toConnect.count(n)) {
-					values.push_back(n);
-					toConnect.erase(n);
-				} else if (isSource) {
-					jack_disconnect(mJackClient, portname.c_str(), n.c_str());
-				} else {
-					jack_disconnect(mJackClient, n.c_str(), portname.c_str());
-				}
-		});
-
-		bool updateParam = false;
-		for (auto& n: toConnect) {
-			if (!jack_port_connected_to(port, n.c_str())) {
-				int r;
-				if (isSource) {
-					r = jack_connect(mJackClient, portname.c_str(), n.c_str());
-				} else {
-					r = jack_connect(mJackClient, n.c_str(), portname.c_str());
-				}
-
-				//connection can't be made, need to remove it from the param
-				if (r == 0 || r == EEXIST) {
-					values.push_back(n);
-				} else {
-					updateParam = true;
-				}
-			}
-		}
-		if (updateParam) {
-			param->push_value(values);
-		}
-	};
-
-	if (mMidiPortConnectionsChanged) {
-		mMidiPortConnectionsChanged = false;
-		std::string name(jack_port_name(mJackMidiIn));
-		doConnectDisconnectFromParam(name, mJackMidiIn, false, mMidiInParam);
-	}
-
-	//update source connections from param
-	auto doUpdate = [this, &doConnectDisconnectFromParam](std::set<std::string>& updates, ossia::net::node_base * parent) {
-		for (auto name: updates) {
-			auto node = parent->find_child(name);
-			if (node == nullptr)
-				continue;
-			auto param = node->get_parameter();
-			if (param == nullptr)
-				continue;
-			auto port = jack_port_by_name(mJackClient, name.c_str());
-			if (port != nullptr) {
-				doConnectDisconnectFromParam(name, port, true, param);
-			}
-		}
-		updates.clear();
-	};
-	doUpdate(mSourceAudioPortConnectionUpdates, mPortAudioSourceConnectionsNode);
-	doUpdate(mSourceMIDIPortConnectionUpdates, mPortMIDISourceConnectionsNode);
+	auto now = steady_clock::now();
 
 	{
-		auto updateParamFromJack = [this](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
-			//get the current param values
-			std::set<std::string> notInJack;
+		std::lock_guard<std::mutex> guard(mMutex);
+		if (mJackClient == nullptr)
+			return;
+
+
+		{
+			std::pair<jack_port_id_t, JackPortChange> entry;
+			while (mPortQueue->try_dequeue(entry)) {
+				if (entry.second == JackPortChange::Register) {
+					connectToMidiIf(jack_port_by_id(mJackClient, entry.first));
+				}
+
+				if (entry.second == JackPortChange::Connection) {
+					mPortConnectionUpdates.insert(entry.first);
+					mPortConnectionPoll = now + port_poll_timeout;
+				} else {
+					mPortPoll = now + port_poll_timeout;
+				}
+			}
+		}
+
+		//manage port connections/disconnections to and from oscquery
+		auto doConnectDisconnectFromParam = [this](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
+			std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
+			std::set<std::string> toConnect;
 			auto val = param->value();
 			if (val.get_type() == ossia::val_type::LIST) {
 				auto l = val.get<std::vector<ossia::value>>();
 				for (auto it: l) {
 					if (it.get_type() == ossia::val_type::STRING) {
-						notInJack.insert(it.get<std::string>());
+						toConnect.insert(it.get<std::string>());
 					}
 				}
 			}
 
-			bool inJackNotParam = false;
-			std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
-			iterate_connections(port, [&values, &inJackNotParam, &notInJack](std::string n) {
-					inJackNotParam = inJackNotParam || notInJack.erase(n) == 0;
-					values.push_back(n);
+			//check existing connections, disconnect anything that is connected but not in the list
+			iterate_connections(port, [&toConnect, &portname, this, isSource, &values](std::string n) {
+					if (toConnect.count(n)) {
+						values.push_back(n);
+						toConnect.erase(n);
+					} else if (isSource) {
+						jack_disconnect(mJackClient, portname.c_str(), n.c_str());
+					} else {
+						jack_disconnect(mJackClient, n.c_str(), portname.c_str());
+					}
 			});
 
-			//if there are any remaining names in the set that we didn't see via jack
-			//or there are any params that jack sees but aren't in the param list
-			//push an update
-			if (!notInJack.empty() || inJackNotParam) {
+			bool updateParam = false;
+			for (auto& n: toConnect) {
+				if (!jack_port_connected_to(port, n.c_str())) {
+					int r;
+					if (isSource) {
+						r = jack_connect(mJackClient, portname.c_str(), n.c_str());
+					} else {
+						r = jack_connect(mJackClient, n.c_str(), portname.c_str());
+					}
+
+					//connection can't be made, need to remove it from the param
+					if (r == 0 || r == EEXIST) {
+						values.push_back(n);
+					} else {
+						updateParam = true;
+					}
+				}
+			}
+			if (updateParam) {
 				param->push_value(values);
 			}
 		};
 
-		if (mPortPoll && mPortPoll.get() < std::chrono::steady_clock::now()) {
-			mPortPoll.reset();
-			updatePorts();
+		if (mMidiPortConnectionsChanged) {
+			mMidiPortConnectionsChanged = false;
+			std::string name(jack_port_name(mJackMidiIn));
+			doConnectDisconnectFromParam(name, mJackMidiIn, false, mMidiInParam);
 		}
-		if (mPortConnectionPoll && mPortConnectionPoll.get() < std::chrono::steady_clock::now()) {
-			mPortConnectionPoll.reset();
-			//find ports that have connection updates, query jakc and update param if needed
-			for (auto id: mPortConnectionUpdates) {
-				auto port = jack_port_by_id(mJackClient, id);
-				if (port == nullptr) {
+
+		//update source connections from param
+		auto doUpdate = [this, &doConnectDisconnectFromParam](std::set<std::string>& updates, ossia::net::node_base * parent) {
+			for (auto name: updates) {
+				auto node = parent->find_child(name);
+				if (node == nullptr)
 					continue;
+				auto param = node->get_parameter();
+				if (param == nullptr)
+					continue;
+				auto port = jack_port_by_name(mJackClient, name.c_str());
+				if (port != nullptr) {
+					doConnectDisconnectFromParam(name, port, true, param);
 				}
+			}
+			updates.clear();
+		};
+		doUpdate(mSourceAudioPortConnectionUpdates, mPortAudioSourceConnectionsNode);
+		doUpdate(mSourceMIDIPortConnectionUpdates, mPortMIDISourceConnectionsNode);
 
-				std::string name(jack_port_name(port));
-				if (port == mJackMidiIn) {
-					updateParamFromJack(name, port, false, mMidiInParam);
-				} else {
-					auto flags = jack_port_flags(port);
-					auto type = jack_port_type(port);
-					//only care about outputs "sources"
-					if (flags & JackPortIsOutput) {
-						ossia::net::node_base * parent = nullptr;
-
-						if (strcmp(type, JACK_DEFAULT_AUDIO_TYPE) == 0) {
-							parent = mPortAudioSourceConnectionsNode;
-						} else if (strcmp(type, JACK_DEFAULT_MIDI_TYPE) == 0) {
-							parent = mPortMIDISourceConnectionsNode;
-						} else {
-							continue;
-						}
-						auto node = parent->find_child(name);
-						if (node == nullptr)
-							continue;
-						auto param = node->get_parameter();
-						if (param != nullptr) {
-							updateParamFromJack(name, port, true, param);
+		{
+			auto updateParamFromJack = [this](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
+				//get the current param values
+				std::set<std::string> notInJack;
+				auto val = param->value();
+				if (val.get_type() == ossia::val_type::LIST) {
+					auto l = val.get<std::vector<ossia::value>>();
+					for (auto it: l) {
+						if (it.get_type() == ossia::val_type::STRING) {
+							notInJack.insert(it.get<std::string>());
 						}
 					}
 				}
-			}
-			mPortConnectionUpdates.clear();
-		}
-	}
 
-	if (auto _lock = std::unique_lock<std::mutex> (mCardMutex, std::try_to_lock)) {
-		//handle cards changing
-		if (mCardsUpdated.exchange(false)) {
-			updateCardNodes();
+				bool inJackNotParam = false;
+				std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
+				iterate_connections(port, [&values, &inJackNotParam, &notInJack](std::string n) {
+						inJackNotParam = inJackNotParam || notInJack.erase(n) == 0;
+						values.push_back(n);
+				});
+
+				//if there are any remaining names in the set that we didn't see via jack
+				//or there are any params that jack sees but aren't in the param list
+				//push an update
+				if (!notInJack.empty() || inJackNotParam) {
+					param->push_value(values);
+				}
+			};
+
+			if (mPortPoll && mPortPoll.get() < now) {
+				mPortPoll.reset();
+				updatePorts();
+			}
+			if (mPortConnectionPoll && mPortConnectionPoll.get() < now) {
+				mPortConnectionPoll.reset();
+				//find ports that have connection updates, query jakc and update param if needed
+				for (auto id: mPortConnectionUpdates) {
+					auto port = jack_port_by_id(mJackClient, id);
+					if (port == nullptr) {
+						continue;
+					}
+
+					std::string name(jack_port_name(port));
+					if (port == mJackMidiIn) {
+						updateParamFromJack(name, port, false, mMidiInParam);
+					} else {
+						auto flags = jack_port_flags(port);
+						auto type = jack_port_type(port);
+						//only care about outputs "sources"
+						if (flags & JackPortIsOutput) {
+							ossia::net::node_base * parent = nullptr;
+
+							if (strcmp(type, JACK_DEFAULT_AUDIO_TYPE) == 0) {
+								parent = mPortAudioSourceConnectionsNode;
+							} else if (strcmp(type, JACK_DEFAULT_MIDI_TYPE) == 0) {
+								parent = mPortMIDISourceConnectionsNode;
+							} else {
+								continue;
+							}
+							auto node = parent->find_child(name);
+							if (node == nullptr)
+								continue;
+							auto param = node->get_parameter();
+							if (param != nullptr) {
+								updateParamFromJack(name, port, true, param);
+							}
+						}
+					}
+				}
+				mPortConnectionUpdates.clear();
+			}
 		}
+
+#ifndef __APPLE__
+		if (mCardsPollNext < now) {
+			mCardsPollNext = std::chrono::steady_clock::now() + card_poll_period;
+			if (updateCards()) {
+				updateCardNodes();
+			}
+		}
+#endif
 
 		if (!mTransportBPMParam || !mJackClient) {
 			return;
@@ -679,12 +678,18 @@ void ProcessAudioJack::processEvents() {
 			mTransportRollingParam->push_value(rolling);
 		}
 	}
+
+	//without mMutex in case it calls back into something that needs it
+	ProgramChange c;
+	while (mProgramChangeQueue->try_dequeue(c)) {
+		mProgramChangeCallback(c);
+	}
 }
 
-void ProcessAudioJack::updateCards() {
+bool ProcessAudioJack::updateCards() {
 	fs::path alsa_cards("/proc/asound/cards");
 	if (!fs::exists(alsa_cards)) {
-		return;
+		return false;
 	}
 
 	std::map<std::string, std::string> nameDesc;
@@ -707,13 +712,11 @@ void ProcessAudioJack::updateCards() {
 		nameDesc.insert({index, desc});
 	}
 
-	{
-		std::lock_guard<std::mutex> guard(mCardMutex);
-		if (nameDesc != mCardNamesAndDescriptions) {
-			mCardNamesAndDescriptions.swap(nameDesc);
-			mCardsUpdated.store(true);
-		}
+	if (nameDesc != mCardNamesAndDescriptions) {
+		mCardNamesAndDescriptions.swap(nameDesc);
+		return true;
 	}
+	return false;
 }
 
 void ProcessAudioJack::updateCardNodes() {
@@ -721,7 +724,6 @@ void ProcessAudioJack::updateCardNodes() {
 		return;
 	}
 
-	std::lock_guard<std::mutex> guard(mCardMutex);
 	std::vector<ossia::value> accepted;
 	mCardListNode->clear_children();
 	for (auto& kv: mCardNamesAndDescriptions) {
@@ -751,6 +753,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		jack_status_t status;
 		mJackClient = jack_client_open(CONTROL_CLIENT_NAME.c_str(), JackOptions::JackNoStartServer, &status);
 		if (status == 0 && mJackClient) {
+			mHasCreatedClient = true;
 
 			mJackMidiIn = jack_port_register(mJackClient,
 					"midiin",
@@ -1092,6 +1095,7 @@ bool ProcessAudioJack::createServer() {
 		std::cerr << "failed to create jack server" << std::endl;
 		return false;
 	}
+	mHasCreatedServer = true;
 
 	//create the server, destroy on failure
 	auto create = [this]() -> bool {

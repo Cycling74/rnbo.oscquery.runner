@@ -59,7 +59,7 @@ class ProcessAudioJack : public ProcessAudio {
 	protected:
 		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
-		void updateCards();
+		bool updateCards();
 		void updateCardNodes();
 
 		bool createClient(bool startServer);
@@ -87,6 +87,10 @@ class ProcessAudioJack : public ProcessAudio {
 
 		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
 		ossia::net::parameter_base * mIsOwnedParam = nullptr;
+
+		bool mHasCreatedClient = false;
+		bool mHasCreatedServer = false;
+
 		ossia::net::node_base * mTransportNode = nullptr;
 		ossia::net::parameter_base * mTransportBPMParam = nullptr;
 		float mTransportBPMLast = 0.0;
@@ -109,10 +113,7 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mNumPeriodsParam;
 		std::string mCardName;
 
-		std::thread mCardThread;
-		std::mutex mCardMutex;
-		std::atomic_bool mPollCards = true;
-		std::atomic_bool mCardsUpdated = false;
+		std::chrono::time_point<std::chrono::steady_clock> mCardsPollNext;
 
 		ossia::net::node_base * mCardNode = nullptr;
 		ossia::net::node_base * mCardListNode = nullptr;
