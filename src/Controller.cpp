@@ -54,7 +54,7 @@ namespace {
 
 	static const std::chrono::milliseconds save_debounce_timeout(500);
 
-	static const std::chrono::milliseconds process_poll_period(5);
+	static const std::chrono::milliseconds process_poll_period(10);
 
 	static const std::string last_file_name = "last";
 
