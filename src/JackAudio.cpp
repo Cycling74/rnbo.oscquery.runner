@@ -213,6 +213,26 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 
 			mPortInfoNode = mInfoNode->create_child("ports");
 
+			{
+				auto audio = mPortInfoNode->create_child("audio");
+				auto midi = mPortInfoNode->create_child("midi");
+
+				auto build = [](ossia::net::node_base * parent, const std::string name) -> ossia::net::parameter_base * {
+					auto n = parent->create_child(name);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					return p;
+				};
+
+				mPortAudioSinksParam = build(audio, "sinks");
+				mPortAudioSourcesParam = build(audio, "sources");
+				mPortMidiSinksParam = build(midi, "sinks");
+				mPortMidiSourcesParam = build(midi, "sources");
+
+				mPortAliases = mPortInfoNode->create_child("aliases");
+				mPortAliases->set(ossia::net::description_attribute{}, "Ports and a list of their aliases");
+			}
+
 			auto conf = root->create_child("config");
 			conf->set(ossia::net::description_attribute{}, "Jack configuration parameters");
 
@@ -437,7 +457,17 @@ bool ProcessAudioJack::setActive(bool active) {
 					mTransportNode = nullptr;
 				}
 			}
+
+			std::vector<ossia::value> empty;
+			mPortAudioSinksParam->push_value(empty);
+			mPortAudioSourcesParam->push_value(empty);
+			mPortMidiSinksParam->push_value(empty);
+			mPortMidiSourcesParam->push_value(empty);
+			mPortAliases->clear_children();
+			mPortAudioSourceConnectionsNode->clear_children();
+			mPortMIDISourceConnectionsNode->clear_children();
 		});
+
 		std::lock_guard<std::mutex> guard(mMutex);
 		if (mJackClient) {
 			jack_client_close(mJackClient);
@@ -469,7 +499,6 @@ void ProcessAudioJack::processEvents() {
 		std::lock_guard<std::mutex> guard(mMutex);
 		if (mJackClient == nullptr)
 			return;
-
 
 		{
 			std::pair<jack_port_id_t, JackPortChange> entry;
@@ -885,26 +914,6 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 				}
 			});
-
-			{
-				auto audio = mPortInfoNode->create_child("audio");
-				auto midi = mPortInfoNode->create_child("midi");
-
-				auto build = [](ossia::net::node_base * parent, const std::string name) -> ossia::net::parameter_base * {
-					auto n = parent->create_child(name);
-					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-					auto p = n->create_parameter(ossia::val_type::LIST);
-					return p;
-				};
-
-				mPortAudioSinksParam = build(audio, "sinks");
-				mPortAudioSourcesParam = build(audio, "sources");
-				mPortMidiSinksParam = build(midi, "sinks");
-				mPortMidiSourcesParam = build(midi, "sources");
-
-				mPortAliases = mPortInfoNode->create_child("aliases");
-				mPortAliases->set(ossia::net::description_attribute{}, "Ports and a list of their aliases");
-			}
 
 			jack_activate(mJackClient);
 
