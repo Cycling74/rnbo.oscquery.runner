@@ -495,6 +495,15 @@ bool ProcessAudioJack::setActive(bool active) {
 void ProcessAudioJack::processEvents() {
 	auto now = steady_clock::now();
 
+#ifndef __APPLE__
+		if (mCardsPollNext < now) {
+			mCardsPollNext = std::chrono::steady_clock::now() + card_poll_period;
+			if (updateCards()) {
+				updateCardNodes();
+			}
+		}
+#endif
+
 	{
 		std::lock_guard<std::mutex> guard(mMutex);
 		if (mJackClient == nullptr)
@@ -661,19 +670,6 @@ void ProcessAudioJack::processEvents() {
 				}
 				mPortConnectionUpdates.clear();
 			}
-		}
-
-#ifndef __APPLE__
-		if (mCardsPollNext < now) {
-			mCardsPollNext = std::chrono::steady_clock::now() + card_poll_period;
-			if (updateCards()) {
-				updateCardNodes();
-			}
-		}
-#endif
-
-		if (!mTransportBPMParam || !mJackClient) {
-			return;
 		}
 
 		auto bpmClient = mBPMClientUUID.load();
