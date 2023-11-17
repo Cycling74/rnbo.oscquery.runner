@@ -27,8 +27,8 @@ mark_as_advanced(BUILTIN_PATCHER_CONF_PATH)
 
 set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
 
-#libossia and sdbus require c++17
-set(CMAKE_CXX_STANDARD 17)
+#libossia requires 20 and sdbus c++17
+set(CMAKE_CXX_STANDARD 20)
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -108,11 +108,14 @@ conan_cmake_install(
 )
 
 conan_cmake_configure(
-	REQUIRES boost/1.75.0
+	REQUIRES boost/1.80.0
 	GENERATORS cmake_find_package
 	OPTIONS
 		boost:shared=False
 		boost:without_stacktrace=True
+		boost:without_context=True
+		boost:without_coroutine=True
+		boost:without_fiber=True
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
@@ -120,12 +123,12 @@ conan_cmake_install(
 	SETTINGS ${settings}
 )
 find_package(
-	Boost 1.75
+	Boost 1.80
 	COMPONENTS filesystem system REQUIRED
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-multiplex-thread-safe_b2c9019afdefeee0ed@xnor/testing
+	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_742e6cfa25fe882f7a5c@xnor/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
