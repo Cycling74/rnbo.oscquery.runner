@@ -23,3 +23,4 @@ build_type=Release
 compiler=gcc
 compiler.version=10
 compiler.libcxx=libstdc++11
+compiler.cppstd=20
