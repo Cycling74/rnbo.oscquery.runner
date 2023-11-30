@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.13 FATAL_ERROR)
 
 project(RNBOso LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 11)
+#libossia requires 20 and sdbus c++17
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 if(NOT CMAKE_BUILD_TYPE)
