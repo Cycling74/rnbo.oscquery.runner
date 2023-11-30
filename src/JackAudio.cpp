@@ -158,6 +158,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 #ifndef __APPLE__
 		mCardName = jconfig_get<std::string>("card_name").get_value_or("");
 		mNumPeriods = jconfig_get<int>("num_periods").get_value_or(2);
+		mMIDISystem = jconfig_get<std::string>("midi_system_name").get_value_or("seq");
 #endif
 	}
 
@@ -291,6 +292,29 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 					if (val.get_type() == ossia::val_type::INT) {
 						mNumPeriods = val.get<int>();
 						jconfig_set(mNumPeriods, "num_periods");
+					}
+				});
+			}
+
+			{
+				auto n = conf->create_child("midi_system");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::description_attribute{}, "Which ALSA MIDI system to provide access to.");
+
+				p->push_value(mMIDISystem);
+
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, { "seq", "raw" });
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				p->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						auto s = val.get<std::string>();
+						if (s == "raw" || s == "seq") {
+							mMIDISystem = s;
+							jconfig_set(mMIDISystem, "midi_system_name");
+						}
 					}
 				});
 			}
@@ -1120,7 +1144,7 @@ bool ProcessAudioJack::createServer() {
 		args.push_back(const_cast<char *>(dev.c_str()));
 		args.push_back(const_cast<char *>(card.c_str()));
 
-		std::string midi("-Xseq");
+		std::string midi = std::string("-X") + mMIDISystem;
 		args.push_back(const_cast<char *>(midi.c_str()));
 
 		std::string nperiods("--nperiods");

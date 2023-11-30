@@ -112,6 +112,7 @@ class ProcessAudioJack : public ProcessAudio {
 		int mNumPeriods = 2;
 		ossia::net::parameter_base * mNumPeriodsParam;
 		std::string mCardName;
+		std::string mMIDISystem = "seq";
 
 		std::chrono::time_point<std::chrono::steady_clock> mCardsPollNext;
 
