@@ -120,6 +120,8 @@ conan_cmake_configure(
 		boost:without_context=True
 		boost:without_coroutine=True
 		boost:without_fiber=True
+		boost:without_locale=True
+		boost:without_log=True
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
@@ -135,7 +137,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_742e6cfa25fe882f7a5c@xnor/testing
+	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_78078b6efe3bd2d9cc40@xnor/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
