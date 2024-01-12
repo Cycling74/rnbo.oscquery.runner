@@ -111,6 +111,10 @@ conan_cmake_install(
 	PROFILE_BUILD default
 )
 
+# XXX hack until we can figure out how we can get the newer libossia/boost package working in the cross compiler
+set(OSSIA_VERSION libossia/xnor_conan-2.0.0-rc2-osc_to_ws_742e6cfa25fe882f7a5c@xnor/testing)
+if (APPLE)
+set(OSSIA_VERSION libossia/xnor_conan-2.0.0-rc2-osc_to_ws_78078b6efe3bd2d9cc40@xnor/testing)
 conan_cmake_configure(
 	REQUIRES boost/1.80.0
 	GENERATORS cmake_find_package
@@ -123,6 +127,18 @@ conan_cmake_configure(
 		boost:without_locale=True
 		boost:without_log=True
 )
+else()
+conan_cmake_configure(
+	REQUIRES boost/1.80.0
+	GENERATORS cmake_find_package
+	OPTIONS
+		boost:shared=False
+		boost:without_stacktrace=True
+		boost:without_context=True
+		boost:without_coroutine=True
+		boost:without_fiber=True
+)
+endif()
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
@@ -136,8 +152,9 @@ find_package(
 	COMPONENTS filesystem system REQUIRED
 )
 
+
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_78078b6efe3bd2d9cc40@xnor/testing
+	REQUIRES ${OSSIA_VERSION}
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
