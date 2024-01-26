@@ -111,7 +111,8 @@ Do all the normal use stuff then:
 * build and install the runner (on pi)
   ```shell
   ssh pi@c74rpi.local
-  cd ~/local/src/rnbo.oscquery.runner/ && mkdir build && cd build && CXXFLAGS="-mcpu=cortex-a53" cmake .. && make && cpack
+  cd ~/local/src/rnbo.oscquery.runner/ && mkdir build && cd build && CC=gcc CXX=g++ ASMFLAGS="-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard" CFLAGS="-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard" CXXFLAGS="-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard" cmake -DCMAKE_BUILD_TYPE=Release  .. && cmake --build . && cpack
+
   sudo dpkg -i *.deb
   ```
   * you could also do a standard make install, but then you'll need to setup the service file yourself.
