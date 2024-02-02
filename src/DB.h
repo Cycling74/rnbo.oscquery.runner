@@ -62,6 +62,8 @@ class DB {
 				const std::string& name,
 				const boost::filesystem::path& filename
 		);
+		bool setDestroy(const std::string& name);
+		bool setRename(const std::string& oldName, const std::string& newName);
 
 		boost::optional<boost::filesystem::path> setGet(
 				const std::string& name

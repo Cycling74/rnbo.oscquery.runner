@@ -328,6 +328,8 @@ void DB::presetSave(const std::string& patchername, const std::string& presetNam
 	query.exec();
 }
 
+
+
 void DB::presetSetInitial(const std::string& patchername, const std::string& presetName) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
@@ -371,6 +373,27 @@ void DB::setSave(
 	query.bind(2, rnbo_version);
 	query.bind(3, filename.string());
 	query.exec();
+}
+
+bool DB::setDestroy(const std::string& name)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, "DELETE FROM sets WHERE name=?1 AND runner_rnbo_version=?2");
+	query.bind(1, name);
+	query.bind(2, rnbo_version);
+	return query.exec() > 0;
+}
+
+bool DB::setRename(const std::string& oldName, const std::string& newName)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, "UPDATE sets SET name=?3 WHERE name=?1 AND runner_rnbo_version=?2 ON CONFLICT IGNORE");
+	query.bind(1, oldName);
+	query.bind(2, rnbo_version);
+	query.bind(3, newName);
+	return query.exec() > 0;
 }
 
 boost::optional<boost::filesystem::path> DB::setGet(
