@@ -942,28 +942,35 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 	return nullptr;
 }
 
-bool Controller::loadSet(boost::filesystem::path filename) {
+//actually just queue it
+void Controller::loadSet(boost::filesystem::path filename) {
+	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 	if (!tryActivateAudio()) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
-		return false;
+		return;
 	}
-	auto setFile = saveFilePath();
+	mSetLoadPendingPath = saveFilePath();
 	if (!filename.empty()) {
-		setFile = config::get<fs::path>(config::key::SaveDir).get() / filename;
+		mSetLoadPendingPath = config::get<fs::path>(config::key::SaveDir).get() / filename;
 	}
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		clearInstances(guard, mInstFadeOutMs);
+	}
+}
+
+void Controller::doLoadSet(boost::filesystem::path setFile) {
 	try {
 		RNBO::UniquePresetPtr preset;
-
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			clearInstances(guard, mInstFadeOutMs);
 			//get the last preset (saved before clearing);
 			std::swap(preset, mInstanceLastPreset);
 		}
 
 		//try to start the last
 		if (!fs::exists(setFile))
-			return false;
+			return;
 		RNBO::Json c;
 		{
 			std::ifstream i(setFile.string());
@@ -973,7 +980,7 @@ bool Controller::loadSet(boost::filesystem::path filename) {
 
 		if (!c[last_instances_key].is_array()) {
 			cerr << "malformed set data" << endl;
-			return false;
+			return;
 		}
 
 		//load instances
@@ -1041,7 +1048,6 @@ bool Controller::loadSet(boost::filesystem::path filename) {
 	} catch (...) {
 		cerr << "unknown exception trying to load last setup" << endl;
 	}
-	return false;
 }
 
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
@@ -1289,6 +1295,7 @@ bool Controller::processEvents() {
 
 		processCommands();
 
+		bool anyInstances = false;
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mProcessAudio)
@@ -1304,6 +1311,19 @@ bool Controller::processEvents() {
 				} else {
 					it++;
 				}
+			}
+			anyInstances = mInstances.size() > 0 || mStoppingInstances.size() > 0;
+		}
+
+		//if we have no instances, look to see if we should load a set
+		if (!anyInstances) {
+			boost::filesystem::path path;
+			{
+				std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
+				mSetLoadPendingPath.swap(path);
+			}
+			if (!path.empty()) {
+				doLoadSet(path);
 			}
 		}
 
