@@ -389,7 +389,7 @@ bool DB::setRename(const std::string& oldName, const std::string& newName)
 {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-	SQLite::Statement query(mDB, "UPDATE sets SET name=?3 WHERE name=?1 AND runner_rnbo_version=?2 ON CONFLICT IGNORE");
+	SQLite::Statement query(mDB, "UPDATE OR IGNORE sets SET name=?3 WHERE name=?1 AND runner_rnbo_version=?2");
 	query.bind(1, oldName);
 	query.bind(2, rnbo_version);
 	query.bind(3, newName);
