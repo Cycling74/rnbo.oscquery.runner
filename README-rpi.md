@@ -86,12 +86,12 @@ Do all the normal use stuff then:
 * make directories for local builds and config
   ```shell
   sudo -s
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev cmake
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev cmake
   apt-get -y --no-install-recommends install ruby python3-pip
   update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
   exit
-  pip3 install conan==1.59.0
+  pip3 install --break-system-packages --user conan==1.61.0
   mkdir -p ~/.conan/profiles/
   mkdir -p ~/local/src/
   ```
@@ -312,3 +312,21 @@ Then remove the SD card and do a backup.
 * [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
 
 
+
+# PI 5 notes
+
+used default conan profile but set
+
+```
+compiler.libcxx=libstdc++11
+```
+
+```
+CC=gcc CXX=g++ ASMFLAGS="-mcpu=cortex-a76" CFLAGS="-mcpu=cortex-a76" CXXFLAGS="-mcpu=cortex-a76" cmake -DCMAKE_BUILD_TYPE=Release  -DWITH_DBUS=Off .. && cmake --build .
+```
+
+```
+sudo apt-get install pipewire-jack
+wpctl status
+pw-jack ./bin/rnbooscquery
+```
