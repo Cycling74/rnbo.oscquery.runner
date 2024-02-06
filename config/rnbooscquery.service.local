@@ -21,4 +21,3 @@
 
 [Install]
   WantedBy=multi-user.target
-  Alias=rnbooscquery
