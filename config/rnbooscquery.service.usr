@@ -1,24 +1,18 @@
 [Unit]
   Description=RNBO OSCQuery Service
-  After=multi-user.target
   StartLimitIntervalSec=500
   StartLimitBurst=5
   StartLimitInterval=0
-  Wants=rnbo-update-service.service
-  After=rnbo-update-service.service
+  After=pipewire.service
+  BindsTo=pipewire.service
+  ConditionUser=!root
 
 [Service]
   Type=idle
-  ExecStart=/usr/bin/rnbooscquery
+  ExecStart=pw-jack /usr/bin/rnbooscquery
   KillSignal=SIGINT
-  User=pi
-  Group=audio
-  LimitRTPRIO=infinity
-  LimitMEMLOCK=infinity
-  Environment="JACK_NO_AUDIO_RESERVATION=1"
   Restart=on-failure
   RestartSec=5s
 
 [Install]
-  WantedBy=multi-user.target
-  Alias=rnbooscquery
+  WantedBy=default.target

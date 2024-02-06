@@ -385,7 +385,7 @@ if (LINUX)
 	install(FILES
 		${CMAKE_CURRENT_SOURCE_DIR}/config/rnbooscquery.service.usr
 		RENAME rnbooscquery.service
-		DESTINATION lib/systemd/system/
+		DESTINATION lib/systemd/user/
 		COMPONENT usr
 		EXCLUDE_FROM_ALL
 	)
