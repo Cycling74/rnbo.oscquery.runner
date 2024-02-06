@@ -315,6 +315,8 @@ Then remove the SD card and do a backup.
 
 # PI 5 notes
 
+## With pipewire
+
 used default conan profile but set
 
 ```
@@ -329,4 +331,21 @@ CC=gcc CXX=g++ ASMFLAGS="-mcpu=cortex-a76" CFLAGS="-mcpu=cortex-a76" CXXFLAGS="-
 sudo apt-get install pipewire-jack
 wpctl status
 pw-jack ./bin/rnbooscquery
+
+systemctl --user daemon-reload
+systemctl --user enable rnbooscquery.service
+systemctl --user is-enabled  rnbooscquery.service
+systemctl --user start rnbooscquery.service
+journalctl --user -u rnbooscquery
+```
+
+works but pipewire is a little bit of pain to control remotely, so we're gonna install jackd2
+
+## Without pipewire
+
+same build steps as above
+
+```
+apt remove pipewire
+apt autoremove
 ```
