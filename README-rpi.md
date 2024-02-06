@@ -38,7 +38,7 @@ keep the user name `pi`.
   rm -f /etc/xdg/autostart/piwiz.desktop
   apt-key add apt-cycling74-pubkey.asc
   mv cycling74.list /etc/apt/sources.list.d/
-  apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
+  apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp pipewire
   apt update
   apt -y install jackd2 ccache cpufrequtils
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
@@ -311,3 +311,13 @@ Then remove the SD card and do a backup.
 * [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
 
 
+
+# PI 5 setup
+
+burn SDCard with rpi imager, 64-bit bookworm
+
+hostname: c74rpi5
+username: pi
+password: c74rnbo
+
+enable ssh
