@@ -31,6 +31,7 @@ namespace config {
 
 		const static std::string PresetMIDIProgramChangeChannel = "preset_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
 		const static std::string PatcherMIDIProgramChangeChannel = "patcher_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
+		const static std::string UUIDPath = "uuid_path"; //path where we store the unique identifier for the runner
 
 	}
 
@@ -42,6 +43,9 @@ namespace config {
 
 	//read in the config file
 	void read_file();
+
+	//write the config file
+	void write_file();
 
 	//write out the config if dirty.
 	//NOTE: you should call this periodically as it does debouncing to assure
