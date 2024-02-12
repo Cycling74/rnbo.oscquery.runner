@@ -36,6 +36,15 @@ int main(int argc, const char * argv[]) {
 		.dest("filename")
 		.help("load dynamic library FILE")
 		.metavar("FILE");
+	parser.add_option("-c", "--config")
+		.dest("config")
+		.help("set the path to the configuration file FILE")
+		.metavar("FILE");
+	parser.add_option("-w", "--write-config")
+		.action("store_true")
+		.dest("write_config")
+		.set_default("0")
+		.help("write the default configuration to the config file");
 	parser.add_option("-q", "--quiet")
 		.action("store_false")
 		.dest("verbose")
@@ -45,14 +54,26 @@ int main(int argc, const char * argv[]) {
 	optparse::Values options = parser.parse_args(argc, argv);
 	std::vector<std::string> args = parser.args();
 
-	if (options.get("verbose"))
+	if (options.get("verbose")) {
 		cout << options["filename"] << endl;
+	}
+
+	//optionally set the config file path
+	if (options["config"].size()) {
+		config::set_file_path(options["config"]);
+	}
 
 	std::signal(SIGINT, signal_handler);
 
 	//initialize the config
-	//TODO, optionally set the config file path
 	config::init();
+
+	//write config file and exit
+	if (options.get("write_config")) {
+		config::write_file();
+		cout << "wrote config to path: " << config::file_path().string() << std::endl;
+		return 0;
+	}
 
 	//get the host name (or override)
 	auto host = config::get<std::string>(config::key::HostNameOverride);
