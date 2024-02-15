@@ -51,6 +51,8 @@ endif()
 option(WITH_JACKSERVER "include jackserver library so we can create an internal server" ON)
 
 set(USE_JACK ON)
+set(JACK_DIR "" CACHE FILEPATH "optional path to specify location for JACK libs/includes")
+mark_as_advanced(JACK_DIR)
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
@@ -218,8 +220,21 @@ conan_cmake_install(
 )
 
 if (USE_JACK)
-  find_library(JACK_LIB "jack")
-  find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+	if (JACK_DIR)
+		find_library(JACK_LIB "jack"
+			PATHS ${JACK_DIR}/lib/
+			NO_DEFAULT_PATH
+			NO_CMAKE_FIND_ROOT_PATH
+		)
+		find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED
+			PATHS ${JACK_DIR}/include/
+			NO_DEFAULT_PATH
+			NO_CMAKE_FIND_ROOT_PATH
+		)
+	else()
+		find_library(JACK_LIB "jack")
+		find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+	endif()
   if (WITH_JACKSERVER)
     find_library(JACKSERVER_LIB "jackserver" REQUIRED)
     add_definitions(-DJACK_SERVER=1)
