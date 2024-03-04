@@ -228,30 +228,41 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			//use a mutex to make sure we don't update in a loop
 			auto active = std::make_shared<std::mutex>();
 
-			//create normalized version
-			auto cnorm = [this, info, index, active](ossia::net::node_base& param) -> ossia::net::parameter_base * {
-				auto n = param.create_child("normalized");
-				auto p = n->create_parameter(ossia::val_type::FLOAT);
+			//create comon, return normalized version
+			auto ccommon = [this, info, index, active](ossia::net::node_base& param) -> ossia::net::parameter_base * {
+				{
+					auto n = param.create_child("index");
 
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-				n->set(ossia::net::domain_attribute{}, ossia::make_domain(0., 1.));
-				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::description_attribute{}, "RNBO parameter index");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					p->push_value(static_cast<int>(index));
+				}
 
-				p->push_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
+				{
+					auto n = param.create_child("normalized");
+					auto p = n->create_parameter(ossia::val_type::FLOAT);
 
-				//normalized callback
-				p->add_callback([this, index, active](const ossia::value& val) mutable {
-					if (val.get_type() == ossia::val_type::FLOAT) {
-						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-							double f = static_cast<double>(val.get<float>());
-							f = mCore->convertFromNormalizedParameterValue(index, f);
-							mCore->setParameterValue(index, f);
-							handleParamUpdate(index, f);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+					n->set(ossia::net::domain_attribute{}, ossia::make_domain(0., 1.));
+					n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+					p->push_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
+
+					//normalized callback
+					p->add_callback([this, index, active](const ossia::value& val) mutable {
+						if (val.get_type() == ossia::val_type::FLOAT) {
+							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+								double f = static_cast<double>(val.get<float>());
+								f = mCore->convertFromNormalizedParameterValue(index, f);
+								mCore->setParameterValue(index, f);
+								handleParamUpdate(index, f);
+							}
 						}
-					}
-				});
+					});
 
-				return p;
+					return p;
+				}
 			};
 
 			if (info.enumValues == nullptr) {
@@ -267,7 +278,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				add_meta(n);
 
 				//normalized
-				auto norm = cnorm(n);
+				auto norm = ccommon(n);
 
 				//param callback, set norm
 				p->add_callback([this, index, active, norm](const ossia::value& val) mutable {
@@ -309,7 +320,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				add_meta(n);
 
 				//normalized
-				auto norm = cnorm(n);
+				auto norm = ccommon(n);
 
 				p->add_callback([this, index, nameToVal, active, norm](const ossia::value& val) mutable {
 					if (val.get_type() == ossia::val_type::STRING) {
