@@ -16,6 +16,7 @@ class DB {
 				const std::string& name,
 				const boost::filesystem::path& so_name,
 				const boost::filesystem::path& config_name,
+				const boost::filesystem::path& rnbo_patch_name,
 				const std::string& max_rnbo_version,
 				int audio_inputs,
 				int audio_outputs,

@@ -134,6 +134,9 @@ PRAGMA foreign_keys=on;
 			)"
 			);
 	});
+	do_migration(8, [](SQLite::Database& db) {
+			db.exec("ALTER TABLE patchers ADD COLUMN rnbo_patch_name TEXT");
+	});
 }
 
 DB::~DB() { }
@@ -143,6 +146,7 @@ void DB::patcherStore(
 		const std::string& name,
 		const fs::path& so_name,
 		const fs::path& config_name,
+		const fs::path& rnbo_patch_name,
 		const std::string& max_rnbo_version,
 		int audio_inputs,
 		int audio_outputs,
@@ -151,7 +155,7 @@ void DB::patcherStore(
 		) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)");
+	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)");
 	query.bind(1, name);
 	query.bind(2, rnbo_version);
 	query.bind(3, max_rnbo_version);
@@ -161,6 +165,7 @@ void DB::patcherStore(
 	query.bind(7, audio_outputs);
 	query.bind(8, midi_inputs);
 	query.bind(9, midi_outputs);
+	query.bind(10, rnbo_patch_name.string());
 	query.exec();
 }
 
