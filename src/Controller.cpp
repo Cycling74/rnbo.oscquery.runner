@@ -104,6 +104,7 @@ namespace {
 		std::string mCommandId;
 		RNBO::Json mConf;
 		fs::path mConfFilePath;
+		fs::path mRNBOPatchPath;
 		std::string mMaxRNBOVersion;
 		boost::optional<unsigned int> mInstanceIndex;
 		fs::path mLibPath;
@@ -113,6 +114,7 @@ namespace {
 				std::string cmdId,
 				RNBO::Json conf,
 				fs::path confFilePath,
+				fs::path rnboPatchPath,
 				std::string maxRNBOVersion,
 				boost::optional<unsigned int> instanceIndex
 				) :
@@ -120,6 +122,7 @@ namespace {
 			mCommandId(cmdId),
 			mConf(conf),
 			mConfFilePath(confFilePath),
+			mRNBOPatchPath(rnboPatchPath),
 			mMaxRNBOVersion(maxRNBOVersion),
 			mLibPath(libPath),
 			mInstanceIndex(instanceIndex)
@@ -263,7 +266,8 @@ Controller::Controller(std::string server_name) {
 			"compile-with_instance_and_name",
 #endif
 			"instance_load-multi",
-			"patcherstore"
+			"patcherstore",
+			"patcherfilestore"
 		};
 
 		auto n = info->create_child("supported_cmds");
@@ -1095,7 +1099,7 @@ bool Controller::loadBuiltIn() {
 
 			fs::path libFile;
 
-			mDB->patcherStore(name, libFile, confFilePath, RNBO::version, 0, 0, 0, 0);
+			mDB->patcherStore(name, libFile, confFilePath, "", RNBO::version, 0, 0, 0, 0);
 		}
 		reportActive();
 		return true;
@@ -1148,6 +1152,7 @@ void Controller::patcherStore(
 		const std::string& name,
 		const boost::filesystem::path& libFile,
 		const boost::filesystem::path& configFilePath,
+		const boost::filesystem::path& rnboPatchPath,
 		const std::string& maxRNBOVersion,
 		const RNBO::Json& conf) {
 	int audio_inputs = 0;
@@ -1168,7 +1173,7 @@ void Controller::patcherStore(
 		midi_outputs = conf["numMidiOutputPorts"].get<int>();
 	}
 
-	mDB->patcherStore(name, libFile, configFilePath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+	mDB->patcherStore(name, libFile, configFilePath, rnboPatchPath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
 
 	//save presets
 	if (conf.contains("presets")) {
@@ -1624,6 +1629,7 @@ void Controller::registerCommands() {
 				std::string name = params["name"].get<std::string>();
 				std::string libFile = params["lib"].get<std::string>();
 				std::string configFileName = params["config"].get<std::string>();
+				std::string rnboPatchName = params["patcher"].get<std::string>();
 
 				RNBO::Json config;
 				fs::path confFilePath = fs::absolute(mSourceCache / configFileName);
@@ -1636,7 +1642,7 @@ void Controller::registerCommands() {
 					maxRNBOVersion = params["rnbo_version"].get<std::string>();
 				}
 
-				patcherStore(name, libFile, configFileName, maxRNBOVersion, config);
+				patcherStore(name, libFile, configFileName, rnboPatchName, maxRNBOVersion, config);
 
 				reportCommandResult(id, {
 					{"code", 0},
@@ -1666,7 +1672,7 @@ void Controller::registerCommands() {
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
 			r = config::get<fs::path>(config::key::DataFileDir);
-		} else if (filetype == "sourcefile") {
+		} else if (filetype == "sourcefile" || filetype == "patcherfile") {
 			r = mSourceCache;
 		} else if (filetype == "patcherlib") {
 			r = mCompileCache;
@@ -1912,6 +1918,7 @@ void Controller::processCommands() {
 				auto libPath = compileProcess->mLibPath;
 				auto conf = compileProcess->mConf;
 				auto confFilePath = compileProcess->mConfFilePath;
+				auto rnboPatchPath = compileProcess->mRNBOPatchPath;
 				auto instanceIndex = compileProcess->mInstanceIndex;
 				auto maxRNBOVersion = compileProcess->mMaxRNBOVersion;
 				compileProcess.reset();
@@ -1921,7 +1928,7 @@ void Controller::processCommands() {
 					if (conf.contains("name") && conf["name"].is_string()) {
 						std::string name = conf["name"].get<std::string>();
 
-						patcherStore(name, libPath.filename(), confFilePath.filename(), maxRNBOVersion, conf);
+						patcherStore(name, libPath.filename(), confFilePath.filename(), rnboPatchPath.filename(), maxRNBOVersion, conf);
 					}
 
 					if (instanceIndex != boost::none) {
@@ -2042,6 +2049,8 @@ void Controller::processCommands() {
 					RNBO::Json config;
 					boost::optional<unsigned int> instanceIndex = 0;
 					fs::path confFilePath;
+					fs::path rnboPatchPath;
+
 					std::string maxRNBOVersion = "unknown";
 					if (params.contains("config_file")) {
 						confFilePath = params["config_file"].get<std::string>();
@@ -2051,6 +2060,11 @@ void Controller::processCommands() {
 						i.close();
 					} else if (params.contains("config")) {
 						config = params["config"];
+					}
+
+					if (params.contains("patcher_file")) {
+						rnboPatchPath = params["patcher_file"].get<std::string>();
+						rnboPatchPath = fs::absolute(mSourceCache / rnboPatchPath);
 					}
 
 					if (params.contains("rnbo_version")) {
@@ -2073,7 +2087,7 @@ void Controller::processCommands() {
 							mProcessAudio->updatePorts();
 						}
 					}
-					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, maxRNBOVersion, instanceIndex);
+					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, rnboPatchPath, maxRNBOVersion, instanceIndex);
 				}
 			} else {
 				auto f = mCommandHandlers.find(method);

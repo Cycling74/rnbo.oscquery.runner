@@ -71,6 +71,7 @@ class Controller {
 				const std::string& name,
 				const boost::filesystem::path& libFile,
 				const boost::filesystem::path& configFilePath,
+				const boost::filesystem::path& rnboPatchPath,
 				const std::string& maxRNBOVersion,
 				const RNBO::Json& config);
 
