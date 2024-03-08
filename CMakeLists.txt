@@ -148,12 +148,12 @@ conan_cmake_install(
 )
 
 conan_cmake_configure(
-	REQUIRES libsndfile/1.2.0
+	REQUIRES libsndfile/1.2.2
 	GENERATORS cmake_find_package
 	OPTIONS
 		libsndfile:shared=False
 		libsndfile:programs=False
-    libsndfile:with_mpeg=False
+		libsndfile:with_mpeg=False
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
