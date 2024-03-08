@@ -14,6 +14,8 @@ endif()
 
 set(RNBO_CONAN_VERSION "" CACHE STRING "A version to use for the RNBO C++ library, set it to use conan, leave it unset to avoid conan")
 
+conan_add_remote(NAME cycling-public INDEX 0 URL https://conan-public.cycling74.com)
+
 if (NOT RNBO_CONAN_VERSION STREQUAL "")
   conan_cmake_configure(
     REQUIRES rnbo/${RNBO_CONAN_VERSION}
