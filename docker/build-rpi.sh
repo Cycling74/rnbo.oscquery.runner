@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+pip3 install conan==1.61.0
 cd /build/examples/rnbo.oscquery.runner/
 mkdir -p build-rpi && cd build-rpi && rm -fr *
 mkdir -p ~/.conan/profiles/ && cp ../docker/conan-rpi-xcompile-host ~/.conan/profiles/host && cp ../docker/conan-rpi-xcompile-build ~/.conan/profiles/default
