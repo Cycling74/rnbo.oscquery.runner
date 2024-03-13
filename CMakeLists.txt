@@ -17,7 +17,11 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
+set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
+
 include("${RNBO_DIR}/cmake/RNBOConan.cmake")
+
+conan_add_remote(NAME cycling-public INDEX 0 URL https://conan-public.cycling74.com)
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
@@ -104,20 +108,31 @@ conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+    PROFILE_HOST ${CONAN_PROFILE}
+    PROFILE_BUILD default
 )
 
 conan_cmake_configure(
-	REQUIRES boost/1.75.0
+	REQUIRES boost/1.80.0
 	GENERATORS cmake_find_package
 	OPTIONS
 		boost:shared=False
 		boost:without_stacktrace=True
+		boost:without_context=True
+		boost:without_coroutine=True
+		boost:without_fiber=True
+		boost:without_locale=True
+		boost:without_log=True
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+    PROFILE_HOST ${CONAN_PROFILE}
+    PROFILE_BUILD default
 )
 find_package(
 	Boost 1.75
@@ -125,7 +140,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-multiplex-thread-safe_b2c9019afdefeee0ed@xnor/testing
+	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_433b3dc5e819d9c35d36@c74/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
@@ -133,7 +148,10 @@ conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
 	REMOTE cycling-public
-	SETTINGS ${settings}
+    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+    PROFILE_HOST ${CONAN_PROFILE}
+    PROFILE_BUILD default
 )
 
 conan_cmake_configure(
@@ -143,7 +161,10 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+    PROFILE_HOST ${CONAN_PROFILE}
+    PROFILE_BUILD default
 )
 
 #unfortunately libmpg123 doesn't compile on the pi, so we disable it
@@ -163,7 +184,10 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+    PROFILE_HOST ${CONAN_PROFILE}
+    PROFILE_BUILD default
 )
 
 conan_cmake_configure(
@@ -175,7 +199,10 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+    PROFILE_HOST ${CONAN_PROFILE}
+    PROFILE_BUILD default
 )
 
 find_library(JACK_LIB "jack" REQUIRED)

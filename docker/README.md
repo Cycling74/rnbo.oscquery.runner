@@ -14,8 +14,8 @@ cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONA
 
 
 ```shell
-docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.9
-docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-conan/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.9 /bin/bash
+docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bullseye32-conan-1.53/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.9 /bin/bash
+docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bullseye32-conan-1.53/:/root/.conan/ xnor/rpi-bullseye-audio-xpile:0.9 /bin/bash
 ```
 
 ```shell
