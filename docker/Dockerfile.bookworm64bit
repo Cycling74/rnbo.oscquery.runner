@@ -13,7 +13,7 @@ RUN apt-get -y --no-install-recommends install \
 	python3-pip python3-setuptools \
 	libssl-dev \
 	cmake \
-	gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+	gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
 	ca-certificates
 
 #conan setup
