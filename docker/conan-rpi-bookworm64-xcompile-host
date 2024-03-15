@@ -18,7 +18,7 @@ RC=$target_host-windres
 
 [settings]
 os=Linux
-arch=armv7
+arch=armv8
 build_type=Release
 compiler=gcc
 compiler.version=12

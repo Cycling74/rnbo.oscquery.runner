@@ -48,5 +48,9 @@ rm rpi-rootfs/usr/lib/aarch64-linux-gnu/libpthread.a rpi-rootfs/usr/lib/aarch64-
 * build docker image:
 
 ```shell
-docker build -f Dockerfile.bookworm64bit -t xnor/rpi-bookwork64-audio-xpile:0.1 .
+docker build -f Dockerfile.bookworm64bit -t xnor/rpi-bookworm64-audio-xpile:0.1 .
+```
+
+```
+docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm64-conan-1.61.0/:/root/.conan/ xnor/rpi-bookworm64-audio-xpile:0.1 /bin/bash
 ```
