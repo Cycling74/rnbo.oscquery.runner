@@ -1,11 +1,15 @@
 ## To setup docker:
 * grab your rpi libraries etc
+
 ```shell
 rsync -vR --progress -rl --delete-after --safe-links bull32:/"{lib,usr,opt/vc/lib}" rpi-rootfs
 rm rpi-rootfs/usr/lib/arm-linux-gnueabihf/libpthread.a rpi-rootfs/usr/lib/arm-linux-gnueabihf/libdl.a
 rm rpi-rootfs/usr/lib/systemd/system/rnbo*
 ```
+
+
 * build docker image:
+
 ```shell
 docker build -f Dockerfile -t xnor/rpi-bullseye-audio-xpile:0.9 .
 ```
@@ -30,3 +34,19 @@ cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH cmak
 docker push xnor/rpi-bullseye-audio-xpile:0.9
 ```
 
+# RPI 5
+
+* start from the slim 64-bit bookworm image
+* install the development libraries from README-rpi.md
+* grab the sysroot
+
+```shell
+rsync -vR --progress -rl --delete-after --safe-links pi5:/"{lib,usr,opt/vc/lib}" rpi-rootfs
+rm rpi-rootfs/usr/lib/aarch64-linux-gnu/libpthread.a rpi-rootfs/usr/lib/aarch64-linux-gnu/libdl.a
+```
+
+* build docker image:
+
+```shell
+docker build -f Dockerfile.bookworm64bit -t xnor/rpi-bookwork64-audio-xpile:0.1 .
+```

@@ -17,10 +17,8 @@ RUN apt-get -y --no-install-recommends install \
 	ca-certificates
 
 #conan setup
-RUN pip3 install conan==1.61.0
+RUN pip3 install --break-system-packages conan==1.61.0
 RUN mkdir -p /root/.conan/profiles
-COPY conan-rpi-xcompile /root/.conan/profiles/default
-
 COPY rpi-rootfs /rpi-rootfs
 
 CMD ["/bin/bash", "/build/examples/rnbo.oscquery.runner/docker/build-rpi.sh"]
