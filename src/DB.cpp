@@ -137,6 +137,9 @@ PRAGMA foreign_keys=on;
 	do_migration(8, [](SQLite::Database& db) {
 			db.exec("ALTER TABLE patchers ADD COLUMN rnbo_patch_name TEXT");
 	});
+	do_migration(9, [](SQLite::Database& db) {
+			db.exec("DROP TABLE _presets_old");
+	});
 }
 
 DB::~DB() { }
