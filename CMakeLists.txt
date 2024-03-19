@@ -149,13 +149,18 @@ conan_cmake_install(
 	PROFILE_BUILD default
 )
 
+# linking on apple is failing without mpeg..
+set(WITH_MPEG False)
+if (APPLE)
+	set(WITH_MPEG True)
+endif()
 conan_cmake_configure(
 	REQUIRES libsndfile/1.2.2
 	GENERATORS cmake_find_package
 	OPTIONS
 		libsndfile:shared=False
 		libsndfile:programs=False
-		libsndfile:with_mpeg=False
+		libsndfile:with_mpeg=${WITH_MPEG}
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
