@@ -385,6 +385,22 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			}
 
 			{
+				auto n = presets->create_child("rename");
+				auto rename = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::description_attribute{}, "rename a preset, arguments: oldname, newName");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+				rename->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::LIST) {
+						auto l = val.get<std::vector<ossia::value>>();
+						if (l.size() == 2 && l[0].get_type() == ossia::val_type::STRING && l[1].get_type() == ossia::val_type::STRING) {
+							mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Rename, l[0].get<std::string>(), l[1].get<std::string>()));
+						}
+					}
+				});
+			}
+
+			{
 				auto n = presets->create_child("load");
 				auto load = n->create_parameter(ossia::val_type::STRING);
 
@@ -710,6 +726,21 @@ void Instance::processEvents() {
 						}
 						if (mPresetLatest == cmd.preset) {
 							mPresetLatest.clear();
+						}
+						updated = true;
+					}
+					break;
+				case PresetCommand::CommandType::Rename:
+					mDB->presetRename(mName, cmd.preset, cmd.newname);
+					{
+						//update our initial and latest if they match
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						if (mPresetInitial == cmd.preset) {
+							mPresetInitial = cmd.newname;
+							mPresetInitialParam->push_value(mPresetInitial);
+						}
+						if (mPresetLatest == cmd.preset) {
+							mPresetLatest = cmd.newname;
 						}
 						updated = true;
 					}

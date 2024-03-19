@@ -76,11 +76,13 @@ class Instance {
 				Delete,
 				Initial,
 				Load,
-				Save
+				Save,
+				Rename
 			};
 			CommandType type;
 			std::string preset;
-			PresetCommand(CommandType t, std::string p) : type(t), preset(p) {}
+			std::string newname;
+			PresetCommand(CommandType t, std::string p, std::string n = std::string()) : type(t), preset(p), newname(n) {}
 		};
 
 		void processDataRefCommands();
