@@ -54,6 +54,11 @@ class DB {
 				const std::string& patchername,
 				const std::string& presetName
 		);
+		void presetRename(
+				const std::string& patchername,
+				const std::string& oldName,
+				const std::string& newName
+		);
 		void presetDestroy(
 				const std::string& patchername,
 				const std::string& presetName

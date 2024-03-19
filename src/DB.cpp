@@ -355,6 +355,27 @@ void DB::presetSetInitial(const std::string& patchername, const std::string& pre
 	query.exec();
 }
 
+void DB::presetRename(const std::string& patchername, const std::string& oldName, const std::string& newName) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		UPDATE presets
+			SET name=?4
+		FROM
+			(SELECT MAX(patchers.id) as patcher_id, presets.id FROM patchers
+				JOIN presets ON presets.patcher_id = patchers.id
+			WHERE patchers.name = ?1 AND patchers.runner_rnbo_version = ?2 AND presets.name = ?3
+			GROUP BY patchers.name) as p
+		WHERE p.id = presets.id
+	)");
+
+	query.bind(1, patchername);
+	query.bind(2, rnbo_version);
+	query.bind(3, oldName);
+	query.bind(4, newName);
+	query.exec();
+}
+
 void DB::presetDestroy(const std::string& patchername, const std::string& presetName) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
