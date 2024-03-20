@@ -48,7 +48,8 @@ enum class FileCommandError : unsigned int {
 	WriteFailed = 1,
 	DecodeFailed = 2,
 	InvalidRequestObject = 3,
-	DeleteFailed = 4
+	DeleteFailed = 4,
+	ReadFailed = 5,
 };
 
 enum class ListenerCommandStatus : unsigned int {

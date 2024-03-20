@@ -261,6 +261,7 @@ Controller::Controller(std::string server_name) {
 	{
 		std::vector<ossia::value> supported = {
 			"file_write_extended",
+			"file_read",
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
@@ -1754,6 +1755,124 @@ void Controller::registerCommands() {
 
 	mCommandHandlers.insert({ "file_write", file_write });
 	mCommandHandlers.insert({ "file_write_extended", file_write });
+
+	mCommandHandlers.insert({
+			"file_read",
+			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+
+				auto cleanup = [this]() {
+					mFileReadContent.clear();
+					mFileReadFile.clear();
+					mFileReadDir.clear();
+				};
+
+				//TODO validate
+
+				int size = params["size"];
+				std::string filetype = params["filetype"];
+				std::string fileName;
+				std::string fileDir;
+
+				if (params.contains("filename")) {
+					fileName = params["filename"];
+				}
+
+				if (filetype == "preset") {
+					fileDir = "preset";
+
+					if (mFileReadDir != fileDir || mFileReadFile != fileName) {
+						//read in content
+						//use / to separate patcherName/presetName
+						std::vector<std::string> results;
+						boost::algorithm::split(results, fileName, boost::is_any_of("/"));
+
+						if (results.size() != 2) {
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset 'file' must be patcherName/presetName");
+							cleanup();
+							return;
+						}
+
+						std::string patcherName = results[0];
+						std::string presetName = results[1];
+
+						auto preset = mDB->preset(patcherName, presetName);
+						if (preset) {
+							mFileReadContent = preset->first;
+						} else {
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
+							cleanup();
+							return;
+						}
+
+						mFileReadDir = fileDir;
+						mFileReadFile = fileName;
+					}
+				} else {
+					auto dir = fileCmdDir(id, filetype);
+					if (!dir) {
+						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "invalid directory");
+						cleanup();
+						return;
+					}
+					fileDir = dir.get().string();
+
+					//read in file
+					if (mFileReadDir != fileDir && mFileReadFile != fileName) {
+						if (fileName.size()) {
+							fs::path filePath = dir.get() / fs::path(fileName);
+							if (fs::exists(filePath)) {
+								mFileReadContent.clear();
+								std::ifstream i(filePath.string());
+								i >> mFileReadContent;
+							} else {
+								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "file doesn't exist");
+								cleanup();
+								return;
+							}
+						} else {
+							fs::path dirPath = dir.get();
+							if (fs::exists(dirPath)) {
+								RNBO::Json content = RNBO::Json::array();
+								for (const auto& entry: fs::directory_iterator(dir.get())) {
+									content.push_back(entry.path().string());
+								}
+								mFileReadContent = content.dump();
+							} else {
+								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
+								cleanup();
+								return;
+							}
+						}
+						mFileReadDir = fileDir;
+						mFileReadFile = fileName;
+					}
+				}
+
+				int remaining = 0;
+				if (mFileReadContent.size()) {
+					std::string chunk = mFileReadContent.substr(0, size);
+					mFileReadContent.erase(0, size);
+					remaining = mFileReadContent.size();
+					reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+						{"message", "read"},
+						{"content", chunk},
+						{"remaining", remaining},
+						{"progress", 100}
+					});
+				} else {
+					reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+						{"message", "read"},
+						{"progress", 100}
+					});
+				}
+
+				if (remaining == 0) {
+					cleanup();
+				}
+			}
+	});
 
 
 	auto validateListenerCmd = [this](const std::string& id, const RNBO::Json& params, std::pair<std::string, uint16_t>& key) -> bool {
