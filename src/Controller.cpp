@@ -1865,7 +1865,7 @@ void Controller::registerCommands() {
 						{"content", chunk},
 						{"seq", seq++},
 						{"remaining", remaining},
-						{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(read / fileSize, 0.0, 99.0))}
+						{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(100.0 * read / fileSize, 0.0, 99.0))}
 					});
 				}
 			}
