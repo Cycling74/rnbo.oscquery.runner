@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <cstdlib>
 #include <utility>
@@ -1801,7 +1802,9 @@ void Controller::registerCommands() {
 						fs::path filePath = fs::path(mSourceCache) / fs::path(patcherName);
 						if (fs::exists(filePath)) {
 							std::ifstream i(filePath.string());
-							i >> readContent;
+							std::stringstream b;
+							b << i.rdbuf();
+							readContent = b.str();
 						} else {
 							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher file");
 							return;
@@ -1821,9 +1824,10 @@ void Controller::registerCommands() {
 					if (fileName.size()) {
 						fs::path filePath = dir.get() / fs::path(fileName);
 						if (fs::exists(filePath)) {
-							readContent.clear();
 							std::ifstream i(filePath.string());
-							i >> readContent;
+							std::stringstream b;
+							b << i.rdbuf();
+							readContent = b.str();
 						} else {
 							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "file doesn't exist");
 							return;
