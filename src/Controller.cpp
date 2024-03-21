@@ -1760,140 +1760,113 @@ void Controller::registerCommands() {
 	mCommandHandlers.insert({
 			"file_read",
 			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
-
-				auto cleanup = [this]() {
-					mFileReadContent.clear();
-					mFileReadFile.clear();
-					mFileReadDir.clear();
-				};
-
 				//TODO validate
 
 				int size = params["size"];
 				std::string filetype = params["filetype"];
 				std::string fileName;
-				std::string fileDir;
+				std::string readContent;
 
 				if (params.contains("filename")) {
 					fileName = params["filename"];
 				}
 
 				if (filetype == "presets") {
-					fileDir = filetype;
+					//read in content
+					//filename is actually patcher name
+					std::string patcherName = fileName;
+					readContent.clear();
 
-					if (mFileReadDir != fileDir || mFileReadFile != fileName) {
-						//read in content
-						//filename is actually patcher name
-						std::string patcherName = fileName;
-						mFileReadContent.clear();
+					std::vector<std::string> names;
+					mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); });
 
-						std::vector<std::string> names;
-						mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); });
-
-						RNBO::Json content = RNBO::Json::object();
-						for (auto name: names) {
-							auto preset = mDB->preset(patcherName, name);
-							if (preset) {
-								content[name] = preset->first;
-							} else {
-								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
-								cleanup();
-								return;
-							}
+					RNBO::Json content = RNBO::Json::object();
+					for (auto name: names) {
+						auto preset = mDB->preset(patcherName, name);
+						if (preset) {
+							content[name] = preset->first;
+						} else {
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
+							return;
 						}
-
-						mFileReadContent = content.dump();
-						mFileReadDir = fileDir;
-						mFileReadFile = fileName;
 					}
+
+					readContent = content.dump();
 				} else if (filetype == "patcher") {
 					//get the latest from this version
-					fileDir = filetype;
-					if (mFileReadDir != fileDir || mFileReadFile != fileName) {
-						fs::path libPath;
-						fs::path confPath;
-						fs::path patcherName;
-						if (mDB->patcherGetLatest(fileName, libPath, confPath, patcherName)) {
-							fs::path filePath = fs::path(mSourceCache) / fs::path(patcherName);
-							if (fs::exists(filePath)) {
-								std::ifstream i(filePath.string());
-								i >> mFileReadContent;
-								mFileReadDir = fileDir;
-								mFileReadFile = fileName;
-							} else {
-								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher file");
-								cleanup();
-								return;
-							}
+					fs::path libPath;
+					fs::path confPath;
+					fs::path patcherName;
+					if (mDB->patcherGetLatest(fileName, libPath, confPath, patcherName)) {
+						fs::path filePath = fs::path(mSourceCache) / fs::path(patcherName);
+						if (fs::exists(filePath)) {
+							std::ifstream i(filePath.string());
+							i >> readContent;
 						} else {
-								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
-								cleanup();
-								return;
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher file");
+							return;
 						}
+					} else {
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
+							return;
 					}
 				} else {
 					auto dir = fileCmdDir(id, filetype);
 					if (!dir) {
 						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "invalid directory");
-						cleanup();
 						return;
 					}
-					fileDir = dir.get().string();
 
 					//read in file
-					if (mFileReadDir != fileDir && mFileReadFile != fileName) {
-						if (fileName.size()) {
-							fs::path filePath = dir.get() / fs::path(fileName);
-							if (fs::exists(filePath)) {
-								mFileReadContent.clear();
-								std::ifstream i(filePath.string());
-								i >> mFileReadContent;
-							} else {
-								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "file doesn't exist");
-								cleanup();
-								return;
-							}
+					if (fileName.size()) {
+						fs::path filePath = dir.get() / fs::path(fileName);
+						if (fs::exists(filePath)) {
+							readContent.clear();
+							std::ifstream i(filePath.string());
+							i >> readContent;
 						} else {
-							fs::path dirPath = dir.get();
-							if (fs::exists(dirPath)) {
-								RNBO::Json content = RNBO::Json::array();
-								for (const auto& entry: fs::directory_iterator(dir.get())) {
-									content.push_back(entry.path().string());
-								}
-								mFileReadContent = content.dump();
-							} else {
-								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
-								cleanup();
-								return;
-							}
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "file doesn't exist");
+							return;
 						}
-						mFileReadDir = fileDir;
-						mFileReadFile = fileName;
+					} else {
+						fs::path dirPath = dir.get();
+						if (fs::exists(dirPath)) {
+							RNBO::Json content = RNBO::Json::array();
+							for (const auto& entry: fs::directory_iterator(dir.get())) {
+								content.push_back(entry.path().string());
+							}
+							readContent = content.dump();
+						} else {
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
+							return;
+						}
 					}
+				}
+
+				if (readContent.size() == 0) {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "no content");
+					return;
 				}
 
 				int remaining = 0;
-				if (mFileReadContent.size()) {
-					std::string chunk = mFileReadContent.substr(0, size);
-					mFileReadContent.erase(0, size);
-					remaining = mFileReadContent.size();
+				double fileSize = readContent.size();
+				double read = 0;
+				int seq = 0;
+
+				//XXX there is probably a more efficient way to do this
+				while (readContent.size()) {
+					std::string chunk = readContent.substr(0, size);
+					readContent.erase(0, size);
+					read += size;
+					remaining = readContent.size();
 					reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+						{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
 						{"message", "read"},
 						{"content", chunk},
+						{"seq", seq++},
 						{"remaining", remaining},
-						{"progress", 100}
+						{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(read / fileSize, 0.0, 99.0))}
 					});
-				} else {
-					reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
-						{"message", "read"},
-						{"progress", 100}
-					});
-				}
-
-				if (remaining == 0) {
-					cleanup();
 				}
 			}
 	});

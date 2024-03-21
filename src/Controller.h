@@ -149,10 +149,6 @@ class Controller {
 		boost::filesystem::path mSourceCache;
 		boost::filesystem::path mCompileCache;
 
-		std::string mFileReadDir;
-		std::string mFileReadFile;
-		std::string mFileReadContent;
-
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
 #endif
