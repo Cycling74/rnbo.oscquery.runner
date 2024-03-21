@@ -172,10 +172,10 @@ void DB::patcherStore(
 	query.exec();
 }
 
-bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name) {
+bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (query.executeStep()) {
@@ -183,6 +183,8 @@ bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& 
 			so_name = fs::path(s);
 			s = query.getColumn(1);
 			config_name = fs::path(s);
+			s = query.getColumn(2);
+			rnbo_patch_name = fs::path(s);
 			return true;
 		}
 		return false;

@@ -26,7 +26,8 @@ class DB {
 		bool patcherGetLatest(
 				const std::string& name,
 				boost::filesystem::path& so_name,
-				boost::filesystem::path& config_name
+				boost::filesystem::path& config_name,
+				boost::filesystem::path& rnbo_patch_name
 		);
 		boost::optional<std::string> patcherNameByIndex(int index);
 

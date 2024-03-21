@@ -1491,8 +1491,9 @@ void Controller::registerCommands() {
 
 				fs::path libPath;
 				fs::path confPath;
+				fs::path patcherName; //ignored
 				RNBO::Json config;
-				if (mDB->patcherGetLatest(name, libPath, confPath)) {
+				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName)) {
 					libPath = fs::absolute(mCompileCache / libPath);
 					confPath = fs::absolute(mSourceCache / confPath);
 
@@ -1777,35 +1778,58 @@ void Controller::registerCommands() {
 					fileName = params["filename"];
 				}
 
-				if (filetype == "preset") {
-					fileDir = "preset";
+				if (filetype == "presets") {
+					fileDir = filetype;
 
 					if (mFileReadDir != fileDir || mFileReadFile != fileName) {
 						//read in content
-						//use / to separate patcherName/presetName
-						std::vector<std::string> results;
-						boost::algorithm::split(results, fileName, boost::is_any_of("/"));
+						//filename is actually patcher name
+						std::string patcherName = fileName;
+						mFileReadContent.clear();
 
-						if (results.size() != 2) {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset 'file' must be patcherName/presetName");
-							cleanup();
-							return;
+						std::vector<std::string> names;
+						mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); });
+
+						RNBO::Json content = RNBO::Json::object();
+						for (auto name: names) {
+							auto preset = mDB->preset(patcherName, name);
+							if (preset) {
+								content[name] = preset->first;
+							} else {
+								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
+								cleanup();
+								return;
+							}
 						}
 
-						std::string patcherName = results[0];
-						std::string presetName = results[1];
-
-						auto preset = mDB->preset(patcherName, presetName);
-						if (preset) {
-							mFileReadContent = preset->first;
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
-							cleanup();
-							return;
-						}
-
+						mFileReadContent = content.dump();
 						mFileReadDir = fileDir;
 						mFileReadFile = fileName;
+					}
+				} else if (filetype == "patcher") {
+					//get the latest from this version
+					fileDir = filetype;
+					if (mFileReadDir != fileDir || mFileReadFile != fileName) {
+						fs::path libPath;
+						fs::path confPath;
+						fs::path patcherName;
+						if (mDB->patcherGetLatest(fileName, libPath, confPath, patcherName)) {
+							fs::path filePath = fs::path(mSourceCache) / fs::path(patcherName);
+							if (fs::exists(filePath)) {
+								std::ifstream i(filePath.string());
+								i >> mFileReadContent;
+								mFileReadDir = fileDir;
+								mFileReadFile = fileName;
+							} else {
+								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher file");
+								cleanup();
+								return;
+							}
+						} else {
+								reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
+								cleanup();
+								return;
+						}
 					}
 				} else {
 					auto dir = fileCmdDir(id, filetype);
