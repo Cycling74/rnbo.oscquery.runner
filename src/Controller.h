@@ -129,7 +129,7 @@ class Controller {
 		std::mutex mInstanceMutex;
 
 		//for saving/restoring while toggling audio settings
-		RNBO::UniquePresetPtr mInstanceLastPreset;
+		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> mInstanceLastPreset;
 
 		Queue<std::string> mCommandQueue;
 

@@ -875,8 +875,8 @@ Controller::~Controller() {
 }
 
 std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
-	//clear out our last instance preset, loadSet should already have it if there is one
-	mInstanceLastPreset.reset();
+	//clear out our last instance presets, loadSet should already have it if there is one
+	mInstanceLastPreset.clear();
 
 	auto fname = fs::path(path).filename().string();
 	try {
@@ -970,11 +970,11 @@ void Controller::loadSet(boost::filesystem::path filename) {
 
 void Controller::doLoadSet(boost::filesystem::path setFile) {
 	try {
-		RNBO::UniquePresetPtr preset;
+		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			//get the last preset (saved before clearing);
-			std::swap(preset, mInstanceLastPreset);
+			std::swap(presets, mInstanceLastPreset);
 		}
 
 		//try to start the last
@@ -1017,11 +1017,15 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 		}
 
 		//load last preset if we have it
-		//TODO get for all instances
-		if (preset) {
+		if (presets.size()) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			if (mInstances.size()) {
-				std::get<0>(mInstances.front())->loadPreset(std::move(preset));
+			for (auto& preset: presets) {
+				for (auto i: mInstances) {
+					auto inst = std::get<0>(i);
+					if (inst->index() == preset.first) {
+						inst->loadPreset(std::move(preset.second));
+					}
+				}
 			}
 		}
 		mProcessAudio->updatePorts();
@@ -1395,11 +1399,12 @@ void Controller::handleActive(bool active) {
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		//save preset to reload on activation
 		//might cause a glitch?
-		if (mInstances.size()) {
-			mInstanceLastPreset = std::get<0>(mInstances.front())->getPresetSync();
-		} else {
-			mInstanceLastPreset.reset();
+		mInstanceLastPreset.clear();
+		for (auto i: mInstances) {
+			auto inst = std::get<0>(i);
+			mInstanceLastPreset.insert({inst->index(), inst->getPresetSync()});
 		}
+
 		clearInstances(guard, 0.0f);
 		mStoppingInstances.clear();
 	}
