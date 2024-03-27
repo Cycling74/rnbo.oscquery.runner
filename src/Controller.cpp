@@ -1816,20 +1816,20 @@ void Controller::registerCommands() {
 					}
 
 					readContent = content.dump();
-				} else if (filetype == "patcher") {
+				} else if (filetype == "patcher" || filetype == "patcherconfig") {
 					//get the latest from this version
 					fs::path libPath;
-					fs::path confPath;
+					fs::path confName;
 					fs::path patcherName;
-					if (mDB->patcherGetLatest(fileName, libPath, confPath, patcherName)) {
-						fs::path filePath = fs::path(mSourceCache) / fs::path(patcherName);
+					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName)) {
+						fs::path filePath = fs::path(mSourceCache) / fs::path(filetype == "patcher" ? patcherName : confName);
 						if (fs::exists(filePath)) {
 							std::ifstream i(filePath.string());
 							std::stringstream b;
 							b << i.rdbuf();
 							readContent = b.str();
 						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher file");
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
 							return;
 						}
 					} else {
