@@ -1816,6 +1816,27 @@ void Controller::registerCommands() {
 					}
 
 					readContent = content.dump();
+				} else if (filetype == "sets") {
+					std::vector<std::string> names;
+					mDB->sets([&names](const std::string& n, const std::string&) { names.push_back(n); });
+
+					RNBO::Json content = RNBO::Json::object();
+					for (auto name: names) {
+						auto p = mDB->setGet(name);
+						if (p) {
+							fs::path setPath = config::get<fs::path>(config::key::SaveDir).get() / *p;
+							if (fs::exists(setPath)) {
+								RNBO::Json s;
+								std::ifstream i(setPath.string());
+								i >> s;
+								content[name] = s;
+							} else {
+								std::cerr << "no set file at path: " << setPath << std::endl;
+							}
+						}
+					}
+
+					readContent = content.dump();
 				} else if (filetype == "patcher" || filetype == "patcherconfig") {
 					//get the latest from this version
 					fs::path libPath;
