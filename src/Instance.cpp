@@ -689,6 +689,7 @@ void Instance::processEvents() {
 							auto name = cmd.preset;
 							auto j = RNBO::convertPresetToJSONObj(*preset);
 							mDB->presetSave(mName, cmd.preset, j.dump());
+							mPresetsDirty = true;
 							{
 							std::lock_guard<std::mutex> guard(mPresetMutex);
 							mPresetLatest = name;
@@ -718,6 +719,7 @@ void Instance::processEvents() {
 				case PresetCommand::CommandType::Delete:
 					mDB->presetDestroy(mName, cmd.preset);
 					{
+						mPresetsDirty = true;
 						//clear out initial and latest if they match
 						std::lock_guard<std::mutex> guard(mPresetMutex);
 						if (mPresetInitial == cmd.preset) {
@@ -733,6 +735,7 @@ void Instance::processEvents() {
 				case PresetCommand::CommandType::Rename:
 					mDB->presetRename(mName, cmd.preset, cmd.newname);
 					{
+						mPresetsDirty = true;
 						//update our initial and latest if they match
 						std::lock_guard<std::mutex> guard(mPresetMutex);
 						if (mPresetInitial == cmd.preset) {

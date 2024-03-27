@@ -1316,8 +1316,20 @@ bool Controller::processEvents() {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mProcessAudio)
 				mProcessAudio->processEvents();
-			for (auto& i: mInstances)
-				std::get<0>(i)->processEvents();
+			for (auto& i: mInstances) {
+				auto& inst = std::get<0>(i);
+				inst->processEvents();
+
+				//manage broadcasting preset changes across instances
+				if (inst->presetsDirty()) {
+					for (auto& j: mInstances) {
+						auto& jinst = std::get<0>(j);
+						if (jinst != inst && jinst->name() == inst->name()) {
+							jinst->presetsUpdateMarkClean();
+						}
+					}
+				}
+			}
 			//manage stopping instances
 			for (auto it = mStoppingInstances.begin(); it != mStoppingInstances.end();) {
 				auto p = *it;

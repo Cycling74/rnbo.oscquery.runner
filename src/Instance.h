@@ -34,6 +34,7 @@ class Instance {
 		~Instance();
 
 		unsigned int index() const { return mIndex; }
+		const std::string& name() const { return mName; }
 
 		void activate();
 		void connect();
@@ -59,7 +60,21 @@ class Instance {
 		//register a function to be called when configuration values change
 		//this will be called in the same thread as `processEvents`
 		void registerConfigChangeCallback(std::function<void()> cb);
+
+		bool presetsDirty() {
+			auto dirty = mPresetsDirty;
+			mPresetsDirty = false;
+			return dirty;
+		}
+
+		//must only be called from event thread
+		void presetsUpdateMarkClean() {
+			mPresetsDirty = false;
+			updatePresetEntries();
+		}
 	private:
+		bool mPresetsDirty = false;
+
 		bool loadJsonPreset(const std::string& content, const std::string& name);
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
