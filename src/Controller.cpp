@@ -107,6 +107,7 @@ namespace {
 		fs::path mConfFilePath;
 		fs::path mRNBOPatchPath;
 		std::string mMaxRNBOVersion;
+		bool mMigratePresets;
 		boost::optional<unsigned int> mInstanceIndex;
 		fs::path mLibPath;
 		CompileInfo(
@@ -117,6 +118,7 @@ namespace {
 				fs::path confFilePath,
 				fs::path rnboPatchPath,
 				std::string maxRNBOVersion,
+				bool migratePresets,
 				boost::optional<unsigned int> instanceIndex
 				) :
 			mProcess(command, args, mGroup),
@@ -125,6 +127,7 @@ namespace {
 			mConfFilePath(confFilePath),
 			mRNBOPatchPath(rnboPatchPath),
 			mMaxRNBOVersion(maxRNBOVersion),
+			mMigratePresets(migratePresets),
 			mLibPath(libPath),
 			mInstanceIndex(instanceIndex)
 		{ }
@@ -1156,7 +1159,9 @@ void Controller::patcherStore(
 		const boost::filesystem::path& configFilePath,
 		const boost::filesystem::path& rnboPatchPath,
 		const std::string& maxRNBOVersion,
-		const RNBO::Json& conf) {
+		const RNBO::Json& conf,
+		bool migrate_presets
+		) {
 	int audio_inputs = 0;
 	int audio_outputs = 0;
 	int midi_inputs = 0;
@@ -1175,7 +1180,7 @@ void Controller::patcherStore(
 		midi_outputs = conf["numMidiOutputPorts"].get<int>();
 	}
 
-	mDB->patcherStore(name, libFile, configFilePath, rnboPatchPath, maxRNBOVersion, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
+	mDB->patcherStore(name, libFile, configFilePath, rnboPatchPath, maxRNBOVersion, migrate_presets, audio_inputs, audio_outputs, midi_inputs, midi_outputs);
 
 	//save presets
 	if (conf.contains("presets")) {
@@ -1633,6 +1638,7 @@ void Controller::registerCommands() {
 				std::string libFile = params["lib"].get<std::string>();
 				std::string configFileName = params["config"].get<std::string>();
 				std::string rnboPatchName = params["patcher"].get<std::string>();
+				bool migratePresets = params.contains("migrate_presets") && params["migrate_presets"].get<bool>();
 
 				RNBO::Json config;
 				fs::path confFilePath = fs::absolute(mSourceCache / configFileName);
@@ -1645,7 +1651,7 @@ void Controller::registerCommands() {
 					maxRNBOVersion = params["rnbo_version"].get<std::string>();
 				}
 
-				patcherStore(name, libFile, configFileName, rnboPatchName, maxRNBOVersion, config);
+				patcherStore(name, libFile, configFileName, rnboPatchName, maxRNBOVersion, config, migratePresets);
 
 				reportCommandResult(id, {
 					{"code", 0},
@@ -2041,6 +2047,8 @@ void Controller::processCommands() {
 				auto rnboPatchPath = compileProcess->mRNBOPatchPath;
 				auto instanceIndex = compileProcess->mInstanceIndex;
 				auto maxRNBOVersion = compileProcess->mMaxRNBOVersion;
+				auto migratePresets = compileProcess->mMigratePresets;
+
 				compileProcess.reset();
 				if (status != 0) {
 					reportCommandError(id, static_cast<unsigned int>(CompileLoadError::CompileFailed), "compile failed with status: " + std::to_string(status));
@@ -2048,7 +2056,7 @@ void Controller::processCommands() {
 					if (conf.contains("name") && conf["name"].is_string()) {
 						std::string name = conf["name"].get<std::string>();
 
-						patcherStore(name, libPath.filename(), confFilePath.filename(), rnboPatchPath.filename(), maxRNBOVersion, conf);
+						patcherStore(name, libPath.filename(), confFilePath.filename(), rnboPatchPath.filename(), maxRNBOVersion, conf, migratePresets);
 					}
 
 					if (instanceIndex != boost::none) {
@@ -2191,6 +2199,8 @@ void Controller::processCommands() {
 						maxRNBOVersion = params["rnbo_version"].get<std::string>();
 					}
 
+					bool migratePresets = params.contains("migrate_presets") && params["migrate_presets"].get<bool>();
+
 					if (params.contains("load")) {
 						if (params["load"].is_null()) {
 							instanceIndex = boost::none;
@@ -2207,7 +2217,7 @@ void Controller::processCommands() {
 							mProcessAudio->updatePorts();
 						}
 					}
-					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, rnboPatchPath, maxRNBOVersion, instanceIndex);
+					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, rnboPatchPath, maxRNBOVersion, migratePresets, instanceIndex);
 				}
 			} else {
 				auto f = mCommandHandlers.find(method);

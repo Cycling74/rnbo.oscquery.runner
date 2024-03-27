@@ -73,7 +73,9 @@ class Controller {
 				const boost::filesystem::path& configFilePath,
 				const boost::filesystem::path& rnboPatchPath,
 				const std::string& maxRNBOVersion,
-				const RNBO::Json& config);
+				const RNBO::Json& config,
+				bool migratePresets
+		);
 
 		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread
 		void queueSave();

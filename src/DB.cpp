@@ -151,6 +151,7 @@ void DB::patcherStore(
 		const fs::path& config_name,
 		const fs::path& rnbo_patch_name,
 		const std::string& max_rnbo_version,
+		bool migrate_presets,
 		int audio_inputs,
 		int audio_outputs,
 		int midi_inputs,
@@ -158,18 +159,42 @@ void DB::patcherStore(
 		) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)");
-	query.bind(1, name);
-	query.bind(2, rnbo_version);
-	query.bind(3, max_rnbo_version);
-	query.bind(4, so_name.string());
-	query.bind(5, config_name.string());
-	query.bind(6, audio_inputs);
-	query.bind(7, audio_outputs);
-	query.bind(8, midi_inputs);
-	query.bind(9, midi_outputs);
-	query.bind(10, rnbo_patch_name.string());
-	query.exec();
+	int old_id = 0; //ids always start at 1 right?
+	if (migrate_presets) {
+		SQLite::Statement query(mDB, "SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
+		query.bind(1, name);
+		query.bind(2, rnbo_version);
+		if (query.executeStep()) {
+			old_id = query.getColumn(0);
+		}
+	}
+
+	{
+		SQLite::Statement query(mDB, R"(
+			INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name)
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10))");
+		query.bind(1, name);
+		query.bind(2, rnbo_version);
+		query.bind(3, max_rnbo_version);
+		query.bind(4, so_name.string());
+		query.bind(5, config_name.string());
+		query.bind(6, audio_inputs);
+		query.bind(7, audio_outputs);
+		query.bind(8, midi_inputs);
+		query.bind(9, midi_outputs);
+		query.bind(10, rnbo_patch_name.string());
+		query.exec();
+	}
+
+	if (old_id) {
+		auto new_id = mDB.getLastInsertRowid();
+		SQLite::Statement query(mDB, R"(
+			INSERT INTO presets (patcher_id, name, content, initial, created_at, updated_at)
+			SELECT ?2, name, content, initial, created_at, updated_at FROM presets WHERE patcher_id = ?1)");
+		query.bind(1, old_id);
+		query.bind(2, new_id);
+		query.exec();
+	}
 }
 
 bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name) {
@@ -325,6 +350,7 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 void DB::presetSave(const std::string& patchername, const std::string& presetName, const std::string& preset) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
+	//XXX make sure to update patcherStore preset migration with any changes to the preset structure
 	SQLite::Statement query(mDB, R"(
 		INSERT INTO presets (patcher_id, name, content)
 		SELECT MAX(id), ?1, ?2 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
