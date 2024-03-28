@@ -1847,12 +1847,16 @@ void Controller::registerCommands() {
 					fs::path confName;
 					fs::path patcherName;
 					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, rnboVersion)) {
-						fs::path filePath = fs::path(mSourceCache) / fs::path(filetype == "patcher" ? patcherName : confName);
+						fs::path contentName = filetype == "patcher" ? patcherName : confName;
+						fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
+						RNBO::Json content = RNBO::Json::object();
 						if (fs::exists(filePath)) {
 							std::ifstream i(filePath.string());
 							std::stringstream b;
 							b << i.rdbuf();
-							readContent = b.str();
+							content["content"] = b.str();
+							content["filename"] = contentName.string();
+							readContent = content.dump();
 						} else {
 							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
 							return;
