@@ -1790,6 +1790,10 @@ void Controller::registerCommands() {
 				std::string filetype = params["filetype"];
 				std::string fileName;
 				std::string readContent;
+				std::string rnboVersion;
+				if (params.contains("rnbo_version")) {
+					rnboVersion = params["rnbo_version"];
+				}
 
 				if (params.contains("filename")) {
 					fileName = params["filename"];
@@ -1802,11 +1806,11 @@ void Controller::registerCommands() {
 					readContent.clear();
 
 					std::vector<std::string> names;
-					mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); });
+					mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); }, rnboVersion);
 
 					RNBO::Json content = RNBO::Json::object();
 					for (auto name: names) {
-						auto preset = mDB->preset(patcherName, name);
+						auto preset = mDB->preset(patcherName, name, rnboVersion);
 						if (preset) {
 							content[name] = preset->first;
 						} else {
@@ -1818,11 +1822,11 @@ void Controller::registerCommands() {
 					readContent = content.dump();
 				} else if (filetype == "sets") {
 					std::vector<std::string> names;
-					mDB->sets([&names](const std::string& n, const std::string&) { names.push_back(n); });
+					mDB->sets([&names](const std::string& n, const std::string&) { names.push_back(n); }, rnboVersion);
 
 					RNBO::Json content = RNBO::Json::object();
 					for (auto name: names) {
-						auto p = mDB->setGet(name);
+						auto p = mDB->setGet(name, rnboVersion);
 						if (p) {
 							fs::path setPath = config::get<fs::path>(config::key::SaveDir).get() / *p;
 							if (fs::exists(setPath)) {
@@ -1842,7 +1846,7 @@ void Controller::registerCommands() {
 					fs::path libPath;
 					fs::path confName;
 					fs::path patcherName;
-					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName)) {
+					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, rnboVersion)) {
 						fs::path filePath = fs::path(mSourceCache) / fs::path(filetype == "patcher" ? patcherName : confName);
 						if (fs::exists(filePath)) {
 							std::ifstream i(filePath.string());
@@ -1857,6 +1861,19 @@ void Controller::registerCommands() {
 							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
 							return;
 					}
+				} else if (filetype == "patchers") {
+					RNBO::Json content = RNBO::Json::array();
+					//get patcher names
+					mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&) {
+							content.push_back(v);
+					}, rnboVersion);
+					readContent = content.dump();
+				} else if (filetype == "versions") {
+					RNBO::Json content = RNBO::Json::array();
+					mDB->rnboVersions([&content](const std::string& v) {
+							content.push_back(v);
+					});
+					readContent = content.dump();
 				} else {
 					auto dir = fileCmdDir(id, filetype);
 					if (!dir) {
