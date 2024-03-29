@@ -1708,6 +1708,8 @@ void Controller::registerCommands() {
 			r = mSourceCache;
 		} else if (filetype == "patcherlib") {
 			r = mCompileCache;
+		} else if (filetype == "set") {
+			r = config::get<fs::path>(config::key::SaveDir).get();
 		} else {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "unknown filetype " + filetype);
 			return {};
@@ -1747,9 +1749,7 @@ void Controller::registerCommands() {
 			return;
 
 		std::string filetype = params["filetype"];
-		auto dir = fileCmdDir(id, filetype);
-		if (!dir)
-			return;
+		bool isSet = filetype == "set";
 
 		//file_write_extended base64 encodes the file name so we can have non ascii in there
 		std::string fileName = params["filename"];
@@ -1757,7 +1757,18 @@ void Controller::registerCommands() {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
 			return;
 		}
-		fs::path filePath = dir.get() / fs::path(fileName);
+
+		//special handling for sets, filename == set name, we actually store
+		fs::path filePath;
+		if (isSet) {
+			filePath = saveFilePath(fileName);
+		} else {
+			auto dir = fileCmdDir(id, filetype);
+			if (!dir)
+				return;
+			filePath = dir.get() / fs::path(fileName);
+		}
+
 		std::fstream fs;
 		//allow for "append" to add to the end of an existing file
 		bool append = params["append"].is_boolean() && params["append"].get<bool>();
@@ -1768,14 +1779,22 @@ void Controller::registerCommands() {
 		}
 
 		std::string data = params["data"];
-		std::vector<char> out(data.size()); //out will be smaller than the in data
-		size_t read = 0;
-		if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
-			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode data");
-			return;
+		if (data.size() > 0) {
+			std::vector<char> out(data.size()); //out will be smaller than the in data
+			size_t read = 0;
+			if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
+				reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode data");
+				return;
+			}
+			fs.write(&out.front(), sizeof(char) * read);
+			fs.close();
 		}
-		fs.write(&out.front(), sizeof(char) * read);
-		fs.close();
+
+		//special handling for set saving
+		if (isSet && params.contains("complete") && params["complete"].get<bool>()) {
+			//TODO validate set data?
+			mDB->setSave(fileName, filePath.filename());
+		}
 
 		reportCommandResult(id, {
 			{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
@@ -1945,7 +1964,6 @@ void Controller::registerCommands() {
 				}
 			}
 	});
-
 
 	auto validateListenerCmd = [this](const std::string& id, const RNBO::Json& params, std::pair<std::string, uint16_t>& key) -> bool {
 		if (!params.is_object() || !params.contains("ip") || !params.contains("port")) {
