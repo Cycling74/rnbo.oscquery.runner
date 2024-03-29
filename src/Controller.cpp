@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <libbase64.h>
 #include <iomanip>
+#include <regex>
 
 #include "Controller.h"
 #include "Config.h"
@@ -58,14 +59,9 @@ namespace {
 	static const std::chrono::milliseconds process_poll_period(10);
 
 	static const std::string last_file_name = "last";
-
-	static const std::string last_instances_key = "instances";
-	static const std::string last_so_key = "so_path";
-	static const std::string last_conf_file_key = "config_path";
-	static const std::string last_config_key = "config";
-	static const std::string index_key = "index";
-	static const std::string connections_key = "connections";
-	static const std::string meta_key = "meta";
+	static const std::string set_instances_key = "instances";
+	static const std::string set_meta_key = "meta";
+	static const std::string set_connections_key = "connections";
 
 	ossia::net::node_base * find_or_create_child(ossia::net::node_base * parent, const std::string name) {
 			auto c = parent->find_child(name);
@@ -75,6 +71,10 @@ namespace {
 			return c;
 	}
 
+	std::string escapeFileName(std::string name) {
+		const std::regex re(R"([^a-zA-Z0-9_\-])");
+		return std::regex_replace(name, re, "");
+	}
 
 	fs::path saveFilePath(std::string file_name = std::string(), std::string version = std::string(RNBO::version)) {
 		if (file_name.size() == 0) {
@@ -82,10 +82,10 @@ namespace {
 		} else { //for creation, we add a tag
 			//add timetag for unique file paths
 			std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-			file_name = file_name + "-" + timeTag;
+			file_name = escapeFileName(file_name) + "-" + timeTag;
 		}
 		//add version
-		file_name = file_name + "-" + version + ".json";
+		file_name = file_name + "-" + escapeFileName(version) + ".json";
 		return config::get<fs::path>(config::key::SaveDir).get() / file_name;
 	}
 
@@ -987,30 +987,40 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			i.close();
 		}
 
-		if (!c[last_instances_key].is_array()) {
+		if (!c[set_instances_key].is_array()) {
 			cerr << "malformed set data" << endl;
 			return;
 		}
 
 		//load instances
 		std::vector<std::shared_ptr<Instance>> instances;
-		for (auto i: c[last_instances_key]) {
-			std::string so = i[last_so_key];
+		for (const auto& entry: c[set_instances_key]) {
+			std::string name = entry["name"];
+			unsigned int index = static_cast<unsigned int>(entry["index"]);
 
-			unsigned int index = 0;
-			if (i.contains(index_key) && i[index_key].is_number()) {
-				index = i[index_key].get<int>();
+			fs::path libPath;
+			fs::path confPath;
+			fs::path patcherPath; //ignored
+			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath)) {
+				cerr << "failed to find patcher with name '" << name << "' while loading set, skipping" << std::endl;
+				continue;
 			}
 
-			fs::path conf_file;
-			if (i.contains(last_conf_file_key)) {
-				conf_file = i[last_conf_file_key].get<std::string>();
+			libPath = fs::absolute(mCompileCache / libPath);
+			confPath = fs::absolute(mSourceCache / confPath);
+
+			RNBO::Json config;
+			if (fs::exists(confPath)) {
+				std::ifstream i(confPath.string());
+				i >> config;
+				i.close();
 			}
+			config["name"] = name;
 
 			//load library but don't save config
-			auto inst = loadLibrary(so, std::string(), i[last_config_key], false, index, conf_file);
+			auto inst = loadLibrary(libPath.string(), std::string(), config, false, index, confPath);
 			if (!inst) {
-				cerr << "failed to load so " << so << endl;
+				cerr << "failed to load library " << libPath << endl;
 				continue;
 			}
 			instances.push_back(inst);
@@ -1031,8 +1041,8 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 		mProcessAudio->updatePorts();
 
 		bool connected = false;
-		if (c.contains(connections_key)) {
-			connected = mProcessAudio->connect(c[connections_key]);
+		if (c.contains(set_connections_key)) {
+			connected = mProcessAudio->connect(c[set_connections_key]);
 		}
 
 		//iterate instances and connect if needed, then start
@@ -1051,8 +1061,8 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 		}
 		if (mSetMetaParam) {
 			std::string meta;
-			if (c.contains(meta_key) && c[meta_key].is_string()) {
-				meta = c[meta_key].get<std::string>();
+			if (c.contains(set_meta_key) && c[set_meta_key].is_string()) {
+				meta = c[set_meta_key].get<std::string>();
 			}
 			mSetMetaParam->push_value(meta);
 		}
@@ -1122,7 +1132,7 @@ bool Controller::loadBuiltIn() {
 #endif
 
 boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, std::string meta, bool abort_empty) {
-	RNBO::Json instances = RNBO::Json::array();
+	RNBO::Json instances = RNBO::Json::array(); //json doesn't let you use a key that is a number, so we use an array and store the index in the data
 	RNBO::Json setData = RNBO::Json::object();
 	{
 		std::lock_guard<std::mutex> iguard(mInstanceMutex);
@@ -1130,25 +1140,21 @@ boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, s
 			return boost::none;
 		}
 		for (auto& i: mInstances) {
+			auto& inst = std::get<0>(i);
 			RNBO::Json data = RNBO::Json::object();
-			data[last_so_key] = std::get<1>(i).string();
-			data[last_config_key] = std::get<0>(i)->currentConfig();
-			data[index_key] = std::get<0>(i)->index();
-
-			auto conf_file = std::get<2>(i);
-			if (fs::exists(conf_file)) {
-				data[last_conf_file_key] = conf_file.string();
-			}
+			data["index"] = static_cast<int>(inst->index());
+			data["name"] = inst->name();
+			//TODO any other data needed?
 
 			instances.push_back(data);
 		}
 	}
-	setData[last_instances_key] = instances;
-	setData[meta_key] = meta;
+	setData[set_instances_key] = instances;
+	setData[set_meta_key] = meta;
 
 	RNBO::Json connections = mProcessAudio->connections();
 	if (!connections.is_null()) {
-		setData[connections_key] = connections;
+		setData[set_connections_key] = connections;
 	}
 
 	auto filepath = saveFilePath(name);
