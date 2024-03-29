@@ -461,6 +461,8 @@ RNBO::Json ProcessAudioJack::connections() {
 		jack_free(ports);
 	}
 
+	//TODO filter any dupes
+
 	return conf;
 }
 
