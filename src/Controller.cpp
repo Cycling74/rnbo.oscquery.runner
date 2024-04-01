@@ -1837,7 +1837,7 @@ void Controller::registerCommands() {
 					for (auto name: names) {
 						auto preset = mDB->preset(patcherName, name, rnboVersion);
 						if (preset) {
-							content[name] = preset->first;
+							content[name] = RNBO::Json::parse(preset->first);
 						} else {
 							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
 							return;
