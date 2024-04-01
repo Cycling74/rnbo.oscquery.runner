@@ -266,6 +266,7 @@ Controller::Controller(std::string server_name) {
 		std::vector<ossia::value> supported = {
 			"file_write_extended",
 			"file_read",
+			"file_exists",
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
@@ -1805,6 +1806,22 @@ void Controller::registerCommands() {
 
 	mCommandHandlers.insert({ "file_write", file_write });
 	mCommandHandlers.insert({ "file_write_extended", file_write });
+
+	mCommandHandlers.insert({
+			"file_exists",
+			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				//TODO validate
+				std::string filetype = params["filetype"];
+				std::string fileName = params["filename"];
+
+				auto dir = fileCmdDir(id, filetype);
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+					{"exists", dir ? fs::exists(dir.get() / fs::path(fileName)) : false},
+					{"progress", 100}
+				});
+			}
+	});
 
 	mCommandHandlers.insert({
 			"file_read",
