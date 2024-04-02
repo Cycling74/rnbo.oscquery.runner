@@ -1753,7 +1753,7 @@ void Controller::registerCommands() {
 		bool isSet = filetype == "set";
 
 		//file_write_extended base64 encodes the file name so we can have non ascii in there
-		std::string fileName = params["filename"];
+		std::string fileName = params["filename"].get<std::string>();
 		if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
 			return;
@@ -1795,6 +1795,7 @@ void Controller::registerCommands() {
 		if (isSet && params.contains("complete") && params["complete"].get<bool>()) {
 			//TODO validate set data?
 			mDB->setSave(fileName, filePath.filename());
+			updateSetNames();
 		}
 
 		reportCommandResult(id, {
