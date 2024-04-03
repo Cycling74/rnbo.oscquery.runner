@@ -15,6 +15,14 @@ CC=$target_host-$cc_compiler
 CXX=$target_host-$cxx_compiler
 STRIP=$target_host-strip
 RC=$target_host-windres
+ASMFLAGS=-mcpu=cortex-a53
+CFLAGS=-mcpu=cortex-a53
+CXXFLAGS=-mcpu=cortex-a53
+CONAN_CMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/rpi-xpile-toolchain.cmake
+
+[conf]
+#boost fails without this
+tools.build:sysroot=/rpi-rootfs/
 
 [settings]
 os=Linux

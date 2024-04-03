@@ -5,5 +5,6 @@ mkdir -p ~/.conan/profiles/ && cp ../docker/conan-rpi-bookworm64-xcompile-host ~
 cmake -DRNBO_DIR=/build/src/cpp/ \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCONAN_PROFILE=host \
-	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/rpi-bookworm64-xpile-toolchain.cmake \
+	-DWITH_DBUS=Off \
+	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/rpi-xpile-toolchain.cmake \
 	..  && make && cpack

@@ -54,3 +54,8 @@ docker build -f Dockerfile.bookworm64bit -t xnor/rpi-bookworm64-audio-xpile:0.1 
 ```
 docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm64-conan-1.61.0/:/root/.conan/ xnor/rpi-bookworm64-audio-xpile:0.1 /bin/bash
 ```
+
+# NOTES
+
+libossia fails to cross compile because it isn't getting `CONAN_PROFILE` set to 'host', then its dep settings aren't correctly detected
+if i edit the source and change the default CONAN_PROFILE setting in the libossia cmake source, i can get the cross comiple to work

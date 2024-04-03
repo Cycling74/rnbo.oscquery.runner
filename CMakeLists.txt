@@ -201,6 +201,7 @@ conan_cmake_install(
 	PROFILE_HOST ${CONAN_PROFILE}
 	PROFILE_BUILD default
 )
+
 find_package(
 	Boost 1.80
 	COMPONENTS filesystem system REQUIRED
@@ -214,10 +215,9 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	REMOTE cycling-public
 	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
 	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
-	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_HOST host
 	PROFILE_BUILD default
 )
 
