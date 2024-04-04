@@ -172,7 +172,7 @@ conan_cmake_install(
 )
 
 conan_cmake_configure(
-	REQUIRES sqlitecpp/3.2.1
+	REQUIRES sqlitecpp/3.3.1
 	GENERATORS cmake_find_package
 	OPTIONS
 		sqlitecpp:shared=False
