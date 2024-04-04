@@ -96,7 +96,7 @@ int main(int argc, const char * argv[]) {
 #ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
 		if (options["filename"].size()) {
 			c.loadLibrary(options["filename"]);
-		} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
+		} else if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true)){
 			c.loadSet();
 		}
 #else
