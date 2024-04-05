@@ -2,16 +2,16 @@
 
 ## Normal use
 
-You can install rnbooscquery on an existing bullseye image or start from scratch.
+You can install rnbooscquery on an existing bookworm image or start from scratch.
 Feel free to customize your hostname and password, but at this time you should
 keep the user name `pi`.
 
-* Install latest `bullseye 32-bit` OS with [raspberry pi imager](https://www.raspberrypi.com/software/)
+* Install latest `bookworm 32-bit` OS with [raspberry pi imager](https://www.raspberrypi.com/software/)
   * use the gear icon to set your hostname, password, and enable SSH
     * we use `c74rpi` for the host name and `c74rnbo` for the initial password
   * do not change the user name, it needs to be `pi`
   * optionally setup wireless lan (wifi)
-* Boot the Pi with the `bullseye` SD card you just created, connect via Ethernet to the host machine.
+* Boot the Pi with the `bookworm` SD card you just created, connect via Ethernet to the host machine.
 * send over files that are needed for the repo:
   ```shell
   rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@c74rpi.local:
@@ -182,7 +182,7 @@ Fails to sign but debs end up in containing directory and seem to work fine.
     ```
 * backup with dd (**BE CAREFUL**):
   ```shell
-  sudo dd if=/dev/disk5 of=2020-12-02-raspios-bullseye-armhf-setup.dmg bs=1024k
+  sudo dd if=/dev/disk5 of=2020-12-02-raspios-bookworm-armhf-setup.dmg bs=1024k
   ```
   *note* if you're on linux you can add `status=progress` to see the progress
 * shrink, on linux:
@@ -223,21 +223,21 @@ brew install gnupg
 to create a package and upload it, from a mac, in the root of this repo.
 ```shell
 ./build-rpi.sh
-aptly -distribution=bullseye repo create bullseye-rpi
-aptly repo create -distribution=bullseye -component=extra bullseye-rpi-extra
-aptly repo add bullseye-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo -component=, -passphrase-file=/Users/benbracken/.apt-gpg.txt bullseye-rpi bullseye-rpi-extra s3:c74:
+aptly -distribution=bookworm repo create bookworm-rpi
+aptly repo create -distribution=bookworm -component=extra bookworm-rpi-extra
+aptly repo add bookworm-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
+aptly publish repo -component=, -passphrase-file=/Users/benbracken/.apt-gpg.txt bookworm-rpi bookworm-rpi-extra s3:c74:
 ```
 
 to update the repo
 ```shell
-aptly publish update bullseye s3:c74:
+aptly publish update bookworm s3:c74:
 ```
 
 to overwrite a package
 ```shell
-aptly -force-replace repo add bullseye-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
-aptly -force-overwrite publish update bullseye s3:c74:
+aptly -force-replace repo add bookworm-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
+aptly -force-overwrite publish update bookworm s3:c74:
 ```
 
 to remove a package from a repo.. (dry-run)
