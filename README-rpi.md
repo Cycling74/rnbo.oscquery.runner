@@ -87,7 +87,8 @@ Do all the normal use stuff then:
 * make directories for local builds and config
   ```shell
   sudo -s
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev cmake
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
+  apt-get -y install cmake
   apt-get -y --no-install-recommends install ruby python3-pip
   update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2

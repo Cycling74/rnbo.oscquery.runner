@@ -2,7 +2,7 @@
 * grab your rpi libraries etc
 
 ```shell
-rsync -vR --progress -rl --delete-after --safe-links bull32:/"{lib,usr,opt/vc/lib}" rpi-rootfs
+rsync -vR --progress -rl --delete-after --safe-links pi@c74rpi.local:/"{lib,usr,opt/vc/lib}" rpi-rootfs
 rm rpi-rootfs/usr/lib/arm-linux-gnueabihf/libpthread.a rpi-rootfs/usr/lib/arm-linux-gnueabihf/libdl.a
 rm rpi-rootfs/usr/lib/systemd/system/rnbo*
 ```
