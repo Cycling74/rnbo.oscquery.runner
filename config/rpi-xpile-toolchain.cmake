@@ -57,8 +57,8 @@ set(TOOLCHAIN_HOST "arm-linux-gnueabihf")
 
 message(STATUS "Using sysroot path: ${SYSROOT_PATH}")
 
-set(TOOLCHAIN_CC "${TOOLCHAIN_HOST}-gcc")
-set(TOOLCHAIN_CXX "${TOOLCHAIN_HOST}-g++")
+set(TOOLCHAIN_CC "${TOOLCHAIN_HOST}-gcc-12")
+set(TOOLCHAIN_CXX "${TOOLCHAIN_HOST}-g++-12")
 set(TOOLCHAIN_LD "${TOOLCHAIN_HOST}-ld")
 set(TOOLCHAIN_AR "${TOOLCHAIN_HOST}-ar")
 set(TOOLCHAIN_RANLIB "${TOOLCHAIN_HOST}-ranlib")
@@ -83,8 +83,6 @@ set(CMAKE_CXX_COMPILER ${TOOLCHAIN_CXX})
 
 # List of library dirs where LD has to look. Pass them directly through gcc. LD_LIBRARY_PATH is not evaluated by arm-*-ld
 set(LIB_DIRS
-	"/opt/cross-pi-gcc/arm-linux-gnueabihf/lib"
-	"/opt/cross-pi-gcc/lib"
 	"${SYSROOT_PATH}/opt/vc/lib"
 	"${SYSROOT_PATH}/lib/${TOOLCHAIN_HOST}"
 	"${SYSROOT_PATH}/usr/local/lib"

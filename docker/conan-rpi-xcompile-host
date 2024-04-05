@@ -3,8 +3,8 @@
 
 toolchain=/rpi-rootfs/
 target_host=arm-linux-gnueabihf
-cc_compiler=gcc
-cxx_compiler=g++
+cc_compiler=gcc-12
+cxx_compiler=g++-12
 
 [env]
 CHOST=$target_host
@@ -21,5 +21,5 @@ os=Linux
 arch=armv7
 build_type=Release
 compiler=gcc
-compiler.version=10.2
+compiler.version=12
 compiler.libcxx=libstdc++11
