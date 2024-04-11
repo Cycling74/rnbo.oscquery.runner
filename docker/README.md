@@ -5,6 +5,7 @@
 rsync -vR --progress -rl --delete-after --safe-links pi@c74rpi.local:/"{lib,usr,opt/vc/lib}" rpi-rootfs
 rm rpi-rootfs/usr/lib/arm-linux-gnueabihf/libpthread.a rpi-rootfs/usr/lib/arm-linux-gnueabihf/libdl.a
 rm rpi-rootfs/usr/lib/systemd/system/rnbo*
+rm rpi-rootfs/usr/bin
 ```
 
 
@@ -18,8 +19,8 @@ cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONA
 
 
 ```shell
-docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm32-conan-1.61/:/root/.conan/ xnor/rpi-bookworm-audio-xpile:0.1 /bin/bash
-docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm32-conan-1.61/:/root/.conan/ xnor/rpi-bookworm-audio-xpile:0.1 /bin/bash
+docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm-conan-1.61/:/root/.conan/ xnor/rpi-bookworm-audio-xpile:0.1 /bin/bash
+docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm-conan-1.61/:/root/.conan/ xnor/rpi-bookworm-audio-xpile:0.1 /bin/bash
 ```
 
 ```shell
