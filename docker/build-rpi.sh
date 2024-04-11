@@ -6,5 +6,5 @@ PATH=/opt/cross-pi-gcc/bin:$PATH \
 	cmake -DRNBO_DIR=/build/src/cpp/ \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCONAN_PROFILE=host \
-	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/rpi-xpile-toolchain.cmake \
+	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/bookworm-toolchain.cmake \
 	..  && make && cpack
