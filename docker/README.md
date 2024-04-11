@@ -6,6 +6,7 @@ rsync -vR --progress -rl --delete-after --safe-links pi@c74rpi.local:/"{lib,usr,
 rm rpi-rootfs/usr/lib/arm-linux-gnueabihf/libpthread.a rpi-rootfs/usr/lib/arm-linux-gnueabihf/libdl.a
 rm rpi-rootfs/usr/lib/systemd/system/rnbo*
 rm rpi-rootfs/usr/bin
+rm rpi-rootfs/usr/sbin
 ```
 
 
