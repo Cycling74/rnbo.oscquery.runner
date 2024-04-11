@@ -5,8 +5,10 @@ set(PROJECT_VERSION "0.2.5")
 set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_APP "rnbo-update-service")
 
-enable_testing()
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test)
+if (FALSE) #TODO
+	enable_testing()
+	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test)
+endif()
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -18,27 +20,35 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
-
+set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../common/conan.cmake")
 find_package(sdbus-c++ 0.8.3 REQUIRED)
 
 conan_cmake_configure(
-	REQUIRES boost/1.75.0
+	REQUIRES boost/1.80.0
 	GENERATORS cmake_find_package
 	OPTIONS
 		boost:shared=False
 		boost:without_stacktrace=True
+		boost:without_context=True
+		boost:without_coroutine=True
+		boost:without_fiber=True
+		boost:without_locale=True
+		boost:without_log=True
 )
-conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	#REMOTE cycling-public
-  SETTINGS ${settings}
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
 )
+
 find_package(
-	Boost 1.75
-	COMPONENTS system REQUIRED
+	Boost 1.80.0
+	COMPONENTS filesystem
+	REQUIRED
 )
 
 include_directories(
