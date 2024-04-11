@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbo-update-service LANGUAGES CXX)
-set(PROJECT_VERSION "0.2.5")
+set(PROJECT_VERSION "0.2.6")
 set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_APP "rnbo-update-service")
 
