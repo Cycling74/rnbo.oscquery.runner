@@ -11,12 +11,12 @@ using std::runtime_error;
 namespace fs = boost::filesystem;
 
 #ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
-RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction(RNBO::PlatformInterface*) {
+RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction() {
 	throw new std::runtime_error("global factory allocation not supported");
 }
 #else
 std::shared_ptr<PatcherFactory> PatcherFactory::CreateBuiltInFactory() {
-	RNBO::PatcherFactoryFunctionPtr factory = GetPatcherFactoryFunction(RNBO::Platform::get());
+	RNBO::PatcherFactoryFunctionPtr factory = GetPatcherFactoryFunction();
 	if (!factory) {
 		throw new runtime_error("failed to get factory from built in GetPatcherFactoryFunction");
 	}
@@ -55,7 +55,7 @@ std::shared_ptr<PatcherFactory> PatcherFactory::CreateFactory(const std::string&
 	if (!getfactory) {
 		throw new runtime_error("failed to get GetPatcherFactoryFunction from dynamic library at path: " + dllPath);
 	}
-	RNBO::PatcherFactoryFunctionPtr factory = getfactory(RNBO::Platform::get());
+	RNBO::PatcherFactoryFunctionPtr factory = getfactory();
 	if (!factory) {
 		throw new runtime_error("failed to get factory from dynamic library at path: " + dllPath);
 	}
