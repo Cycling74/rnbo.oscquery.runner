@@ -20,8 +20,7 @@ cp ../rpi-profile ~/.conan/profiles/rpi && PATH=/opt/cross-pi-gcc/bin:$PATH CONA
 
 
 ```shell
-docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm-conan-1.61/:/root/.conan/ xnor/rpi-bookworm-audio-xpile:0.2 /bin/bash
-docker run -it -u root -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm-conan-1.61/:/root/.conan/ xnor/rpi-bookworm-audio-xpile:0.2 /bin/bash
+docker run -it -v $(pwd):/build -v ~/Documents/rnbo-docker-rpi-bookworm-conan-1.61/:/home/runner/.conan/ xnor/rpi-bookworm-audio-xpile:0.2 /bin/bash
 ```
 
 ```shell
