@@ -401,6 +401,19 @@ if (LINUX)
 		#rnbo version might have a 'prerelease' or 'channel' version in it
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
 
+		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
+		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+			find_program(DPKG_CMD dpkg)
+			if(NOT DPKG_CMD)
+				message(STATUS "CPackDeb: Can not find dpkg in your path, default to i386.")
+				set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE i386)
+			endif()
+			execute_process(COMMAND "${DPKG_CMD}" --print-architecture
+				OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+				OUTPUT_STRIP_TRAILING_WHITESPACE
+				)
+		endif()
+
 		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
