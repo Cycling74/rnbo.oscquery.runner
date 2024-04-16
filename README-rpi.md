@@ -225,8 +225,9 @@ to create a package and upload it, from a mac, in the root of this repo.
 ./build-rpi.sh
 aptly -distribution=bookworm repo create bookworm-rpi
 aptly repo create -distribution=bookworm -component=extra bookworm-rpi-extra
-aptly repo add bookworm-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo -component=, -passphrase-file=/Users/benbracken/.apt-gpg.txt bookworm-rpi bookworm-rpi-extra s3:c74:
+aptly repo add bookworm-rpi-extra ~/Documents/bookworm/jack_transport_link_0.0.8-1_armhf.deb
+aptly repo add bookworm-rpi ./examples/rnbo.oscquery.runner/update/build-rpi/rnbo-update-service_0.2.6-1_armhf.deb
+aptly publish repo -component=, -passphrase-file=/home/runner/.apt-gpg.txt bookworm-rpi bookworm-rpi-extra s3:c74:
 ```
 
 to update the repo
