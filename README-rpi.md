@@ -36,7 +36,7 @@ keep the user name `pi`.
 
   ```shell
   rm -f /etc/xdg/autostart/piwiz.desktop
-  apt-key add apt-cycling74-pubkey.asc
+  sudo mv apt-cycling74-pubkey.asc /usr/share/keyrings/
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
@@ -61,8 +61,8 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.2.6
-  apt-get install -y jack_transport_link
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.3.0-dev.75
+  apt-get install -y jack_transport_link rnbo-runner-panel
   apt-mark hold rnbooscquery
   ```
 
@@ -72,6 +72,11 @@ keep the user name `pi`.
   ```shell
   reboot
   ```
+
+### Beta
+
+  If you're configuring for beta usage, you'll want to add the `beta` component to
+  `/etc/apt/sources.list.d/cycling74.list`
 
 ## Wifi Setup
 
