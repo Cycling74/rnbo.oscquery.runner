@@ -36,7 +36,7 @@ keep the user name `pi`.
 
   ```shell
   rm -f /etc/xdg/autostart/piwiz.desktop
-  sudo mv apt-cycling74-pubkey.asc /usr/share/keyrings/
+  mv apt-cycling74-pubkey.asc /usr/share/keyrings/
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
@@ -296,7 +296,7 @@ Boot into an old image, update the packages, install the new version, mark the p
 ```shell
   sudo -s
   apt-get update
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.11.0
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.3.0-dev.75
   apt-mark hold rnbooscquery
   apt-get -y upgrade && apt-get -y autoremove && apt-get -y clean
   journalctl --vacuum-time=2d
