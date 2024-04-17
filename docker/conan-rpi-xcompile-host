@@ -3,10 +3,26 @@
 
 toolchain=/rpi-rootfs/
 target_host=arm-linux-gnueabihf
-cc_compiler=gcc
-cxx_compiler=g++
+cc_compiler=gcc-12
+cxx_compiler=g++-12
+
+[settings]
+os=Linux
+arch=armv7
+build_type=Release
+compiler=gcc
+compiler.version=12
+compiler.libcxx=libstdc++11
+
+[conf]
+tools.build:sysroot="/rpi-rootfs/"
 
 [env]
+CONAN_CMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/bookworm-toolchain.cmake
+
+[buildenv]
+CONAN_CMAKE_FIND_ROOT_PATH=/rpi-rootfs/
+SYSROOT=/rpi-rootfs/
 CHOST=$target_host
 AR=$target_host-ar
 AS=$target_host-as
@@ -15,11 +31,9 @@ CC=$target_host-$cc_compiler
 CXX=$target_host-$cxx_compiler
 STRIP=$target_host-strip
 RC=$target_host-windres
-
-[settings]
-os=Linux
-arch=armv7
-build_type=Release
-compiler=gcc
-compiler.version=10.2
-compiler.libcxx=libstdc++11
+CFLAGS=-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+CXXFLAGS=-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+ASFLAGS=-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+LDFLAGS=--sysroot=/rpi-rootfs/ -L/rpi-rootfs/usr/lib/arm-linux-gnueabihf/
+PKG_CONFIG_SYSROOT_DIR=$SYSROOT
+PKG_CONFIG_LIBDIR=$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/share/pkgconfig

@@ -12,38 +12,17 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
-set(RNBO_CONAN_VERSION "" CACHE STRING "A version to use for the RNBO C++ library, set it to use conan, leave it unset to avoid conan")
-
-conan_add_remote(NAME cycling-public INDEX 0 URL https://conan-public.cycling74.com)
-
-if (NOT RNBO_CONAN_VERSION STREQUAL "")
-  conan_cmake_configure(
-    REQUIRES rnbo/${RNBO_CONAN_VERSION}
-    GENERATORS cmake_paths
-  )
-  conan_cmake_install(
-    PATH_OR_REFERENCE .
-    BUILD missing
-    SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
-    SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
-    PROFILE_HOST ${CONAN_PROFILE}
-    PROFILE_BUILD default
-  )
-  include(${CMAKE_CURRENT_BINARY_DIR}/conan_paths.cmake)
-  set(RNBO_DIR ${CONAN_RNBO_ROOT})
-else()
 #find RNBO
-  find_path(
-    RNBO_DIR
-    NAMES "RNBO.cpp"
-    PATHS
-      ${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
-      ${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
-      ${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
-    NO_DEFAULT_PATH
-    DOC "Location of the RNBO C++ source code"
-  )
-endif()
+find_path(
+	RNBO_DIR
+	NAMES "RNBO.cpp"
+	PATHS
+		${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
+		${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
+		${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
+	NO_DEFAULT_PATH
+	DOC "Location of the RNBO C++ source code"
+)
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -161,6 +140,7 @@ conan_cmake_configure(
 		libsndfile:shared=False
 		libsndfile:programs=False
 		libsndfile:with_mpeg=${WITH_MPEG}
+		libsndfile:with_external_libs=False #XXX TMP cannot get libflac to x-compile
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
@@ -206,9 +186,11 @@ conan_cmake_install(
 	PROFILE_HOST ${CONAN_PROFILE}
 	PROFILE_BUILD default
 )
+
 find_package(
-	Boost 1.80
-	COMPONENTS filesystem system REQUIRED
+	Boost 1.80.0
+	COMPONENTS filesystem system
+	REQUIRED
 )
 
 conan_cmake_configure(
@@ -419,8 +401,21 @@ if (LINUX)
 		#rnbo version might have a 'prerelease' or 'channel' version in it
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
 
-		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
-		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
+		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
+		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+			find_program(DPKG_CMD dpkg)
+			if(NOT DPKG_CMD)
+				message(STATUS "CPackDeb: Can not find dpkg in your path, default to i386.")
+				set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE i386)
+			endif()
+			execute_process(COMMAND "${DPKG_CMD}" --print-architecture
+				OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+				OUTPUT_STRIP_TRAILING_WHITESPACE
+				)
+		endif()
+
+		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
 		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev")
 
