@@ -158,7 +158,10 @@ class Instance {
 		Queue<PresetCommand> mPresetCommandQueue;
 
 		//simply the names of outports, for building up OSCQuery
-		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
+		std::unordered_map<std::string, std::vector<ossia::net::parameter_base *>> mOutportParams;
+
+		//functions to run on destruction, to cleanup callbacks etc
+		std::vector<std::function<void()>> mCleanupQueue;
 
 		RNBO::Json mConfig;
 		unsigned int mIndex = 0;

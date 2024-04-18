@@ -30,6 +30,10 @@ namespace {
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
 
+	//referece count nodes created via metadata as they might be shared, this lets us cleanup
+	std::unordered_map<std::string, unsigned int> node_reference_count;
+	std::mutex node_reference_count_mutex;
+
 	//recursively get values, if we can
 	boost::optional<ossia::value> get_value(const RNBO::Json& meta) {
 		boost::optional<ossia::value> value = boost::none;
@@ -103,6 +107,45 @@ namespace {
 			p->push_value(meta.dump());
 			m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			recurse_add_meta(meta, m);
+		}
+	}
+
+	void add_node_ref(const std::string& addr, bool exists) {
+		std::lock_guard<std::mutex> guard(node_reference_count_mutex);
+
+		auto it = node_reference_count.find(addr);
+		if (it != node_reference_count.end()) {
+			it->second++;
+		} else {
+			node_reference_count.insert({addr, exists ? 2 : 1});
+		}
+	}
+
+	void cleanup_param(const std::string& addr, ossia::net::node_base * node, ossia::net::parameter_base * param) {
+		std::lock_guard<std::mutex> guard(node_reference_count_mutex);
+		auto it = node_reference_count.find(addr);
+		if (it == node_reference_count.end()) {
+			//don't know what to do
+			return;
+		}
+		if (it->second > 1) {
+			it->second--;
+			return;
+		}
+		//do cleanup
+		node_reference_count.erase(it);
+
+		if (param->callback_count() == 0) {
+			node->remove_parameter();
+			auto parent = node->get_parent();
+			while (node && parent && node->children().size() == 0 && node->get_parameter() == nullptr) {
+				auto n = node;
+				auto p = parent;
+
+				p->remove_child(*n);
+				parent = p->get_parent();
+				node = p;
+			}
 		}
 	}
 }
@@ -507,12 +550,39 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				auto inports = conf["inports"];
 				bool hasInports = (inports.is_array() && inports.size() > 0);
 				bool hasOutports = (outports.is_array() && outports.size() > 0);
+
+				//get OSC root
+				auto oscRoot = root;
+				while (auto r = oscRoot->get_parent()) {
+					oscRoot = r;
+				}
+
 				if (hasInports || hasOutports) {
 					auto msgs = root->create_child("messages");
+					bool toOSC = config::get<bool>(config::key::InstancePortToOSC).value_or(true);
+					auto osc_meta = [](const std::string& name, std::string addr, const RNBO::Json& meta) -> std::string {
+						if (meta.contains("osc")) {
+							if (meta["osc"].is_string()) {
+								addr = meta["osc"].get<std::string>();
+							} else if (meta["osc"].is_boolean()) {
+								if (!meta["osc"].get<bool>())
+									return "";
+								addr = name;
+							}
+						} else {
+							return addr;
+						}
+						if (addr.size() && !addr.starts_with('/')) {
+							addr = "/" + addr;
+						}
+						return addr;
+					};
+
 					if (hasInports) {
 						auto in = msgs->create_child("in");
 						for (auto i: inports) {
 							std::string name = i["tag"];
+							std::string addr = toOSC ? name : "";
 							auto tag = RNBO::TAG(name.c_str());
 
 							auto& n = ossia::net::create_node(*in, name);
@@ -523,6 +593,34 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							{
 								auto meta = i["meta"];
 								add_meta_to_param(meta, n);
+								addr = osc_meta(name, addr, meta);
+							}
+
+							//XXX should we disallow a /rnbo/ prefix??
+							if (addr.starts_with('/')) {
+								bool exists = ossia::net::find_node(*oscRoot, addr) != nullptr;
+								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
+								auto pp = pn.get_parameter();
+
+								//if there was already a node but no parameter, something is fishy so abort
+								if (!(exists && pp == nullptr)) {
+									if (pp == nullptr) {
+										pp = pn.create_parameter(ossia::val_type::LIST);
+										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+									}
+
+									auto cb = pp->add_callback([this, tag](const ossia::value& val) {
+										handleInportMessage(tag, val);
+									});
+
+									//queue cleanup
+									add_node_ref(addr, exists);
+									auto node_ptr = ossia::net::find_node(*oscRoot, addr);
+									mCleanupQueue.push_back([addr, cb, pp, node_ptr]() {
+											pp->remove_callback(cb);
+											cleanup_param(addr, node_ptr, pp);
+									});
+								}
 							}
 
 							p->add_callback([this, tag](const ossia::value& val) {
@@ -532,19 +630,49 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					}
 					if (hasOutports) {
 						auto o = msgs->create_child("out");
+
 						for (auto i: outports) {
 							std::string name = i["tag"];
+							std::string addr = toOSC ? name : "";
 							auto& n = ossia::net::create_node(*o, name);
 							auto p = n.create_parameter(ossia::val_type::LIST);
 							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+
+							//we may have another param associated with this outport
+							std::vector<ossia::net::parameter_base *> params = { p };
 
 							if (i.contains("meta"))
 							{
 								auto meta = i["meta"];
 								add_meta_to_param(meta, n);
+								addr = osc_meta(name, addr, meta);
 							}
 
-							mOutportParams[name] = p;
+							//XXX should we disallow a /rnbo/ prefix?? what if you want to send to a param?
+							if (addr.starts_with('/')) {
+								bool exists = ossia::net::find_node(*oscRoot, addr) != nullptr;
+								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
+								auto pp = pn.get_parameter();
+
+								//if there was already a node but no parameter, something is fishy so abort
+								if (!(exists && pp == nullptr)) {
+									if (pp == nullptr) {
+										pp = pn.create_parameter(ossia::val_type::LIST);
+										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+									}
+
+									params.push_back(pp);
+
+									//queue cleanup
+									add_node_ref(addr, exists);
+									auto node_ptr = ossia::net::find_node(*oscRoot, addr);
+									mCleanupQueue.push_back([pp, addr, node_ptr]() {
+											cleanup_param(addr, node_ptr, pp);
+									});
+								}
+							}
+
+							mOutportParams[name] = params;
 						}
 					}
 				}
@@ -607,6 +735,11 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 }
 
 Instance::~Instance() {
+	//cleanup callbacks
+	for (auto f: mCleanupQueue) {
+		f();
+	}
+
 	mDataRefProcessCommands.store(false);
 	mDataRefThread.join();
 	stop();
@@ -1024,21 +1157,28 @@ void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 		std::cerr << "couldn't find outport node with tag " << tag << std::endl;
 		return;
 	}
-	auto p = it->second;
+
 	switch(e.getType()) {
 		case MessageEvent::Type::Number:
-			p->push_value(e.getNumValue());
+			for (auto p: it->second) {
+				p->push_value(e.getNumValue());
+			}
 			break;
 		case MessageEvent::Type::Bang:
-			p->push_value(ossia::impulse {});
+			for (auto p: it->second) {
+				p->push_value(ossia::impulse {});
+			}
 			break;
 		case MessageEvent::Type::List:
 			{
 				std::vector<ossia::value> values;
 				std::shared_ptr<const RNBO::list> elist = e.getListValue();
-				for (size_t i = 0; i < elist->length; i++)
+				for (size_t i = 0; i < elist->length; i++) {
 					values.push_back(ossia::value(elist->operator[](i)));
-				p->push_value(values);
+				}
+				for (auto p: it->second) {
+					p->push_value(values);
+				}
 			}
 			break;
 		case MessageEvent::Type::Invalid:
