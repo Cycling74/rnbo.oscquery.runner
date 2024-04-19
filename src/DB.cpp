@@ -140,6 +140,9 @@ PRAGMA foreign_keys=on;
 	do_migration(9, [](SQLite::Database& db) {
 			db.exec("DROP TABLE _presets_old");
 	});
+
+	//turn on foreign_keys support
+	mDB.exec("PRAGMA foreign_keys=on");
 }
 
 DB::~DB() { }
