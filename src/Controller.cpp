@@ -719,6 +719,18 @@ Controller::Controller(std::string server_name) {
 			});
 		}
 		{
+			auto key = config::key::InstancePortToOSC;
+			auto n = conf->create_child("port_to_osc");
+			n->set(ossia::net::description_attribute{}, "Map slash prefixed port names to/from OSC messages by default");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(true));
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+		{
 			auto key = config::key::PresetMIDIProgramChangeChannel;
 			auto n = conf->create_child(key);
 
