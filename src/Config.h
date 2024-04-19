@@ -26,6 +26,8 @@ namespace config {
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
 		const static std::string InstanceAudioFadeIn = "instance_audio_fade_in"; //fade in time when creating new instances
 		const static std::string InstanceAudioFadeOut = "instance_audio_fade_out"; //fade out time when creating new instances
+
+		const static std::string InstancePortToOSC = "instance_port_to_osc"; //do we map inport/outport with / prefixes to/from OSC messages at the top of the address space by default
 																																							 //
 		const static std::string ControlAutoConnectMIDI = "control_auto_connect_midi"; //if applicable (Jack), should the control code (for switching patchers via program change) be automatically connected to midi
 
