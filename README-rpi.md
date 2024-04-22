@@ -22,6 +22,8 @@ keep the user name `pi`.
   * uninstall pulse audio
   * install some packages, including rnbooscquery
   * set the CPU to not scale
+  * disable RemoveIPC
+    * https://www.man7.org/linux/man-pages/man5/logind.conf.5.html
   * enable realtime
   * install rnbooscquery
   * reboot (easiest way to update your group security settings)
@@ -42,6 +44,7 @@ keep the user name `pi`.
   apt update
   apt -y install jackd2 ccache cpufrequtils
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
+  echo "RemoveIPC=no" >> /etc/systemd/logind.conf
   apt -y upgrade
   apt-get -y autoremove
   ```
