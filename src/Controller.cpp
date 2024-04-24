@@ -175,6 +175,83 @@ Controller::Controller(std::string server_name) {
 
 	auto root = mServer->create_child("rnbo");
 
+	{
+		auto rep = root->create_child("listeners");
+
+		{
+			auto n = rep->create_child("entries");
+			mListenersListParam = n->create_parameter(ossia::val_type::LIST);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->set(ossia::net::description_attribute{}, "list of OSC listeners");
+		}
+
+		auto cmdBuilder = [](std::string method, const std::string& payload) -> std::string {
+			try {
+				auto p = payload.find(":");
+				if (p != std::string::npos) {
+					RNBO::Json cmd = {
+						{"method", method},
+						{"id", "internal"},
+						{"params",
+							{
+								{"ip", payload.substr(0, p)},
+								{"port", std::stoi(payload.substr(p + 1, std::string::npos))},
+							}
+						}
+					};
+					return cmd.dump();
+				}
+			} catch (...) {
+			}
+			std::cerr << "failed to make " + method + " command for " + payload << std::endl;
+			return {};
+		};
+
+		{
+			auto n = rep->create_child("add");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "add OSC UDP listener: \"ip:port\"");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					auto cmd = cmdBuilder("listener_add", v.get<std::string>());
+					if (cmd.size()) {
+						mCommandQueue.push(cmd);
+					}
+				}
+			});
+		}
+
+		{
+			auto n = rep->create_child("del");
+			auto p = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "delete OSC UDP listener: \"ip:port\"");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					auto cmd = cmdBuilder("listener_del", v.get<std::string>());
+					if (cmd.size()) {
+						mCommandQueue.push(cmd);
+					}
+				}
+			});
+		}
+		{
+			auto n = rep->create_child("clear");
+			auto p = n->create_parameter(ossia::val_type::IMPULSE);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			n->set(ossia::net::description_attribute{}, "clear all OSC UDP listeners");
+
+			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				mCommandQueue.push(cmdBuilder("listener_clear", "0:0"));
+			});
+		}
+
+		restoreListeners();
+	}
+
 	//expose some information
 	auto info = root->create_child("info");
 	info->set(ossia::net::description_attribute{}, "information about RNBO and the running system");
@@ -323,81 +400,6 @@ Controller::Controller(std::string server_name) {
 		mResponseParam = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "command response");
-	}
-
-	{
-		auto rep = root->create_child("listeners");
-
-		{
-			auto n = rep->create_child("entries");
-			mListenersListParam = n->create_parameter(ossia::val_type::LIST);
-			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-			n->set(ossia::net::description_attribute{}, "list of OSC listeners");
-		}
-
-		auto cmdBuilder = [](std::string method, const std::string& payload) -> std::string {
-			try {
-				auto p = payload.find(":");
-				if (p != std::string::npos) {
-					RNBO::Json cmd = {
-						{"method", method},
-						{"id", "internal"},
-						{"params",
-							{
-								{"ip", payload.substr(0, p)},
-								{"port", std::stoi(payload.substr(p + 1, std::string::npos))},
-							}
-						}
-					};
-					return cmd.dump();
-				}
-			} catch (...) {
-			}
-			std::cerr << "failed to make " + method + " command for " + payload << std::endl;
-			return {};
-		};
-
-		{
-			auto n = rep->create_child("add");
-			auto p = n->create_parameter(ossia::val_type::STRING);
-			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "add OSC UDP listener: \"ip:port\"");
-
-			p->add_callback([this, cmdBuilder](const ossia::value& v) {
-				if (v.get_type() == ossia::val_type::STRING) {
-					auto cmd = cmdBuilder("listener_add", v.get<std::string>());
-					if (cmd.size()) {
-						mCommandQueue.push(cmd);
-					}
-				}
-			});
-		}
-
-		{
-			auto n = rep->create_child("del");
-			auto p = n->create_parameter(ossia::val_type::STRING);
-			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "delete OSC UDP listener: \"ip:port\"");
-
-			p->add_callback([this, cmdBuilder](const ossia::value& v) {
-				if (v.get_type() == ossia::val_type::STRING) {
-					auto cmd = cmdBuilder("listener_del", v.get<std::string>());
-					if (cmd.size()) {
-						mCommandQueue.push(cmd);
-					}
-				}
-			});
-		}
-		{
-			auto n = rep->create_child("clear");
-			auto p = n->create_parameter(ossia::val_type::IMPULSE);
-			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "clear all OSC UDP listeners");
-
-			p->add_callback([this, cmdBuilder](const ossia::value& v) {
-				mCommandQueue.push(cmdBuilder("listener_clear", "0:0"));
-			});
-		}
 	}
 
 	auto j = root->create_child("jack");
@@ -2013,44 +2015,32 @@ void Controller::registerCommands() {
 
 	//clear all but oscquery
 	auto listeners_clear = [this]() {
-		for (auto& p: mProtocol->get_protocols()) {
-			auto o = dynamic_cast<ossia::oscquery_asio::oscquery_server_protocol*>(p.get());
-			if (!o) {
-				mProtocol->stop_expose_to(*p);
+		//deleting invalidates iterator, so we loop until we haven't removed any
+		bool found = true;
+		while (found) {
+			found = false;
+			for (auto& p: mProtocol->get_protocols()) {
+				auto o = dynamic_cast<ossia::oscquery_asio::oscquery_server_protocol*>(p.get());
+				if (!o) {
+					mProtocol->stop_expose_to(*p);
+					found = true;
+					break;
+				}
 			}
 		}
 	};
 
-	auto listeners_add = [this](const std::string& ip, uint16_t port) {
-		using conf = ossia::net::osc_protocol_configuration;
-		auto protocol = ossia::net::make_osc_protocol(
-				mOssiaContext,
-				{
-					.mode = conf::HOST,
-					.version = conf::OSC1_1,
-					.framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
-					.transport = ossia::net::udp_configuration {{
-						.local = std::nullopt,
-						.remote = ossia::net::send_socket_configuration {{ip, port}}
-					}}
-				}
-			);
-		mProtocol->expose_to(std::move(protocol));
-	};
-
 	mCommandHandlers.insert({
 			"listener_add",
-			[this, validateListenerCmd, listeners_add](const std::string& method, const std::string& id, const RNBO::Json& params) {
+			[this, validateListenerCmd](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::pair<std::string, uint16_t> key;
 				if (!validateListenerCmd(id, params, key))
 					return;
 
-				if (mListeners.find(key) == mListeners.end()) {
+				if (mDB->listenersAdd(key.first, key.second)) {
 					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-					listeners_add(key.first, key.second);
-					mListeners.insert(key);
+					listenersAddProtocol(key.first, key.second);
 				}
-
 				updateListenersList();
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
@@ -2061,20 +2051,18 @@ void Controller::registerCommands() {
 	});
 	mCommandHandlers.insert({
 			"listener_del",
-			[this, validateListenerCmd, listeners_clear, listeners_add](const std::string& method, const std::string& id, const RNBO::Json& params) {
+			[this, validateListenerCmd, listeners_clear](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::pair<std::string, uint16_t> key;
 				if (!validateListenerCmd(id, params, key))
 					return;
 
 				//TODO visit listeners and only remove the one we care to remove.
 				//at this point, finding the type is hard so we just remove them all and then add back the ones we care about
-				if (mListeners.erase(key) != 0) {
+				if (mDB->listenersDel(key.first, key.second)) {
+
 					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 					listeners_clear();
-					for (auto& kv: mListeners) {
-						listeners_add(kv.first, kv.second);
-					}
-					updateListenersList();
+					restoreListeners();
 				}
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
@@ -2091,7 +2079,7 @@ void Controller::registerCommands() {
 					return;
 
 				std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-				mListeners.clear();
+				mDB->listenersClear();
 				listeners_clear();
 				updateListenersList();
 				reportCommandResult(id, {
@@ -2388,10 +2376,34 @@ void Controller::updateDiskSpace() {
 
 void Controller::updateListenersList() {
 	std::vector<ossia::value> l;
-	for (auto& kv: mListeners) {
-		l.push_back(kv.first + ":" + std::to_string(kv.second));
-	}
+	mDB->listeners([&l](const std::string& ip, uint16_t port) {
+		l.push_back(ip + ":" + std::to_string(port));
+	});
 	mListenersListParam->push_value(l);
+}
+
+void Controller::restoreListeners() {
+	mDB->listeners([this](const std::string& ip, uint16_t port) {
+			listenersAddProtocol(ip, port);
+	});
+	updateListenersList();
+}
+
+void Controller::listenersAddProtocol(const std::string& ip, uint16_t port) {
+	using conf = ossia::net::osc_protocol_configuration;
+	auto protocol = ossia::net::make_osc_protocol(
+			mOssiaContext,
+			{
+				.mode = conf::HOST,
+				.version = conf::OSC1_1,
+				.framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
+				.transport = ossia::net::udp_configuration {{
+					.local = std::nullopt,
+					.remote = ossia::net::send_socket_configuration {{ip, port}}
+				}}
+			}
+		);
+	mProtocol->expose_to(std::move(protocol));
 }
 
 void Controller::handleProgramChange(ProgramChange p) {

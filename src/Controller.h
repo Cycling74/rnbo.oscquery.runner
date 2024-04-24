@@ -61,6 +61,8 @@ class Controller {
 		void handleActive(bool active);
 		void updateDiskSpace();
 		void updateListenersList();
+		void restoreListeners();
+		void listenersAddProtocol(const std::string& ip, uint16_t port);
 
 		std::unordered_map<std::string, std::function<void(const std::string& method, const std::string& id, const RNBO::Json& params)>> mCommandHandlers;
 
@@ -140,7 +142,6 @@ class Controller {
 
 		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mProcessNext;
 
-		std::set<std::pair<std::string, uint16_t>> mListeners;
 		ossia::net::parameter_base * mListenersListParam = nullptr;
 
 		float mInstFadeInMs = 20.0f;
