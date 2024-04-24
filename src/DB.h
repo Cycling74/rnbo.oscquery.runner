@@ -87,6 +87,13 @@ class DB {
 				std::function<void(const std::string& name, const std::string& created)> func,
 				std::string rnbo_version = std::string()
 		);
+
+		//returns true if anything happened
+		bool listenersAdd(const std::string& ip, uint16_t port);
+		bool listenersDel(const std::string& ip, uint16_t port);
+		void listenersClear();
+		void listeners(std::function<void(const std::string& ip, uint16_t port)> func);
+
 	private:
 		SQLite::Database mDB;
 		std::mutex mMutex;

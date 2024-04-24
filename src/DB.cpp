@@ -140,6 +140,17 @@ PRAGMA foreign_keys=on;
 	do_migration(9, [](SQLite::Database& db) {
 			db.exec("DROP TABLE _presets_old");
 	});
+	do_migration(10, [](SQLite::Database& db) {
+			db.exec(R"(
+CREATE TABLE listeners
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	ip TEXT NOT NULL,
+	port INTEGER NOT NULL,
+	UNIQUE (ip, port)
+);
+			)");
+	});
 
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
@@ -515,3 +526,44 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 		func(name, created_at);
 	}
 }
+
+bool DB::listenersAdd(const std::string& ip, uint16_t port)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "INSERT OR IGNORE INTO listeners (ip, port) VALUES (?1, ?2)");
+	query.bind(1, ip);
+	query.bind(2, port);
+	query.exec();
+	return mDB.getChanges() != 0;
+}
+
+bool DB::listenersDel(const std::string& ip, uint16_t port)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "DELETE FROM listeners where ip = ?1 AND port = ?2");
+	query.bind(1, ip);
+	query.bind(2, port);
+	query.exec();
+	return mDB.getChanges() != 0;
+}
+
+void DB::listenersClear()
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	mDB.exec("DELETE FROM listeners");
+}
+
+void DB::listeners(std::function<void(const std::string& ip, uint16_t port)> func)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "SELECT ip, port FROM listeners");
+	while (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string ip(s);
+
+		int port = query.getColumn(1);
+
+		func(ip, static_cast<uint16_t>(port));
+	}
+}
+
