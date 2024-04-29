@@ -218,6 +218,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	});
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
+	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial) {
 			if (initial) {
@@ -798,6 +799,23 @@ void Instance::processEvents() {
 		//clear out/dealloc
 	}
 
+	//handle queued presets
+	{
+		std::pair<std::string, RNBO::ConstPresetPtr> preset;
+		while (mPresetSaveQueue->try_dequeue(preset)) {
+			std::string name = preset.first;
+
+			auto j = RNBO::convertPresetToJSONObj(*preset.second);
+			mDB->presetSave(mName, name, j.dump());
+			mPresetsDirty = true;
+			{
+				std::lock_guard<std::mutex> guard(mPresetMutex);
+				mPresetLatest = name;
+			}
+			updatePresetEntries();
+		}
+	}
+
 	if (active) {
 		//see if we should signal a change
 		auto changed = false;
@@ -818,17 +836,13 @@ void Instance::processEvents() {
 					loadPreset(cmd.preset);
 					break;
 				case PresetCommand::CommandType::Save:
-					mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
-							auto name = cmd.preset;
-							auto j = RNBO::convertPresetToJSONObj(*preset);
-							mDB->presetSave(mName, cmd.preset, j.dump());
-							mPresetsDirty = true;
-							{
-							std::lock_guard<std::mutex> guard(mPresetMutex);
-							mPresetLatest = name;
-							}
-							updatePresetEntries();
-							});
+					{
+						auto name = cmd.preset;
+						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
+							//get preset called in audio thread, queue to do heavy work outside that thread
+							mPresetSaveQueue->try_enqueue({name, preset});
+						});
+					}
 					break;
 				case PresetCommand::CommandType::Initial:
 					{
