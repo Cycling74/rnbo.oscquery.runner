@@ -603,25 +603,28 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
 								auto pp = pn.get_parameter();
 
-								//if there was already a node but no parameter, something is fishy so abort
-								if (!(exists && pp == nullptr)) {
-									if (pp == nullptr) {
-										pp = pn.create_parameter(ossia::val_type::LIST);
-										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+								if (pp == nullptr) {
+									pp = pn.create_parameter(ossia::val_type::LIST);
+									pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+								} else {
+									//if it is get only, chanage to bi
+									auto mode = ossia::net::get_access_mode(pn);
+									if (mode && *mode == ossia::access_mode::GET) {
+										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 									}
-
-									auto cb = pp->add_callback([this, tag](const ossia::value& val) {
-										handleInportMessage(tag, val);
-									});
-
-									//queue cleanup
-									add_node_ref(addr, exists);
-									auto node_ptr = ossia::net::find_node(*oscRoot, addr);
-									mCleanupQueue.push_back([addr, cb, pp, node_ptr]() {
-											pp->remove_callback(cb);
-											cleanup_param(addr, node_ptr, pp);
-									});
 								}
+
+								auto cb = pp->add_callback([this, tag](const ossia::value& val) {
+									handleInportMessage(tag, val);
+								});
+
+								//queue cleanup
+								add_node_ref(addr, exists);
+								auto node_ptr = ossia::net::find_node(*oscRoot, addr);
+								mCleanupQueue.push_back([addr, cb, pp, node_ptr]() {
+										pp->remove_callback(cb);
+										cleanup_param(addr, node_ptr, pp);
+								});
 							}
 
 							p->add_callback([this, tag](const ossia::value& val) {
@@ -655,22 +658,25 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
 								auto pp = pn.get_parameter();
 
-								//if there was already a node but no parameter, something is fishy so abort
-								if (!(exists && pp == nullptr)) {
-									if (pp == nullptr) {
-										pp = pn.create_parameter(ossia::val_type::LIST);
-										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+								if (pp == nullptr) {
+									pp = pn.create_parameter(ossia::val_type::LIST);
+									pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+								} else {
+									//if it is set only, chanage to bi
+									auto mode = ossia::net::get_access_mode(pn);
+									if (mode && *mode == ossia::access_mode::SET) {
+										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 									}
-
-									params.push_back(pp);
-
-									//queue cleanup
-									add_node_ref(addr, exists);
-									auto node_ptr = ossia::net::find_node(*oscRoot, addr);
-									mCleanupQueue.push_back([pp, addr, node_ptr]() {
-											cleanup_param(addr, node_ptr, pp);
-									});
 								}
+
+								params.push_back(pp);
+
+								//queue cleanup
+								add_node_ref(addr, exists);
+								auto node_ptr = ossia::net::find_node(*oscRoot, addr);
+								mCleanupQueue.push_back([pp, addr, node_ptr]() {
+										cleanup_param(addr, node_ptr, pp);
+								});
 							}
 
 							mOutportParams[name] = params;
