@@ -24,6 +24,7 @@ namespace config {
 		const static std::string InstanceAutoConnectAudio = "instance_auto_connect_audio"; //if applicable (Jack), should an instance be automatically connected to audio
 		const static std::string InstanceAutoConnectAudioIndexed = "instance_auto_connect_audio_indexed"; //if applicable (Jack), uses i/o indexes to automatically connect to hardware
 		const static std::string InstanceAutoConnectMIDI = "instance_auto_connect_midi"; //if applicable (Jack), should an instance be automatically connected to midi
+		const static std::string InstanceAutoConnectMIDIHardware = "instance_auto_connect_midi_hardware"; //if applicable (Jack), should an instance be automatically connected to midi hardware ports
 		const static std::string InstanceAudioFadeIn = "instance_audio_fade_in"; //fade in time when creating new instances
 		const static std::string InstanceAudioFadeOut = "instance_audio_fade_out"; //fade out time when creating new instances
 

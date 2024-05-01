@@ -681,6 +681,18 @@ Controller::Controller(std::string server_name) {
 			});
 		}
 		{
+			auto key = config::key::InstanceAutoConnectMIDIHardware;
+			auto n = conf->create_child("auto_connect_midi_hardware");
+			n->set(ossia::net::description_attribute{}, "Automatically connect newly activated instances to midi hardware i/o");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+		{
 			auto key = config::key::InstanceAutoStartLast;
 			auto n = conf->create_child("auto_start_last");
 			n->set(ossia::net::description_attribute{}, "Automatically start the last instance configuration on runner startup");

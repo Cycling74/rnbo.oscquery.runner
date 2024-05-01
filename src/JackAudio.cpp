@@ -1737,7 +1737,11 @@ void InstanceAudioJack::connect() {
 }
 
 void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
-	if (config::get<bool>(config::key::InstanceAutoConnectMIDI).value_or(false)) {
+	bool all = config::get<bool>(config::key::InstanceAutoConnectMIDI).value_or(false);
+	bool hardware = config::get<bool>(config::key::InstanceAutoConnectMIDIHardware).value_or(false);
+	auto flags = jack_port_flags(port);
+
+	if (all || (hardware && JackPortIsPhysical & flags)) {
 		std::lock_guard<std::mutex> guard(mPortMutex);
 		//if we can get the port, it isn't ours and it is a midi port
 		if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
@@ -1754,7 +1758,6 @@ void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
 				if (is_through(mJackPortAliases[i]))
 					return;
 			}
-			auto flags = jack_port_flags(port);
 			if (flags & JackPortFlags::JackPortIsInput) {
 				jack_connect(mJackClient, jack_port_name(mJackMidiOut), name);
 			} else if (flags & JackPortFlags::JackPortIsOutput) {
