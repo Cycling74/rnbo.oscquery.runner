@@ -3,6 +3,7 @@
 #include <iostream>
 #include <exception>
 #include <boost/filesystem.hpp>
+#include "src/RNBO_LoggerImpl.h"
 
 using std::endl;
 using std::cerr;
@@ -14,6 +15,11 @@ namespace fs = boost::filesystem;
 RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction() {
 	throw new std::runtime_error("global factory allocation not supported");
 }
+
+void SetLogger(RNBO::Logger* logger) {
+	throw new std::runtime_error("global logger setting not supported");
+}
+
 #else
 std::shared_ptr<PatcherFactory> PatcherFactory::CreateBuiltInFactory() {
 	RNBO::PatcherFactoryFunctionPtr factory = GetPatcherFactoryFunction();
@@ -59,5 +65,10 @@ std::shared_ptr<PatcherFactory> PatcherFactory::CreateFactory(const std::string&
 	if (!factory) {
 		throw new runtime_error("failed to get factory from dynamic library at path: " + dllPath);
 	}
+	RNBO::SetLoggerFunctionPtr setLoggerFunc = (RNBO::SetLoggerFunctionPtr)dlsym(handle, "SetLogger");
+	if (setLoggerFunc) {
+		setLoggerFunc(&RNBO::Logger::getInstance());
+	}
+
 	return std::shared_ptr<PatcherFactory>(new PatcherFactory(handle, factory));
 }
