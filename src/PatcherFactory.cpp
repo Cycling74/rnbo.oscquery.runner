@@ -3,7 +3,6 @@
 #include <iostream>
 #include <exception>
 #include <boost/filesystem.hpp>
-#include "src/RNBO_LoggerImpl.h"
 
 using std::endl;
 using std::cerr;
