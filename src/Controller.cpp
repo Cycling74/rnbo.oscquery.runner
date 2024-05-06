@@ -499,7 +499,7 @@ Controller::Controller(std::string server_name) {
 				mInstanceLoadNode = ctl->create_child("load");
 				auto p = mInstanceLoadNode->create_parameter(ossia::val_type::LIST);
 				mInstanceLoadNode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-				mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index. args: index patcher_name [instance_name], a negative index will create a new instance at the next available index");
+				mInstanceLoadNode->set(ossia::net::description_attribute{}, "Load a pre-built patcher by name into the given index. args: index patcher_name [instance_name], a -1 index will create a new instance at the next available index, -2 will do the same but not auto connect it to anything");
 
 				p->add_callback([this, cmdBuilder](const ossia::value& v) {
 					if (v.get_type() == ossia::val_type::LIST) {
@@ -1537,11 +1537,14 @@ void Controller::registerCommands() {
 				int index = params["index"].get<int>();
 				std::string name = params["patcher_name"].get<std::string>();
 				std::string instance_name;
+				bool connect = true;
 				if (params.contains("instance_name"))
 					instance_name = params["instance_name"].get<std::string>();
 
 				//automatically set the index if it is less than zero
+				//only auto connect if the index is -1
 				if (index < 0) {
+					connect = index == -1;
 					index = nextInstanceIndex();
 				}
 
@@ -1572,9 +1575,10 @@ void Controller::registerCommands() {
 
 						auto inst = loadLibrary(libPath.string(), id, config, true, static_cast<unsigned int>(index), confPath);
 
-						//TODO optionally get connections from params
 						if (inst) {
-							inst->connect();
+							if (connect) {
+								inst->connect();
+							}
 							inst->start(mInstFadeInMs);
 						}
 					}
