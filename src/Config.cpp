@@ -35,14 +35,18 @@ namespace {
 
 	static fs::path home_dir_config_file_path = config::make_path("~/.config/rnbo/runner.json");
 
-	static fs::path runner_uuid_path = config::make_path("~/.config/rnbo/runner-id.txt");
+	static fs::path default_runner_uuid_path = config::make_path("~/.config/rnbo/runner-id.txt");
 
 	static boost::uuids::uuid system_id = boost::uuids::random_generator()();
 
 	//the base dir of our installation
 	static fs::path base_dir;
+
 	//the location of our found config file ,if there is one
 	static fs::path config_file_path;
+
+	//explicitly set
+	static fs::path explict_config_file_path;
 
 	template<typename T>
 		T with_mutex(std::function<T()> f) {
@@ -50,17 +54,25 @@ namespace {
 			return f();
 		}
 
-	const RNBO::Json config_default = {
+	const RNBO::Json config_default =
+	{
 		{config::key::CompileCacheDir, default_so_cache.string()},
 		{config::key::SourceCacheDir, default_src_cache.string()},
 		{config::key::SaveDir, default_save_dir.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
 		{config::key::DBPath, default_db_path.string()},
+		{config::key::UUIDPath, default_runner_uuid_path.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectAudioIndexed, true},
-		{config::key::InstanceAutoConnectMIDI, true},
+		{config::key::InstanceAutoConnectMIDI, false},
+		{config::key::InstanceAutoConnectMIDIHardware, true},
+		{config::key::InstanceAudioFadeIn, 20.0},
+		{config::key::InstanceAudioFadeOut, 20.0},
+		{config::key::InstancePortToOSC, true},
+		{config::key::ControlAutoConnectMIDI, true},
 		{config::key::PresetMIDIProgramChangeChannel, "omni"},
+		{config::key::PatcherMIDIProgramChangeChannel, "none"},
 	};
 
 	RNBO::Json config_json = config_default;
@@ -85,59 +97,33 @@ namespace {
 namespace config {
 	void set_file_path(fs::path p) {
 		with_mutex<void>([p](){
-			config_file_path = p;
+			config_file_path = explict_config_file_path = p;
 		});
 	}
 	fs::path file_path() {
 		return with_mutex<fs::path>([](){ return config_file_path; });
 	}
 
-	void init() {
-		{
-			bool write = true;
-			if (fs::exists(runner_uuid_path)) {
-				try {
-					std::ifstream i(runner_uuid_path.string());
-					std::string line;
-					if (std::getline(i, line)) {
-						system_id = boost::lexical_cast<boost::uuids::uuid>(line);
-						write = false;
-					}
-				} catch (...) {
-				}
-			}
-			if (write) {
-				std::ofstream o(runner_uuid_path.string());
-				o << boost::lexical_cast<std::string>(system_id) << std::endl;
-				o << "//automatically generated once by rnbo" << std::endl;
-			}
+	//already holding lock
+	void write_file_locked() {
+		//always write to the homedir config if we haven't explicitly set one
+		if (explict_config_file_path.empty()) {
+			config_file_path = home_dir_config_file_path;
 		}
 
-		// /foo/bar/bin/exename -> /foo/bar
-		base_dir = boost::filesystem::canonical(boost::dll::program_location()).parent_path().parent_path();
-
-		//find the path
-		for (auto p: {
-				home_dir_config_file_path,
-				base_dir / "share" / "rnbo" / "runner.json"
-				}) {
-			if (fs::exists(p)) {
-				config_file_path = p;
-				break;
-			}
+		//create directories if appropriate
+		fs::path dir = config_file_path;
+		dir.remove_filename();
+		if (!dir.empty() && dir.string() != "." && dir.string() != "..") {
+			fs::create_directories(dir);
 		}
-		read_file();
+		std::ofstream o(config_file_path.string());
+		o << std::setw(4) << config_json << std::endl;
 	}
 
-	void read_file() {
+	void write_file() {
 		with_mutex<void>([](){
-				config_json = config_default;
-				if (fs::exists(config_file_path)) {
-					RNBO::Json c;
-					std::ifstream i(config_file_path.string());
-					i >> c;
-					config_json.merge_patch(c);
-				}
+				write_file_locked();
 		});
 	}
 
@@ -145,13 +131,7 @@ namespace config {
 		with_mutex<void>([](){
 				if (update_next && update_next.get() <= system_clock::now()) {
 					update_next.reset();
-
-					//always write to the homedir one
-					config_file_path = home_dir_config_file_path;
-					fs::path dir;
-					fs::create_directories((dir = config_file_path).remove_filename());
-					std::ofstream o(config_file_path.string());
-					o << std::setw(4) << config_json << std::endl;
+					write_file_locked();
 				}
 		});
 	}
@@ -230,5 +210,57 @@ namespace config {
 
 	std::string get_system_id() {
 		return boost::lexical_cast<std::string>(system_id);
+	}
+
+	void init() {
+		// /foo/bar/bin/exename -> /foo/bar
+		base_dir = boost::filesystem::canonical(boost::dll::program_location()).parent_path().parent_path();
+
+		//find the path
+		if (config_file_path.empty()) {
+			for (auto p: {
+					home_dir_config_file_path,
+					base_dir / "share" / "rnbo" / "runner.json"
+					}) {
+				if (fs::exists(p)) {
+					config_file_path = p;
+					break;
+				}
+			}
+		}
+		read_file();
+
+		try {
+			bool write = true;
+
+			fs::path runner_uuid_path = config::get<fs::path>(config::key::UUIDPath, boost::none).get();
+			if (fs::exists(runner_uuid_path)) {
+				std::ifstream i(runner_uuid_path.string());
+				std::string line;
+				if (std::getline(i, line)) {
+					system_id = boost::lexical_cast<boost::uuids::uuid>(line);
+					write = false;
+				}
+			}
+			if (write) {
+				std::ofstream o(runner_uuid_path.string());
+				o << boost::lexical_cast<std::string>(system_id) << std::endl;
+				o << "//automatically generated once by rnbo" << std::endl;
+			}
+		} catch (std::runtime_error& e) {
+			std::cerr << "error read/writing runner unique id: " << e.what() << std::endl;
+		}
+	}
+
+	void read_file() {
+		with_mutex<void>([](){
+				config_json = config_default;
+				if (fs::exists(config_file_path)) {
+					RNBO::Json c;
+					std::ifstream i(config_file_path.string());
+					i >> c;
+					config_json.merge_patch(c);
+				}
+		});
 	}
 }

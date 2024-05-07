@@ -34,11 +34,14 @@ class Instance {
 		~Instance();
 
 		unsigned int index() const { return mIndex; }
+		const std::string& name() const { return mName; }
 
 		void activate();
 		void connect();
-		void start();
-		void stop();
+		void start(float fadems = 10.0);
+		void stop(float fadems = 10.0);
+
+		AudioState audioState();
 
 		//process any events in the current thread
 		void processEvents();
@@ -57,8 +60,22 @@ class Instance {
 		//register a function to be called when configuration values change
 		//this will be called in the same thread as `processEvents`
 		void registerConfigChangeCallback(std::function<void()> cb);
+
+		bool presetsDirty() {
+			auto dirty = mPresetsDirty;
+			mPresetsDirty = false;
+			return dirty;
+		}
+
+		//must only be called from event thread
+		void presetsUpdateMarkClean() {
+			mPresetsDirty = false;
+			updatePresetEntries();
+		}
 	private:
-		bool loadJsonPreset(const std::string& content);
+		bool mPresetsDirty = false;
+
+		bool loadJsonPreset(const std::string& content, const std::string& name);
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::mutex mConfigChangedMutex;
@@ -74,11 +91,13 @@ class Instance {
 				Delete,
 				Initial,
 				Load,
-				Save
+				Save,
+				Rename
 			};
 			CommandType type;
 			std::string preset;
-			PresetCommand(CommandType t, std::string p) : type(t), preset(p) {}
+			std::string newname;
+			PresetCommand(CommandType t, std::string p, std::string n = std::string()) : type(t), preset(p), newname(n) {}
 		};
 
 		void processDataRefCommands();
@@ -113,6 +132,7 @@ class Instance {
 		Queue<DataRefCommand> mDataRefCommandQueue;
 		//queue for moving dataref deallocs out of audio thread
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>> mDataRefCleanupQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 32>> mPresetSaveQueue;
 
 		//only accessed in the data ref thread
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;
@@ -139,7 +159,10 @@ class Instance {
 		Queue<PresetCommand> mPresetCommandQueue;
 
 		//simply the names of outports, for building up OSCQuery
-		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParams;
+		std::unordered_map<std::string, std::vector<ossia::net::parameter_base *>> mOutportParams;
+
+		//functions to run on destruction, to cleanup callbacks etc
+		std::vector<std::function<void()>> mCleanupQueue;
 
 		RNBO::Json mConfig;
 		unsigned int mIndex = 0;

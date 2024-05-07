@@ -10,7 +10,7 @@
 namespace fs = boost::filesystem;
 
 namespace {
-	const std::string rnbo_version(RNBO_VERSION);
+	const std::string cur_rnbo_version(RNBO_VERSION);
 }
 
 DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE) {
@@ -26,7 +26,7 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 	//create initial version entry, if it doesn't already exist
 	{
 		SQLite::Statement query(mDB, "INSERT OR IGNORE INTO migrations (id, rnbo_version) VALUES (1, ?)");
-		query.bind(1, rnbo_version);
+		query.bind(1, cur_rnbo_version);
 		query.exec();
 	}
 
@@ -45,7 +45,7 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 			func(mDB);
 			SQLite::Statement query(mDB, "INSERT INTO migrations (id, rnbo_version) VALUES (?, ?)");
 			query.bind(1, version);
-			query.bind(2, rnbo_version);
+			query.bind(2, cur_rnbo_version);
 			query.exec();
 		}
 	};
@@ -102,16 +102,78 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 			);
 			db.exec("CREATE INDEX preset_patcher_id ON presets(patcher_id)");
 	});
+	//add on delete CASCADE
+	//https://www.sqlite.org/foreignkeys.html
+	//https://www.techonthenet.com/sqlite/foreign_keys/foreign_delete.php
+	do_migration(7, [](SQLite::Database& db) {
+			db.exec(R"(
+PRAGMA foreign_keys=off;
+
+BEGIN TRANSACTION;
+
+ALTER TABLE presets RENAME TO _presets_old;
+
+CREATE TABLE presets
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	patcher_id INTEGER NOT NULL,
+	name TEXT NOT NULL,
+	content TEXT NOT NULL,
+	initial INTEGER NOT NULL DEFAULT 0,
+	created_at REAL DEFAULT (datetime('now', 'localtime')),
+	updated_at REAL DEFAULT (datetime('now', 'localtime')),
+	FOREIGN KEY (patcher_id) REFERENCES patchers(id) ON DELETE CASCADE,
+	UNIQUE (patcher_id, name)
+);
+
+INSERT INTO presets SELECT * FROM _presets_old;
+
+COMMIT;
+
+PRAGMA foreign_keys=on;
+			)"
+			);
+	});
+	do_migration(8, [](SQLite::Database& db) {
+			db.exec("ALTER TABLE patchers ADD COLUMN rnbo_patch_name TEXT");
+	});
+	do_migration(9, [](SQLite::Database& db) {
+			db.exec("DROP TABLE _presets_old");
+	});
+	do_migration(10, [](SQLite::Database& db) {
+			db.exec(R"(
+CREATE TABLE listeners
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	ip TEXT NOT NULL,
+	port INTEGER NOT NULL,
+	UNIQUE (ip, port)
+);
+			)");
+	});
+
+	//turn on foreign_keys support
+	mDB.exec("PRAGMA foreign_keys=on");
 }
 
 DB::~DB() { }
 
+void DB::rnboVersions(std::function<void(const std::string&)> f) {
+		SQLite::Statement query(mDB, "SELECT DISTINCT(runner_rnbo_version) FROM patchers ORDER BY id DESC");
+		while (query.executeStep()) {
+			const char * s = query.getColumn(0);
+			std::string str(s);
+			f(s);
+		}
+}
 
 void DB::patcherStore(
 		const std::string& name,
 		const fs::path& so_name,
 		const fs::path& config_name,
+		const fs::path& rnbo_patch_name,
 		const std::string& max_rnbo_version,
+		bool migrate_presets,
 		int audio_inputs,
 		int audio_outputs,
 		int midi_inputs,
@@ -119,23 +181,51 @@ void DB::patcherStore(
 		) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-	SQLite::Statement query(mDB, "INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)");
-	query.bind(1, name);
-	query.bind(2, rnbo_version);
-	query.bind(3, max_rnbo_version);
-	query.bind(4, so_name.string());
-	query.bind(5, config_name.string());
-	query.bind(6, audio_inputs);
-	query.bind(7, audio_outputs);
-	query.bind(8, midi_inputs);
-	query.bind(9, midi_outputs);
-	query.exec();
+	int old_id = 0; //ids always start at 1 right?
+	if (migrate_presets) {
+		SQLite::Statement query(mDB, "SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		if (query.executeStep()) {
+			old_id = query.getColumn(0);
+		}
+	}
+
+	{
+		SQLite::Statement query(mDB, R"(
+			INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name)
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10))");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		query.bind(3, max_rnbo_version);
+		query.bind(4, so_name.string());
+		query.bind(5, config_name.string());
+		query.bind(6, audio_inputs);
+		query.bind(7, audio_outputs);
+		query.bind(8, midi_inputs);
+		query.bind(9, midi_outputs);
+		query.bind(10, rnbo_patch_name.string());
+		query.exec();
+	}
+
+	if (old_id) {
+		auto new_id = mDB.getLastInsertRowid();
+		SQLite::Statement query(mDB, R"(
+			INSERT INTO presets (patcher_id, name, content, initial, created_at, updated_at)
+			SELECT ?2, name, content, initial, created_at, updated_at FROM presets WHERE patcher_id = ?1)");
+		query.bind(1, old_id);
+		query.bind(2, new_id);
+		query.exec();
+	}
 }
 
-bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name) {
+bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
 	std::lock_guard<std::mutex> guard(mMutex);
 
-		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (query.executeStep()) {
@@ -143,12 +233,59 @@ bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& 
 			so_name = fs::path(s);
 			s = query.getColumn(1);
 			config_name = fs::path(s);
+			s = query.getColumn(2);
+			rnbo_patch_name = fs::path(s);
 			return true;
 		}
 		return false;
 }
 
-void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> func) {
+boost::optional<std::string> DB::patcherNameByIndex(int index) {
+
+	SQLite::Statement query(mDB, R"(
+		SELECT name FROM patchers
+		WHERE id IN (SELECT MAX(id) FROM patchers WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+		LIMIT 1 OFFSET ?2
+	)");
+	query.bind(1, cur_rnbo_version);
+	query.bind(2, index);
+
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return std::string(s);
+	}
+
+	return boost::none;
+}
+
+
+void DB::patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f) {
+	//TODO what about sets?
+	std::lock_guard<std::mutex> guard(mMutex);
+	{
+		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		while (query.executeStep()) {
+			const char * s = query.getColumn(0);
+			fs::path so_name(s);
+			s = query.getColumn(1);
+			fs::path config_name(s);
+			f(so_name, config_name);
+		}
+	}
+	{
+		SQLite::Statement query(mDB, "DELETE FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		query.executeStep();
+	}
+}
+
+void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> func, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
@@ -172,7 +309,10 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 	}
 }
 
-void DB::presets(const std::string& patchername, std::function<void(const std::string&, bool)> f) {
+void DB::presets(const std::string& patchername, std::function<void(const std::string&, bool)> f, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
@@ -190,7 +330,10 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 	}
 }
 
-boost::optional<std::pair<std::string, std::string>> DB::preset(const std::string& patchername, const std::string& presetName) {
+boost::optional<std::pair<std::string, std::string>> DB::preset(const std::string& patchername, const std::string& presetName, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
@@ -225,7 +368,7 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 
 	query.bind(1, index);
 	query.bind(2, patchername);
-	query.bind(3, rnbo_version);
+	query.bind(3, cur_rnbo_version);
 	if (query.executeStep()) {
 		const char * s = query.getColumn(0);
 		std::string content(s);
@@ -241,6 +384,7 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 void DB::presetSave(const std::string& patchername, const std::string& presetName, const std::string& preset) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
+	//XXX make sure to update patcherStore preset migration with any changes to the preset structure
 	SQLite::Statement query(mDB, R"(
 		INSERT INTO presets (patcher_id, name, content)
 		SELECT MAX(id), ?1, ?2 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
@@ -250,9 +394,11 @@ void DB::presetSave(const std::string& patchername, const std::string& presetNam
 	query.bind(1, presetName);
 	query.bind(2, preset);
 	query.bind(3, patchername);
-	query.bind(4, rnbo_version);
+	query.bind(4, cur_rnbo_version);
 	query.exec();
 }
+
+
 
 void DB::presetSetInitial(const std::string& patchername, const std::string& presetName) {
 	std::lock_guard<std::mutex> guard(mMutex);
@@ -266,8 +412,29 @@ void DB::presetSetInitial(const std::string& patchername, const std::string& pre
 	)");
 
 	query.bind(1, patchername);
-	query.bind(2, rnbo_version);
+	query.bind(2, cur_rnbo_version);
 	query.bind(3, presetName);
+	query.exec();
+}
+
+void DB::presetRename(const std::string& patchername, const std::string& oldName, const std::string& newName) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		UPDATE presets
+			SET name=?4
+		FROM
+			(SELECT MAX(patchers.id) as patcher_id, presets.id FROM patchers
+				JOIN presets ON presets.patcher_id = patchers.id
+			WHERE patchers.name = ?1 AND patchers.runner_rnbo_version = ?2 AND presets.name = ?3
+			GROUP BY patchers.name) as p
+		WHERE p.id = presets.id
+	)");
+
+	query.bind(1, patchername);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, oldName);
+	query.bind(4, newName);
 	query.exec();
 }
 
@@ -281,7 +448,7 @@ void DB::presetDestroy(const std::string& patchername, const std::string& preset
 
 	query.bind(1, presetName);
 	query.bind(2, patchername);
-	query.bind(3, rnbo_version);
+	query.bind(3, cur_rnbo_version);
 	query.exec();
 }
 
@@ -294,15 +461,37 @@ void DB::setSave(
 
 	SQLite::Statement query(mDB, "INSERT INTO sets (name, runner_rnbo_version, filename) VALUES (?1, ?2, ?3)");
 	query.bind(1, name);
-	query.bind(2, rnbo_version);
+	query.bind(2, cur_rnbo_version);
 	query.bind(3, filename.string());
 	query.exec();
 }
 
-boost::optional<boost::filesystem::path> DB::setGet(
-		const std::string& name
-		)
+bool DB::setDestroy(const std::string& name)
 {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, "DELETE FROM sets WHERE name=?1 AND runner_rnbo_version=?2");
+	query.bind(1, name);
+	query.bind(2, cur_rnbo_version);
+	return query.exec() > 0;
+}
+
+bool DB::setRename(const std::string& oldName, const std::string& newName)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, "UPDATE OR IGNORE sets SET name=?3 WHERE name=?1 AND runner_rnbo_version=?2");
+	query.bind(1, oldName);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, newName);
+	return query.exec() > 0;
+}
+
+boost::optional<boost::filesystem::path> DB::setGet(const std::string& name, std::string rnbo_version)
+{
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, "SELECT filename FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
@@ -315,8 +504,11 @@ boost::optional<boost::filesystem::path> DB::setGet(
 	return boost::none;
 }
 
-void DB::sets(std::function<void(const std::string& name, const std::string& created)> func)
+void DB::sets(std::function<void(const std::string& name, const std::string& created)> func, std::string rnbo_version)
 {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
@@ -334,3 +526,44 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 		func(name, created_at);
 	}
 }
+
+bool DB::listenersAdd(const std::string& ip, uint16_t port)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "INSERT OR IGNORE INTO listeners (ip, port) VALUES (?1, ?2)");
+	query.bind(1, ip);
+	query.bind(2, port);
+	query.exec();
+	return mDB.getChanges() != 0;
+}
+
+bool DB::listenersDel(const std::string& ip, uint16_t port)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "DELETE FROM listeners where ip = ?1 AND port = ?2");
+	query.bind(1, ip);
+	query.bind(2, port);
+	query.exec();
+	return mDB.getChanges() != 0;
+}
+
+void DB::listenersClear()
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	mDB.exec("DELETE FROM listeners");
+}
+
+void DB::listeners(std::function<void(const std::string& ip, uint16_t port)> func)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "SELECT ip, port FROM listeners");
+	while (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string ip(s);
+
+		int port = query.getColumn(1);
+
+		func(ip, static_cast<uint16_t>(port));
+	}
+}
+

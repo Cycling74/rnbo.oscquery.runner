@@ -2,7 +2,7 @@
 #and cross compiling for raspbian rpi
 
 toolchain=/rpi-rootfs/
-target_host=arm-linux-gnueabihf
+target_host=aarch64-linux-gnu
 cc_compiler=gcc
 cxx_compiler=g++
 
@@ -21,5 +21,5 @@ os=Linux
 arch=armv7
 build_type=Release
 compiler=gcc
-compiler.version=10.2
+compiler.version=12
 compiler.libcxx=libstdc++11

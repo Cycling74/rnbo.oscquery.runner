@@ -5,13 +5,14 @@
 #include <vector>
 #include <atomic>
 #include <thread>
-
+#include <set>
 #include <ossia-cpp/ossia-cpp98.hpp>
 
 #include <jack/types.h>
 #include <jack/jack.h>
 #include <jack/metadata.h>
 #include <jack/control.h>
+#include <boost/optional.hpp>
 
 #include "RNBO.h"
 #include "InstanceAudio.h"
@@ -23,11 +24,17 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+enum class JackPortChange {
+	Register,
+	Unregister,
+	Rename,
+	Connection
+};
 
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
-		ProcessAudioJack(NodeBuilder builder);
+		ProcessAudioJack(NodeBuilder builder, std::function<void(ProgramChange)> progChangeCallback = nullptr);
 		virtual ~ProcessAudioJack();
 
 		virtual bool isActive() override;
@@ -45,16 +52,21 @@ class ProcessAudioJack : public ProcessAudio {
 
 		virtual void updatePorts() override;
 		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
+		void jackPortRegistration(jack_port_id_t id, int reg);
+		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
 		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
-		void updateCards();
+		bool updateCards();
 		void updateCardNodes();
 
 		bool createClient(bool startServer);
 		bool createServer();
+
+		void connectToMidiIf(jack_port_t * port);
+
 		jack_client_t * mJackClient = nullptr;
 		jackctl_server_t * mJackServer = nullptr;
 		jack_uuid_t mJackClientUUID = 0;
@@ -64,6 +76,9 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mInfoNode = nullptr;
 		ossia::net::node_base * mPortInfoNode = nullptr;
 
+		ossia::net::node_base * mPortAudioSourceConnectionsNode = nullptr;
+		ossia::net::node_base * mPortMIDISourceConnectionsNode = nullptr;
+
 		ossia::net::node_base * mPortAliases = nullptr;
 		ossia::net::parameter_base * mPortAudioSinksParam = nullptr;
 		ossia::net::parameter_base * mPortAudioSourcesParam = nullptr;
@@ -72,6 +87,10 @@ class ProcessAudioJack : public ProcessAudio {
 
 		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
 		ossia::net::parameter_base * mIsOwnedParam = nullptr;
+
+		bool mHasCreatedClient = false;
+		bool mHasCreatedServer = false;
+
 		ossia::net::node_base * mTransportNode = nullptr;
 		ossia::net::parameter_base * mTransportBPMParam = nullptr;
 		float mTransportBPMLast = 0.0;
@@ -93,16 +112,35 @@ class ProcessAudioJack : public ProcessAudio {
 		int mNumPeriods = 2;
 		ossia::net::parameter_base * mNumPeriodsParam;
 		std::string mCardName;
+		std::string mMIDISystem = "seq";
 
-		std::thread mCardThread;
-		std::mutex mCardMutex;
-		std::atomic_bool mPollCards = true;
-		std::atomic_bool mCardsUpdated = false;
+		std::chrono::time_point<std::chrono::steady_clock> mCardsPollNext;
 
 		ossia::net::node_base * mCardNode = nullptr;
 		ossia::net::node_base * mCardListNode = nullptr;
 		//name -> Description
 		std::map<std::string, std::string> mCardNamesAndDescriptions;
+
+		std::function<void(ProgramChange)> mProgramChangeCallback;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<jack_port_id_t, JackPortChange>, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
+
+		ossia::net::parameter_base * mMidiInParam = nullptr;
+		jack_port_t * mJackMidiIn;
+
+		//working buffer for port getting port aliases
+		char * mJackPortAliases[2];
+
+		//from libossia
+		bool mMidiPortConnectionsChanged = false;
+		std::set<std::string> mSourceAudioPortConnectionUpdates;
+		std::set<std::string> mSourceMIDIPortConnectionUpdates;
+
+		//should we poll ports, connections?
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortPoll;
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortConnectionPoll;
+		//which ports got updates?
+		std::set<jack_port_id_t> mPortConnectionUpdates;
 };
 
 //Processing and handling for a specific rnbo instance.
@@ -121,10 +159,9 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void activate() override;
 		virtual void connect() override;
-		virtual void start() override;
-		virtual void stop() override;
+		virtual void start(float fadems=0.0f) override;
+		virtual void stop(float fadems=0.0f) override;
 
-		virtual bool isActive() override;
 		virtual void processEvents() override;
 
 		void process(jack_nframes_t frames);
@@ -135,6 +172,8 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
+		std::atomic<float> mFade = 1.0;
+		std::atomic<float> mFadeIncr = 0.1;
 
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
@@ -163,6 +202,7 @@ class InstanceAudioJack : public InstanceAudio {
 		bool mRunning = false;
 
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortConnectedQueue;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
 
 		//working buffer for port getting port aliases

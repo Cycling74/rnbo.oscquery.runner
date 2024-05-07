@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
+#libossia requires 20 and sdbus c++17
+set(CMAKE_CXX_STANDARD 20)
+
+project(rnbooscquery LANGUAGES CXX C)
+
+set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
+include("${CMAKE_CURRENT_LIST_DIR}/common/conan.cmake")
+
+if(NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
+endif()
+
 #find RNBO
 find_path(
 	RNBO_DIR
@@ -12,12 +24,16 @@ find_path(
 	DOC "Location of the RNBO C++ source code"
 )
 
-include("${RNBO_DIR}/version.cmake")
-if (NOT RNBO_VERSION)
-	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
+if (UNIX AND NOT APPLE)
+	set(LINUX TRUE)
+	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
 endif()
 
-include("${RNBO_DIR}/cmake/RNBOConan.cmake")
+option(WITH_JACKSERVER "include jackserver library so we can create an internal server" ON)
+
+set(USE_JACK ON)
+set(JACK_DIR "" CACHE FILEPATH "optional path to specify location for JACK libs/includes")
+mark_as_advanced(JACK_DIR)
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
@@ -27,21 +43,15 @@ mark_as_advanced(BUILTIN_PATCHER_CONF_PATH)
 
 set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
 
-#libossia and sdbus require c++17
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-if (UNIX AND NOT APPLE)
-	set(LINUX TRUE)
-	option(WITH_DBUS "include dbus interface that allows for remote update" ON)
+include("${RNBO_DIR}/version.cmake")
+if (NOT RNBO_VERSION)
+	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-option(WITH_JACKSERVER "include jackserver library so we can create an internal server" ON)
-
-project(rnbooscquery LANGUAGES CXX)
 set(PROJECT_VERSION "${RNBO_VERSION}")
 set(PROJECT_APP "rnbooscquery")
-
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(PROJECT_SRC
 	src/main.cpp
@@ -50,15 +60,10 @@ set(PROJECT_SRC
 	src/Controller.cpp
 	src/Instance.cpp
 	src/EventHandler.cpp
-	src/JackAudio.cpp
 	src/PatcherFactory.cpp
 	common/RunnerUpdateState.cpp
 	${RNBO_DIR}/RNBO.cpp
 )
-
-if(NOT CMAKE_BUILD_TYPE)
-	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
-endif()
 
 #debugging
 if (CMAKE_BUILD_TYPE STREQUAL Debug)
@@ -100,74 +105,54 @@ conan_cmake_configure(
 	REQUIRES cpp-optparse/cci.20171104
 	GENERATORS cmake_find_package
 )
-conan_cmake_autodetect(settings)
+#conan_cmake_autodetect(settings)
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
 )
 
 conan_cmake_configure(
-	REQUIRES boost/1.75.0
-	GENERATORS cmake_find_package
-	OPTIONS
-		boost:shared=False
-		boost:without_stacktrace=True
-)
-conan_cmake_install(
-	PATH_OR_REFERENCE .
-	BUILD missing
-	SETTINGS ${settings}
-)
-find_package(
-	Boost 1.75
-	COMPONENTS filesystem system REQUIRED
-)
-
-conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-multiplex-thread-safe_b2c9019afdefeee0ed@xnor/testing
-	GENERATORS cmake_find_package
-	OPTIONS libossia:shared=False
-)
-conan_cmake_install(
-	PATH_OR_REFERENCE .
-	BUILD missing
-	REMOTE cycling-public
-	SETTINGS ${settings}
-)
-
-conan_cmake_configure(
-	REQUIRES base64/0.4.0
+	REQUIRES base64/0.5.2
 	GENERATORS cmake_find_package
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
 )
 
-#unfortunately libmpg123 doesn't compile on the pi, so we disable it
-set(SNDFILE_WITH_MPEG True)
-if (LINUX)
-	set(SNDFILE_WITH_MPEG False)
+# linking on apple is failing without mpeg..
+set(WITH_MPEG False)
+if (APPLE)
+	set(WITH_MPEG True)
 endif()
-
 conan_cmake_configure(
-	REQUIRES libsndfile/1.2.0
+	REQUIRES libsndfile/1.2.2
 	GENERATORS cmake_find_package
 	OPTIONS
 		libsndfile:shared=False
 		libsndfile:programs=False
-		libsndfile:with_mpeg=${SNDFILE_WITH_MPEG}
+		libsndfile:with_mpeg=${WITH_MPEG}
+		libsndfile:with_external_libs=False #XXX TMP cannot get libflac to x-compile
 )
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
 )
 
 conan_cmake_configure(
-	REQUIRES sqlitecpp/3.2.1
+	REQUIRES sqlitecpp/3.3.1
 	GENERATORS cmake_find_package
 	OPTIONS
 		sqlitecpp:shared=False
@@ -175,16 +160,83 @@ conan_cmake_configure(
 conan_cmake_install(
 	PATH_OR_REFERENCE .
 	BUILD missing
-	SETTINGS ${settings}
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
 )
 
-find_library(JACK_LIB "jack" REQUIRED)
-find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
-if (WITH_JACKSERVER)
-	find_library(JACKSERVER_LIB "jackserver" REQUIRED)
-	add_definitions(-DJACK_SERVER=1)
+conan_cmake_configure(
+	REQUIRES boost/1.80.0
+	GENERATORS cmake_find_package
+	OPTIONS
+		boost:shared=False
+		boost:without_stacktrace=True
+		boost:without_context=True
+		boost:without_coroutine=True
+		boost:without_fiber=True
+		boost:without_locale=True
+		boost:without_log=True
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
+)
+
+find_package(
+	Boost 1.80.0
+	COMPONENTS filesystem system
+	REQUIRED
+)
+
+conan_cmake_configure(
+	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_433b3dc5e819d9c35d36@c74/testing
+	GENERATORS cmake_find_package
+	OPTIONS libossia:shared=False
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	REMOTE cycling-public
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
+)
+
+if (USE_JACK)
+	if (JACK_DIR)
+		find_library(JACK_LIB "jack"
+			PATHS ${JACK_DIR}/lib/
+			NO_DEFAULT_PATH
+			NO_CMAKE_FIND_ROOT_PATH
+		)
+		find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED
+			PATHS ${JACK_DIR}/include/
+			NO_DEFAULT_PATH
+			NO_CMAKE_FIND_ROOT_PATH
+		)
+	else()
+		find_library(JACK_LIB "jack")
+		find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+	endif()
+  if (WITH_JACKSERVER)
+    find_library(JACKSERVER_LIB "jackserver" REQUIRED)
+    add_definitions(-DJACK_SERVER=1)
+  else()
+    add_definitions(-DJACK_SERVER=0)
+  endif()
+
+  if (JACK_LIB)
+    add_definitions(-DRNBO_USE_JACK)
+    list(APPEND PROJECT_SRC src/JackAudio.cpp)
+  endif()
 else()
-	add_definitions(-DJACK_SERVER=0)
+  add_definitions(-DJACK_SERVER=0)
 endif()
 
 find_package(cpp-optparse REQUIRED)
@@ -349,10 +401,27 @@ if (LINUX)
 		#rnbo version might have a 'prerelease' or 'channel' version in it
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
 
-		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
-		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
+		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
+		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+			find_program(DPKG_CMD dpkg)
+			if(NOT DPKG_CMD)
+				message(STATUS "CPackDeb: Can not find dpkg in your path, default to i386.")
+				set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE i386)
+			endif()
+			execute_process(COMMAND "${DPKG_CMD}" --print-architecture
+				OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+				OUTPUT_STRIP_TRAILING_WHITESPACE
+				)
+		endif()
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsdbus-c++0 (>= 0.8.3)")
+		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
+
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev")
+
+		if (WITH_DBUS)
+			SET(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libsdbus-c++0 (>= 0.8.3)")
+		endif()
 
 		#packages that are also installed by default but don't have to be
 		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.1.1)")

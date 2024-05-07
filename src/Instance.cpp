@@ -10,6 +10,7 @@
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
+#include "Defines.h"
 #include "Config.h"
 #include "Instance.h"
 #include "JackAudio.h"
@@ -28,26 +29,10 @@ namespace {
 	static const std::string initial_preset_key = "preset_initial";
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
-	static const std::map<std::string, int> preset_midi_channel_values = {
-		{"omni", 0},
-		{"1", 1},
-		{"2", 2},
-		{"3", 3},
-		{"4", 4},
-		{"5", 5},
-		{"6", 6},
-		{"7", 7},
-		{"8", 8},
-		{"9", 9},
-		{"10", 10},
-		{"11", 11},
-		{"12", 12},
-		{"13", 13},
-		{"14", 14},
-		{"15", 15},
-		{"16", 16},
-		{"none", 17} //17 will never be valid
-	};
+
+	//referece count nodes created via metadata as they might be shared, this lets us cleanup
+	std::unordered_map<std::string, unsigned int> node_reference_count;
+	std::mutex node_reference_count_mutex;
 
 	//recursively get values, if we can
 	boost::optional<ossia::value> get_value(const RNBO::Json& meta) {
@@ -124,6 +109,45 @@ namespace {
 			recurse_add_meta(meta, m);
 		}
 	}
+
+	void add_node_ref(const std::string& addr, bool exists) {
+		std::lock_guard<std::mutex> guard(node_reference_count_mutex);
+
+		auto it = node_reference_count.find(addr);
+		if (it != node_reference_count.end()) {
+			it->second++;
+		} else {
+			node_reference_count.insert({addr, exists ? 2 : 1});
+		}
+	}
+
+	void cleanup_param(const std::string& addr, ossia::net::node_base * node, ossia::net::parameter_base * param) {
+		std::lock_guard<std::mutex> guard(node_reference_count_mutex);
+		auto it = node_reference_count.find(addr);
+		if (it == node_reference_count.end()) {
+			//don't know what to do
+			return;
+		}
+		if (it->second > 1) {
+			it->second--;
+			return;
+		}
+		//do cleanup
+		node_reference_count.erase(it);
+
+		if (param->callback_count() == 0) {
+			node->remove_parameter();
+			auto parent = node->get_parent();
+			while (node && parent && node->children().size() == 0 && node->get_parameter() == nullptr) {
+				auto n = node;
+				auto p = parent;
+
+				p->remove_child(*n);
+				parent = p->get_parent();
+				node = p;
+			}
+		}
+	}
 }
 
 Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db) {
@@ -146,8 +170,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		} else if (auto o = config::get<std::string>(config::key::PresetMIDIProgramChangeChannel)) {
 			chanName = *o;
 		}
-		auto it = preset_midi_channel_values.find(chanName);
-		if (it != preset_midi_channel_values.end()) {
+		auto it = config_midi_channel_values.find(chanName);
+		if (it != config_midi_channel_values.end()) {
 			mPresetProgramChangeChannel = it->second;
 		}
 	} catch (const std::exception& e) {
@@ -194,6 +218,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	});
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
+	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial) {
 			if (initial) {
@@ -247,30 +272,41 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			//use a mutex to make sure we don't update in a loop
 			auto active = std::make_shared<std::mutex>();
 
-			//create normalized version
-			auto cnorm = [this, info, index, active](ossia::net::node_base& param) -> ossia::net::parameter_base * {
-				auto n = param.create_child("normalized");
-				auto p = n->create_parameter(ossia::val_type::FLOAT);
+			//create comon, return normalized version
+			auto ccommon = [this, info, index, active](ossia::net::node_base& param) -> ossia::net::parameter_base * {
+				{
+					auto n = param.create_child("index");
 
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-				n->set(ossia::net::domain_attribute{}, ossia::make_domain(0., 1.));
-				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::description_attribute{}, "RNBO parameter index");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					p->push_value(static_cast<int>(index));
+				}
 
-				p->push_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
+				{
+					auto n = param.create_child("normalized");
+					auto p = n->create_parameter(ossia::val_type::FLOAT);
 
-				//normalized callback
-				p->add_callback([this, index, active](const ossia::value& val) mutable {
-					if (val.get_type() == ossia::val_type::FLOAT) {
-						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-							double f = static_cast<double>(val.get<float>());
-							f = mCore->convertFromNormalizedParameterValue(index, f);
-							mCore->setParameterValue(index, f);
-							handleParamUpdate(index, f);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+					n->set(ossia::net::domain_attribute{}, ossia::make_domain(0., 1.));
+					n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+					p->push_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
+
+					//normalized callback
+					p->add_callback([this, index, active](const ossia::value& val) mutable {
+						if (val.get_type() == ossia::val_type::FLOAT) {
+							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
+								double f = static_cast<double>(val.get<float>());
+								f = mCore->convertFromNormalizedParameterValue(index, f);
+								mCore->setParameterValue(index, f);
+								handleParamUpdate(index, f);
+							}
 						}
-					}
-				});
+					});
 
-				return p;
+					return p;
+				}
 			};
 
 			if (info.enumValues == nullptr) {
@@ -286,7 +322,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				add_meta(n);
 
 				//normalized
-				auto norm = cnorm(n);
+				auto norm = ccommon(n);
 
 				//param callback, set norm
 				p->add_callback([this, index, active, norm](const ossia::value& val) mutable {
@@ -328,7 +364,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				add_meta(n);
 
 				//normalized
-				auto norm = cnorm(n);
+				auto norm = ccommon(n);
 
 				p->add_callback([this, index, nameToVal, active, norm](const ossia::value& val) mutable {
 					if (val.get_type() == ossia::val_type::STRING) {
@@ -393,6 +429,22 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			}
 
 			{
+				auto n = presets->create_child("rename");
+				auto rename = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::description_attribute{}, "rename a preset, arguments: oldname, newName");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+				rename->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::LIST) {
+						auto l = val.get<std::vector<ossia::value>>();
+						if (l.size() == 2 && l[0].get_type() == ossia::val_type::STRING && l[1].get_type() == ossia::val_type::STRING) {
+							mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Rename, l[0].get<std::string>(), l[1].get<std::string>()));
+						}
+					}
+				});
+			}
+
+			{
 				auto n = presets->create_child("load");
 				auto load = n->create_parameter(ossia::val_type::STRING);
 
@@ -407,7 +459,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 			{
 				auto n = presets->create_child("loaded");
-				mPresetLoadedParam = n->create_parameter(ossia::val_type::IMPULSE);
+				mPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 
 				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
@@ -461,7 +513,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				auto n = presets->create_child("midi_channel");
 
 				std::vector<ossia::value> values;
-				for (auto& kv: preset_midi_channel_values) {
+				for (auto& kv: config_midi_channel_values) {
 					values.push_back(kv.first);
 				}
 
@@ -474,7 +526,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 
-				for (auto& kv: preset_midi_channel_values) {
+				for (auto& kv: config_midi_channel_values) {
 					if (kv.second == mPresetProgramChangeChannel) {
 						mPresetProgramChangeChannelParam->push_value(kv.first);
 						break;
@@ -483,8 +535,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 				mPresetProgramChangeChannelParam->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
-						auto it = preset_midi_channel_values.find(val.get<std::string>());
-						if (it != preset_midi_channel_values.end()) {
+						auto it = config_midi_channel_values.find(val.get<std::string>());
+						if (it != config_midi_channel_values.end()) {
 							mPresetProgramChangeChannel = it->second;
 							queueConfigChangeSignal();
 						}
@@ -499,12 +551,39 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				auto inports = conf["inports"];
 				bool hasInports = (inports.is_array() && inports.size() > 0);
 				bool hasOutports = (outports.is_array() && outports.size() > 0);
+
+				//get OSC root
+				auto oscRoot = root;
+				while (auto r = oscRoot->get_parent()) {
+					oscRoot = r;
+				}
+
 				if (hasInports || hasOutports) {
 					auto msgs = root->create_child("messages");
+					bool toOSC = config::get<bool>(config::key::InstancePortToOSC).value_or(true);
+					auto osc_meta = [](const std::string& name, std::string addr, const RNBO::Json& meta) -> std::string {
+						if (meta.contains("osc")) {
+							if (meta["osc"].is_string()) {
+								addr = meta["osc"].get<std::string>();
+							} else if (meta["osc"].is_boolean()) {
+								if (!meta["osc"].get<bool>())
+									return "";
+								addr = name;
+							}
+						} else {
+							return addr;
+						}
+						if (addr.size() && !addr.starts_with('/')) {
+							addr = "/" + addr;
+						}
+						return addr;
+					};
+
 					if (hasInports) {
 						auto in = msgs->create_child("in");
 						for (auto i: inports) {
 							std::string name = i["tag"];
+							std::string addr = toOSC ? name : "";
 							auto tag = RNBO::TAG(name.c_str());
 
 							auto& n = ossia::net::create_node(*in, name);
@@ -515,6 +594,37 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							{
 								auto meta = i["meta"];
 								add_meta_to_param(meta, n);
+								addr = osc_meta(name, addr, meta);
+							}
+
+							//XXX should we disallow a /rnbo/ prefix??
+							if (addr.starts_with('/')) {
+								bool exists = ossia::net::find_node(*oscRoot, addr) != nullptr;
+								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
+								auto pp = pn.get_parameter();
+
+								if (pp == nullptr) {
+									pp = pn.create_parameter(ossia::val_type::LIST);
+									pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+								} else {
+									//if it is get only, chanage to bi
+									auto mode = ossia::net::get_access_mode(pn);
+									if (mode && *mode == ossia::access_mode::GET) {
+										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+									}
+								}
+
+								auto cb = pp->add_callback([this, tag](const ossia::value& val) {
+									handleInportMessage(tag, val);
+								});
+
+								//queue cleanup
+								add_node_ref(addr, exists);
+								auto node_ptr = ossia::net::find_node(*oscRoot, addr);
+								mCleanupQueue.push_back([addr, cb, pp, node_ptr]() {
+										pp->remove_callback(cb);
+										cleanup_param(addr, node_ptr, pp);
+								});
 							}
 
 							p->add_callback([this, tag](const ossia::value& val) {
@@ -524,19 +634,52 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					}
 					if (hasOutports) {
 						auto o = msgs->create_child("out");
+
 						for (auto i: outports) {
 							std::string name = i["tag"];
+							std::string addr = toOSC ? name : "";
 							auto& n = ossia::net::create_node(*o, name);
 							auto p = n.create_parameter(ossia::val_type::LIST);
 							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+
+							//we may have another param associated with this outport
+							std::vector<ossia::net::parameter_base *> params = { p };
 
 							if (i.contains("meta"))
 							{
 								auto meta = i["meta"];
 								add_meta_to_param(meta, n);
+								addr = osc_meta(name, addr, meta);
 							}
 
-							mOutportParams[name] = p;
+							//XXX should we disallow a /rnbo/ prefix?? what if you want to send to a param?
+							if (addr.starts_with('/')) {
+								bool exists = ossia::net::find_node(*oscRoot, addr) != nullptr;
+								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
+								auto pp = pn.get_parameter();
+
+								if (pp == nullptr) {
+									pp = pn.create_parameter(ossia::val_type::LIST);
+									pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+								} else {
+									//if it is set only, chanage to bi
+									auto mode = ossia::net::get_access_mode(pn);
+									if (mode && *mode == ossia::access_mode::SET) {
+										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+									}
+								}
+
+								params.push_back(pp);
+
+								//queue cleanup
+								add_node_ref(addr, exists);
+								auto node_ptr = ossia::net::find_node(*oscRoot, addr);
+								mCleanupQueue.push_back([pp, addr, node_ptr]() {
+										cleanup_param(addr, node_ptr, pp);
+								});
+							}
+
+							mOutportParams[name] = params;
 						}
 					}
 				}
@@ -599,6 +742,11 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 }
 
 Instance::~Instance() {
+	//cleanup callbacks
+	for (auto f: mCleanupQueue) {
+		f();
+	}
+
 	mDataRefProcessCommands.store(false);
 	mDataRefThread.join();
 	stop();
@@ -616,12 +764,16 @@ void Instance::connect() {
 	mAudio->connect();
 }
 
-void Instance::start() {
-	mAudio->start();
+void Instance::start(float fadems) {
+	mAudio->start(fadems);
 }
 
-void Instance::stop() {
-	mAudio->stop();
+void Instance::stop(float fadems) {
+	mAudio->stop(fadems);
+}
+
+AudioState Instance::audioState() {
+	return mAudio->state();
 }
 
 void Instance::registerConfigChangeCallback(std::function<void()> cb) {
@@ -641,86 +793,125 @@ void Instance::processDataRefCommands() {
 }
 
 void Instance::processEvents() {
-	mEventHandler->processEvents();
+	const auto state = audioState();
+	const auto active = state == AudioState::Starting || state == AudioState::Running;
+	if (active) {
+		mEventHandler->processEvents();
+	}
 	mAudio->processEvents();
+
 	//clear
 	while (mDataRefCleanupQueue->pop()) {
 		//clear out/dealloc
 	}
 
-	//see if we should signal a change
-	auto changed = false;
+	//handle queued presets
 	{
-		std::lock_guard<std::mutex> guard(mConfigChangedMutex);
-		changed = mConfigChanged;
-		mConfigChanged = false;
+		std::pair<std::string, RNBO::ConstPresetPtr> preset;
+		while (mPresetSaveQueue->try_dequeue(preset)) {
+			std::string name = preset.first;
+
+			auto j = RNBO::convertPresetToJSONObj(*preset.second);
+			mDB->presetSave(mName, name, j.dump());
+			mPresetsDirty = true;
+			{
+				std::lock_guard<std::mutex> guard(mPresetMutex);
+				mPresetLatest = name;
+			}
+			updatePresetEntries();
+		}
 	}
 
-	//store any presets that we got
-	bool updated = false;
-	//only process a few events
-	auto c = 0;
-	while (auto item = mPresetCommandQueue.tryPop()) {
-		auto cmd = item.get();
-		switch (cmd.type) {
-			case PresetCommand::CommandType::Load:
-				loadPreset(cmd.preset);
-				break;
-			case PresetCommand::CommandType::Save:
-				mCore->getPreset([cmd, this] (RNBO::ConstPresetPtr preset) {
+	if (active) {
+		//see if we should signal a change
+		auto changed = false;
+		{
+			std::lock_guard<std::mutex> guard(mConfigChangedMutex);
+			changed = mConfigChanged;
+			mConfigChanged = false;
+		}
+
+		//store any presets that we got
+		bool updated = false;
+		//only process a few events
+		auto c = 0;
+		while (auto item = mPresetCommandQueue.tryPop()) {
+			auto cmd = item.get();
+			switch (cmd.type) {
+				case PresetCommand::CommandType::Load:
+					loadPreset(cmd.preset);
+					break;
+				case PresetCommand::CommandType::Save:
+					{
 						auto name = cmd.preset;
-						auto j = RNBO::convertPresetToJSONObj(*preset);
-						mDB->presetSave(mName, cmd.preset, j.dump());
+						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
+							//get preset called in audio thread, queue to do heavy work outside that thread
+							mPresetSaveQueue->try_enqueue({name, preset});
+						});
+					}
+					break;
+				case PresetCommand::CommandType::Initial:
+					{
+						auto name = cmd.preset;
+						mDB->presetSetInitial(mName, name);
+
+						auto preset = mDB->preset(mName, name);
+
 						{
 							std::lock_guard<std::mutex> guard(mPresetMutex);
-							mPresetLatest = name;
-						}
-						updatePresetEntries();
-				});
-				break;
-			case PresetCommand::CommandType::Initial:
-				{
-					auto name = cmd.preset;
-					mDB->presetSetInitial(mName, name);
-
-					auto preset = mDB->preset(mName, name);
-
-					{
-						std::lock_guard<std::mutex> guard(mPresetMutex);
-						if (cmd.preset.size() == 0 || preset) {
-							if (mPresetInitial != name) {
-								mPresetInitial = name;
+							if (cmd.preset.size() == 0 || preset) {
+								if (mPresetInitial != name) {
+									mPresetInitial = name;
+								}
+							} else if (name != mPresetInitial) {
+								mPresetInitialParam->push_value(mPresetInitial);
 							}
-						} else if (name != mPresetInitial) {
+						}
+					}
+					break;
+				case PresetCommand::CommandType::Delete:
+					mDB->presetDestroy(mName, cmd.preset);
+					{
+						mPresetsDirty = true;
+						//clear out initial and latest if they match
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						if (mPresetInitial == cmd.preset) {
+							mPresetInitial.clear();
 							mPresetInitialParam->push_value(mPresetInitial);
 						}
+						if (mPresetLatest == cmd.preset) {
+							mPresetLatest.clear();
+						}
+						updated = true;
 					}
-				}
-				break;
-			case PresetCommand::CommandType::Delete:
-				mDB->presetDestroy(mName, cmd.preset);
-				{
-					//clear out initial and latest if they match
-					std::lock_guard<std::mutex> guard(mPresetMutex);
-					if (mPresetInitial == cmd.preset) {
-						mPresetInitial.clear();
-						mPresetInitialParam->push_value(mPresetInitial);
+					break;
+				case PresetCommand::CommandType::Rename:
+					mDB->presetRename(mName, cmd.preset, cmd.newname);
+					{
+						mPresetsDirty = true;
+						//update our initial and latest if they match
+						std::lock_guard<std::mutex> guard(mPresetMutex);
+						if (mPresetInitial == cmd.preset) {
+							mPresetInitial = cmd.newname;
+							mPresetInitialParam->push_value(mPresetInitial);
+						}
+						if (mPresetLatest == cmd.preset) {
+							mPresetLatest = cmd.newname;
+						}
+						updated = true;
 					}
-					if (mPresetLatest == cmd.preset) {
-						mPresetLatest.clear();
-					}
-					updated = true;
-				}
+					break;
+			}
+			if (c++ > 10)
 				break;
 		}
-		if (c++ > 10)
-			break;
-	}
-	if (updated)
-		updatePresetEntries();
 
-	if (changed && mConfigChangeCallback != nullptr) {
-		mConfigChangeCallback();
+		if (updated)
+			updatePresetEntries();
+
+		if (changed && mConfigChangeCallback != nullptr) {
+			mConfigChangeCallback();
+		}
 	}
 }
 
@@ -738,10 +929,7 @@ void Instance::loadPreset(std::string name) {
 	}
 
 	if (preset) {
-		if (loadJsonPreset(preset->first)) {
-			std::lock_guard<std::mutex> guard(mPresetMutex);
-			mPresetLatest = preset->second;
-		}
+		loadJsonPreset(preset->first, preset->second);
 	} else {
 		std::cerr << "couldn't find preset with name or index: " << name << std::endl;
 	}
@@ -750,10 +938,7 @@ void Instance::loadPreset(std::string name) {
 void Instance::loadPreset(unsigned int index) {
 	auto preset = mDB->preset(mName, index);
 	if (preset) {
-		if (loadJsonPreset(preset->first)) {
-			std::lock_guard<std::mutex> guard(mPresetMutex);
-			mPresetLatest = preset->second;
-		}
+		loadJsonPreset(preset->first, preset->second);
 	} else {
 		std::cerr << "couldn't find preset with index: " << index << std::endl;
 	}
@@ -763,7 +948,14 @@ void Instance::loadPreset(RNBO::UniquePresetPtr preset) {
 	mCore->setPreset(std::move(preset));
 }
 
-bool Instance::loadJsonPreset(const std::string& preset) {
+bool Instance::loadJsonPreset(const std::string& preset, const std::string& name) {
+	//set preset latest so we can correctly send loaded param
+	std::string last;
+	{
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		last = mPresetLatest;
+		mPresetLatest = name;
+	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
 		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
@@ -772,6 +964,11 @@ bool Instance::loadJsonPreset(const std::string& preset) {
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;
+		{
+			std::lock_guard<std::mutex> guard(mPresetMutex);
+			//revert if preset fails
+			mPresetLatest = last;
+		}
 		return false;
 	}
 }
@@ -809,6 +1006,7 @@ RNBO::Json Instance::currentConfig() {
 
 	return config;
 }
+
 void Instance::updatePresetEntries() {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
 	std::vector<ossia::value> names;
@@ -979,21 +1177,28 @@ void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 		std::cerr << "couldn't find outport node with tag " << tag << std::endl;
 		return;
 	}
-	auto p = it->second;
+
 	switch(e.getType()) {
 		case MessageEvent::Type::Number:
-			p->push_value(e.getNumValue());
+			for (auto p: it->second) {
+				p->push_value(e.getNumValue());
+			}
 			break;
 		case MessageEvent::Type::Bang:
-			p->push_value(ossia::impulse {});
+			for (auto p: it->second) {
+				p->push_value(ossia::impulse {});
+			}
 			break;
 		case MessageEvent::Type::List:
 			{
 				std::vector<ossia::value> values;
 				std::shared_ptr<const RNBO::list> elist = e.getListValue();
-				for (size_t i = 0; i < elist->length; i++)
+				for (size_t i = 0; i < elist->length; i++) {
 					values.push_back(ossia::value(elist->operator[](i)));
-				p->push_value(values);
+				}
+				for (auto p: it->second) {
+					p->push_value(values);
+				}
 			}
 			break;
 		case MessageEvent::Type::Invalid:
@@ -1034,6 +1239,7 @@ void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValu
 
 void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
 	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
-		mPresetLoadedParam->push_value(ossia::impulse());
+		std::lock_guard<std::mutex> guard(mPresetMutex);
+		mPresetLoadedParam->push_value(mPresetLatest);
 	}
 }

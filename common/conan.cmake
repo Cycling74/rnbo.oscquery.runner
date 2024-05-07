@@ -14,7 +14,7 @@ conan_check(VERSION 1.29.0 REQUIRED)
 
 conan_add_remote(
 	NAME cycling-public
-	INDEX 1
+	INDEX 0
 	URL https://conan-public.cycling74.com
 	#URL https://xnor.jfrog.io/artifactory/api/conan/cycling74
 	VERIFY_SSL True

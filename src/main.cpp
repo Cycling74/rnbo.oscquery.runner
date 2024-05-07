@@ -15,7 +15,7 @@ using optparse::OptionParser;
 using std::cout;
 using std::cerr;
 using std::endl;
-using std::chrono::system_clock;
+using std::chrono::steady_clock;
 
 namespace fs = boost::filesystem;
 
@@ -36,6 +36,15 @@ int main(int argc, const char * argv[]) {
 		.dest("filename")
 		.help("load dynamic library FILE")
 		.metavar("FILE");
+	parser.add_option("-c", "--config")
+		.dest("config")
+		.help("set the path to the configuration file FILE")
+		.metavar("FILE");
+	parser.add_option("-w", "--write-config")
+		.action("store_true")
+		.dest("write_config")
+		.set_default("0")
+		.help("write the default configuration to the config file");
 	parser.add_option("-q", "--quiet")
 		.action("store_false")
 		.dest("verbose")
@@ -45,14 +54,26 @@ int main(int argc, const char * argv[]) {
 	optparse::Values options = parser.parse_args(argc, argv);
 	std::vector<std::string> args = parser.args();
 
-	if (options.get("verbose"))
+	if (options.get("verbose")) {
 		cout << options["filename"] << endl;
+	}
+
+	//optionally set the config file path
+	if (options["config"].size()) {
+		config::set_file_path(options["config"]);
+	}
 
 	std::signal(SIGINT, signal_handler);
 
 	//initialize the config
-	//TODO, optionally set the config file path
 	config::init();
+
+	//write config file and exit
+	if (options.get("write_config")) {
+		config::write_file();
+		cout << "wrote config to path: " << config::file_path().string() << std::endl;
+		return 0;
+	}
 
 	//get the host name (or override)
 	auto host = config::get<std::string>(config::key::HostNameOverride);
@@ -75,7 +96,7 @@ int main(int argc, const char * argv[]) {
 #ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
 		if (options["filename"].size()) {
 			c.loadLibrary(options["filename"]);
-		} else if (config::get<bool>(config::key::InstanceAutoStartLast)){
+		} else if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true)){
 			c.loadSet();
 		}
 #else
@@ -83,11 +104,11 @@ int main(int argc, const char * argv[]) {
 #endif
 
 		auto config_timeout = std::chrono::seconds(1);
-		std::chrono::time_point<std::chrono::system_clock> config_poll_next = system_clock::now() + config_timeout;
+		std::chrono::time_point<std::chrono::steady_clock> config_poll_next = steady_clock::now() + config_timeout;
 		while (c.processEvents() && mRun.load()) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-			if (config_poll_next <= system_clock::now()) {
-				config_poll_next = system_clock::now() + config_timeout;
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			if (config_poll_next <= steady_clock::now()) {
+				config_poll_next = steady_clock::now() + config_timeout;
 				config::write_if_dirty();
 			}
 		}

@@ -2,16 +2,16 @@
 
 ## Normal use
 
-You can install rnbooscquery on an existing bullseye image or start from scratch.
+You can install rnbooscquery on an existing bookworm image or start from scratch.
 Feel free to customize your hostname and password, but at this time you should
 keep the user name `pi`.
 
-* Install latest `bullseye 32-bit` OS with [raspberry pi imager](https://www.raspberrypi.com/software/)
+* Install latest `bookworm 32-bit` OS with [raspberry pi imager](https://www.raspberrypi.com/software/)
   * use the gear icon to set your hostname, password, and enable SSH
     * we use `c74rpi` for the host name and `c74rnbo` for the initial password
   * do not change the user name, it needs to be `pi`
   * optionally setup wireless lan (wifi)
-* Boot the Pi with the `bullseye` SD card you just created, connect via Ethernet to the host machine.
+* Boot the Pi with the `bookworm` SD card you just created, connect via Ethernet to the host machine.
 * send over files that are needed for the repo:
   ```shell
   rsync config/apt-cycling74-pubkey.asc config/cycling74.list pi@c74rpi.local:
@@ -22,6 +22,8 @@ keep the user name `pi`.
   * uninstall pulse audio
   * install some packages, including rnbooscquery
   * set the CPU to not scale
+  * disable RemoveIPC
+    * https://www.man7.org/linux/man-pages/man5/logind.conf.5.html
   * enable realtime
   * install rnbooscquery
   * reboot (easiest way to update your group security settings)
@@ -36,12 +38,13 @@ keep the user name `pi`.
 
   ```shell
   rm -f /etc/xdg/autostart/piwiz.desktop
-  apt-key add apt-cycling74-pubkey.asc
+  mv apt-cycling74-pubkey.asc /usr/share/keyrings/
   mv cycling74.list /etc/apt/sources.list.d/
   apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
   apt -y install jackd2 ccache cpufrequtils
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
+  echo "RemoveIPC=no" >> /etc/systemd/logind.conf
   apt -y upgrade
   apt-get -y autoremove
   ```
@@ -61,7 +64,8 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=1.0.1
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.3.0-dev.75
+  apt-get install -y jack_transport_link rnbo-runner-panel
   apt-mark hold rnbooscquery
   ```
 
@@ -71,6 +75,11 @@ keep the user name `pi`.
   ```shell
   reboot
   ```
+
+### Beta
+
+  If you're configuring for beta usage, you'll want to add the `beta` component to
+  `/etc/apt/sources.list.d/cycling74.list`
 
 ## Wifi Setup
 
@@ -86,12 +95,13 @@ Do all the normal use stuff then:
 * make directories for local builds and config
   ```shell
   sudo -s
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libsndfile1-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev cmake
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
+  apt-get -y install cmake
   apt-get -y --no-install-recommends install ruby python3-pip
   update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
   exit
-  pip3 install conan==1.59.0
+  pip3 install --break-system-packages --user conan==1.61.0
   mkdir -p ~/.conan/profiles/
   mkdir -p ~/local/src/
   ```
@@ -111,7 +121,8 @@ Do all the normal use stuff then:
 * build and install the runner (on pi)
   ```shell
   ssh pi@c74rpi.local
-  cd ~/local/src/rnbo.oscquery.runner/ && mkdir build && cd build && CXXFLAGS="-mcpu=cortex-a53" cmake .. && make && cpack
+  cd ~/local/src/rnbo.oscquery.runner/ && mkdir build && cd build && CC=gcc CXX=g++ ASMFLAGS="-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard" CFLAGS="-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard" CXXFLAGS="-mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard" cmake -DCMAKE_BUILD_TYPE=Release  .. && cmake --build . && cpack
+
   sudo dpkg -i *.deb
   ```
   * you could also do a standard make install, but then you'll need to setup the service file yourself.
@@ -179,7 +190,7 @@ Fails to sign but debs end up in containing directory and seem to work fine.
     ```
 * backup with dd (**BE CAREFUL**):
   ```shell
-  sudo dd if=/dev/disk5 of=2020-12-02-raspios-bullseye-armhf-setup.dmg bs=1024k
+  sudo dd if=/dev/disk5 of=2020-12-02-raspios-bookworm-armhf-setup.dmg bs=1024k
   ```
   *note* if you're on linux you can add `status=progress` to see the progress
 * shrink, on linux:
@@ -220,21 +231,23 @@ brew install gnupg
 to create a package and upload it, from a mac, in the root of this repo.
 ```shell
 ./build-rpi.sh
-aptly -distribution=bullseye repo create bullseye-rpi
-aptly repo create -distribution=bullseye -component=extra bullseye-rpi-extra
-aptly repo add bullseye-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
-aptly publish repo -component=, -passphrase-file=/Users/benbracken/.apt-gpg.txt bullseye-rpi bullseye-rpi-extra s3:c74:
+aptly -distribution=bookworm repo create bookworm-rpi
+aptly repo create -distribution=bookworm -component=extra bookworm-rpi-extra
+aptly repo create -distribution=bookworm -component=beta bookworm-rpi-beta
+aptly repo add bookworm-rpi-extra ~/Documents/bookworm/jack_transport_link_0.0.8-1_armhf.deb
+aptly repo add bookworm-rpi ./examples/rnbo.oscquery.runner/update/build-rpi/rnbo-update-service_0.2.6-1_armhf.deb
+aptly publish repo -component=,, -passphrase-file=/home/runner/.apt-gpg.txt bookworm-rpi bookworm-rpi-extra bookworm-rpi-beta s3:c74:
 ```
 
 to update the repo
 ```shell
-aptly publish update bullseye s3:c74:
+aptly publish update bookworm s3:c74:
 ```
 
 to overwrite a package
 ```shell
-aptly -force-replace repo add bullseye-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
-aptly -force-overwrite publish update bullseye s3:c74:
+aptly -force-replace repo add bookworm-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
+aptly -force-overwrite publish update bookworm s3:c74:
 ```
 
 to remove a package from a repo.. (dry-run)
@@ -286,7 +299,7 @@ Boot into an old image, update the packages, install the new version, mark the p
 ```shell
   sudo -s
   apt-get update
-  apt-get install -y --allow-change-held-packages --allow-downgrades --install-recommends --install-suggests rnbooscquery=0.11.0
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.3.0-dev.75
   apt-mark hold rnbooscquery
   apt-get -y upgrade && apt-get -y autoremove && apt-get -y clean
   journalctl --vacuum-time=2d
@@ -311,3 +324,40 @@ Then remove the SD card and do a backup.
 * [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
 
 
+
+# PI 5 notes
+
+## With pipewire
+
+used default conan profile but set
+
+```
+compiler.libcxx=libstdc++11
+```
+
+```
+CC=gcc CXX=g++ ASMFLAGS="-mcpu=cortex-a76" CFLAGS="-mcpu=cortex-a76" CXXFLAGS="-mcpu=cortex-a76" cmake -DCMAKE_BUILD_TYPE=Release  -DWITH_DBUS=Off .. && cmake --build .
+```
+
+```
+sudo apt-get install pipewire-jack
+wpctl status
+pw-jack ./bin/rnbooscquery
+
+systemctl --user daemon-reload
+systemctl --user enable rnbooscquery.service
+systemctl --user is-enabled  rnbooscquery.service
+systemctl --user start rnbooscquery.service
+journalctl --user -u rnbooscquery
+```
+
+works but pipewire is a little bit of pain to control remotely, so we're gonna install jackd2
+
+## Without pipewire
+
+same build steps as above
+
+```
+apt remove pipewire
+apt autoremove
+```

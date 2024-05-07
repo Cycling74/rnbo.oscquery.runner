@@ -7,23 +7,28 @@ A [RNBO](https://cycling74.com/products/rnbo) runner controlled by [OSCQuery](ht
 **NOTE** there is a separate [README for rpi](README-rpi.md) that indicates how
 to build for rpi.
 
-### Requirements
+### Build Requirements
 
-This currently runs on Linux and Mac, Windows is TBD.
+This currently builds and runs on Linux and Mac. Windows is TBD.
 
-#### Mac
+`debian` instructions also apply to other `apt` based distros like `ubuntu`.
 
 * [cmake](https://cmake.org/download/) version 3.17 or greater
-  * `brew install cmake`
+  * macOS: `brew install cmake`
+  * debian: `sudo apt-get install cmake`
+  * make sure `cmake` is in your path if you install it with `brew` or directly from the download
 * `g++` or `clang++`
-  * `clang++` comes with XCode.
+  * macOS: `clang++` comes with XCode.
+  * debian: `sudo apt-get install build-essential g++`
 * [conan](https://conan.io/downloads.html)
-* `libsndfile` `jackd`
-  * `brew install jack libsndfile`
-  * you likely want `qjackctl` if you're running on you laptop/desktop.
-    * if you want MIDI on Mac OS, you'll want to set your *server prefix* in the *advanced* section of *qjackctl* to `jackd -Xcoremidi`
+  * via pip3:
+    * macOS: modern macOS comes with `pip3`
+    * debian: `sudo apt-get install python3-pip`
+    * `pip3 install --break-system-packages --user conan==1.61.0`
+  * make sure that `conan` is in your PATH, I updated my `.bashrc` to add `~/.local/bin/` to my PATH
 * `ruby` 2.0+ to run the compile script
-  * `cmake` should be in your `PATH`.
+  * macOS comes with `ruby`
+  * debian: `sudo apt-get install ruby`
 
 ### Building
 
@@ -33,10 +38,25 @@ If you're on Mac OS using the bundled RNBO version, your `RNBO_DIR` should proba
 
 `/Applications/Max.app/Contents/Resources/C74/packages/RNBO/source/rnbo`
 
+On Linux you'll likely have to copy the rnbo src dir from a Windows or Mac machine.
+
 ```
 mkdir build/
 cd build/
-cmake .. -DRNBO_DIR=~/Documents/Max\ 8/Packages/RNBO/source/rnbo/ && make -j8
+cmake .. -DRNBO_DIR=~/Documents/Max\ 8/Packages/RNBO/source/rnbo/
+cmake --build .
+```
+
+If you're on a debian based system, you can also build a `.deb`
+
+```
+cpack
+```
+
+then you can install it with
+
+```
+sudo dpkg -i *.deb`
 ```
 
 ### Configuration
@@ -59,7 +79,8 @@ Here is an example of the contents:
     "jack": {
         "period_frames": 1024,
         "sample_rate": 44100.0,
-        "card_name": "hw:ES8"
+        "card_name": "hw:ES8",
+        "midi_system_name": "raw"
     }
 }
 ```
