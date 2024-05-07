@@ -27,7 +27,7 @@ This currently builds and runs on Linux and Mac. Windows is TBD.
     * `pip3 install --break-system-packages --user conan==1.61.0`
   * make sure that `conan` is in your PATH, I updated my `.bashrc` to add `~/.local/bin/` to my PATH
 * `ruby` 2.0+ to run the compile script
-  * macOS comes with `ruby`
+  * macOS: modern macOS comes with `ruby`
   * debian: `sudo apt-get install ruby`
 
 ### Building
@@ -36,7 +36,8 @@ Build the runner with CMake. You may have to update the `RNBO_DIR` to reflect th
 
 If you're on Mac OS using the bundled RNBO version, your `RNBO_DIR` should probably be:
 
-`/Applications/Max.app/Contents/Resources/C74/packages/RNBO/source/rnbo`
+* `~/Documents/Max\ 8/Packages/RNBO/source/rnbo/` if you installed RNBO with the package manager
+* `/Applications/Max.app/Contents/Resources/C74/packages/RNBO/source/rnbo` if you're using RNBO bundled with Max.
 
 On Linux you'll likely have to copy the rnbo src dir from a Windows or Mac machine.
 
