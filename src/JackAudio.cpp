@@ -1650,6 +1650,7 @@ void InstanceAudioJack::processEvents() {
 }
 
 void InstanceAudioJack::connect() {
+	mConnect = true;
 	const char ** ports;
 
 	RNBO::Json outlets;
@@ -1737,6 +1738,10 @@ void InstanceAudioJack::connect() {
 }
 
 void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
+	if (!mConnect) {
+		return;
+	}
+
 	bool all = config::get<bool>(config::key::InstanceAutoConnectMIDI).value_or(false);
 	bool hardware = config::get<bool>(config::key::InstanceAutoConnectMIDIHardware).value_or(false);
 	auto flags = jack_port_flags(port);
