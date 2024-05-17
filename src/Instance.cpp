@@ -1030,10 +1030,21 @@ void Instance::queueConfigChangeSignal() {
 }
 
 bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
-	mCore->releaseExternalData(id.c_str());
-	mDataRefs.erase(id);
-	if (fileName.empty())
-		return true;
+	{
+		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
+		//don't double load, there is only 1 thread loading datarefs so we know that there isn't currently something being loaded
+		auto it = mDataRefFileNameMap.find(id);
+		if (it != mDataRefFileNameMap.end() && it->second == fileName) {
+			return true;
+		}
+
+		mCore->releaseExternalData(id.c_str());
+		mDataRefs.erase(id);
+		if (fileName.empty()) {
+			mDataRefFileNameMap[id] = std::string();
+			return true;
+		}
+	}
 	try {
 		auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
 		if (!dataFileDir) {
@@ -1093,7 +1104,6 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 			return false;
 		}
 
-		//TODO check mDataRefFileNameMap so we don't double load?
 		mDataRefs[id] = data;
 
 		//store the mapping so we can persist
