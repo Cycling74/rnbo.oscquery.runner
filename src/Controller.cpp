@@ -1044,6 +1044,13 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			}
 			config["name"] = name;
 
+			//override datarefs
+			if (entry.contains("config") && entry["config"].is_object()) {
+				auto c = entry["config"];
+				if (c.contains("datarefs"))
+					config["datarefs"] = c["datarefs"];
+			}
+
 			//load library but don't save config
 			auto inst = loadLibrary(libPath.string(), std::string(), config, false, index, confPath);
 			if (!inst) {
@@ -1163,7 +1170,7 @@ boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, s
 			RNBO::Json data = RNBO::Json::object();
 			data["index"] = static_cast<int>(inst->index());
 			data["name"] = inst->name();
-			//TODO any other data needed?
+			data["config"] = inst->currentConfig();
 
 			instances.push_back(data);
 		}

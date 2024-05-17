@@ -982,8 +982,6 @@ RNBO::UniquePresetPtr Instance::getPresetSync() {
 
 RNBO::Json Instance::currentConfig() {
 	RNBO::Json config = mConfig;
-
-	RNBO::Json presets = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();
 
 	//store last preset
@@ -999,7 +997,6 @@ RNBO::Json Instance::currentConfig() {
 		for (auto& kv: mDataRefFileNameMap)
 			datarefs[kv.first] = kv.second;
 	}
-	config["presets"] = presets;
 	config["datarefs"] = datarefs;
 
 	mAudio->addConfig(config);
