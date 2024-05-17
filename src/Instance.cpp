@@ -730,9 +730,14 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	}
 
 	//load the initial or last preset, if in the config
-	if (!mPresetInitial.empty()) {
+	if (conf[initial_preset_key].is_string()) {
+		//initial preset might be specified by set data
+		loadPreset(conf[initial_preset_key].get<std::string>());
+	} else if (!mPresetInitial.empty()) {
+		//this one comes from the DB
 		loadPreset(mPresetInitial);
 	} else if (conf[last_preset_key].is_string()) {
+		//this is the last one that was loaded
 		loadPreset(conf[last_preset_key].get<std::string>());
 	}
 
@@ -981,7 +986,7 @@ RNBO::UniquePresetPtr Instance::getPresetSync() {
 }
 
 RNBO::Json Instance::currentConfig() {
-	RNBO::Json config = mConfig;
+	RNBO::Json config = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();
 
 	//store last preset
@@ -999,7 +1004,7 @@ RNBO::Json Instance::currentConfig() {
 	}
 	config["datarefs"] = datarefs;
 
-	mAudio->addConfig(config);
+	//mAudio->addConfig(config);
 
 	return config;
 }
@@ -1027,21 +1032,10 @@ void Instance::queueConfigChangeSignal() {
 }
 
 bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
-	{
-		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-		//don't double load, there is only 1 thread loading datarefs so we know that there isn't currently something being loaded
-		auto it = mDataRefFileNameMap.find(id);
-		if (it != mDataRefFileNameMap.end() && it->second == fileName) {
-			return true;
-		}
-
-		mCore->releaseExternalData(id.c_str());
-		mDataRefs.erase(id);
-		if (fileName.empty()) {
-			mDataRefFileNameMap[id] = std::string();
-			return true;
-		}
-	}
+	mCore->releaseExternalData(id.c_str());
+	mDataRefs.erase(id);
+	if (fileName.empty())
+		return true;
 	try {
 		auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
 		if (!dataFileDir) {

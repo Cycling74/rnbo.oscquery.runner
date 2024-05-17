@@ -1045,10 +1045,14 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			config["name"] = name;
 
 			//override datarefs
-			if (entry.contains("config") && entry["config"].is_object()) {
+			if (entry["config"].is_object()) {
 				auto c = entry["config"];
 				if (c.contains("datarefs"))
 					config["datarefs"] = c["datarefs"];
+				//load the last preset as the initial one
+				if (c["preset_last"].is_string()) {
+					config["preset_initial"] = c["preset_last"];
+				}
 			}
 
 			//load library but don't save config
