@@ -920,21 +920,30 @@ void Instance::processEvents() {
 	}
 }
 
-void Instance::loadPreset(std::string name) {
-	auto preset = mDB->preset(mName, name);
-	if (!preset) {
-		try {
-			int index = std::stoi(name);
-			if (index >= 0) {
-				preset = mDB->preset(mName, static_cast<unsigned int>(index));
+void Instance::loadPreset(std::string name, std::string set_name) {
+	boost::optional<std::string> preset;
+	if (set_name.size()) {
+		preset = mDB->setPreset(mName, name, set_name, mIndex);
+	} else {
+		auto p = mDB->preset(mName, name);
+		if (!p) {
+			try {
+				int index = std::stoi(name);
+				if (index >= 0) {
+					p = mDB->preset(mName, static_cast<unsigned int>(index));
+				}
+			} catch (...) {
+				//do nothing
 			}
-		} catch (...) {
-			//do nothing
+		}
+		if (p) {
+			preset = p->first;
+			name = p->second;
 		}
 	}
 
 	if (preset) {
-		loadJsonPreset(preset->first, preset->second);
+		loadJsonPreset(*preset, name);
 	} else {
 		std::cerr << "couldn't find preset with name or index: " << name << std::endl;
 	}

@@ -46,7 +46,7 @@ class Instance {
 		//process any events in the current thread
 		void processEvents();
 
-		void loadPreset(std::string name);
+		void loadPreset(std::string name, std::string set_name = std::string());
 		void loadPreset(unsigned int index);
 
 		//does not save "latest".. used for loading between audio sessions

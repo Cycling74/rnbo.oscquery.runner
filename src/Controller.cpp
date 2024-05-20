@@ -1064,6 +1064,8 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			instances.push_back(inst);
 		}
 
+		/*
+		//XXX check in on this
 		//load last preset if we have it
 		if (presets.size()) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -1076,6 +1078,8 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 				}
 			}
 		}
+		*/
+
 		mProcessAudio->updatePorts();
 
 		if (c.contains(set_connections_key)) {
