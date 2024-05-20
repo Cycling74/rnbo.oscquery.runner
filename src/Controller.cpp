@@ -1067,21 +1067,13 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 		}
 		mProcessAudio->updatePorts();
 
-		bool connected = false;
 		if (c.contains(set_connections_key)) {
-			connected = mProcessAudio->connect(c[set_connections_key]);
+			mProcessAudio->connect(c[set_connections_key]);
 		}
 
-		//iterate instances and connect if needed, then start
+		//start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			//connect, THEN start
-			if (!connected) {
-				for (auto inst: instances) {
-					inst->connect();
-				}
-			}
-
 			for (auto inst: instances) {
 				inst->start(mInstFadeInMs);
 			}
