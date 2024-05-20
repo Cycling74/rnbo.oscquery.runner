@@ -1067,21 +1067,13 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 		}
 		mProcessAudio->updatePorts();
 
-		bool connected = false;
 		if (c.contains(set_connections_key)) {
-			connected = mProcessAudio->connect(c[set_connections_key]);
+			mProcessAudio->connect(c[set_connections_key]);
 		}
 
-		//iterate instances and connect if needed, then start
+		//start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			//connect, THEN start
-			if (!connected) {
-				for (auto inst: instances) {
-					inst->connect();
-				}
-			}
-
 			for (auto inst: instances) {
 				inst->start(mInstFadeInMs);
 			}
@@ -1692,7 +1684,7 @@ void Controller::registerCommands() {
 				std::string libFile = params["lib"].get<std::string>();
 				std::string configFileName = params["config"].get<std::string>();
 				std::string rnboPatchName = params["patcher"].get<std::string>();
-				bool migratePresets = params.contains("migrate_presets") && params["migrate_presets"].get<bool>();
+				bool migratePresets = params.contains("migrate_presets") && params["migrate_presets"].is_boolean() && params["migrate_presets"].get<bool>();
 
 				RNBO::Json config;
 				fs::path confFilePath = fs::absolute(mSourceCache / configFileName);
@@ -2316,7 +2308,7 @@ void Controller::processCommands() {
 						maxRNBOVersion = params["rnbo_version"].get<std::string>();
 					}
 
-					bool migratePresets = params.contains("migrate_presets") && params["migrate_presets"].get<bool>();
+					bool migratePresets = params.contains("migrate_presets") && params["migrate_presets"].is_boolean() && params["migrate_presets"].get<bool>();
 
 					if (params.contains("load")) {
 						if (params["load"].is_null()) {

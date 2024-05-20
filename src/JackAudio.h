@@ -172,6 +172,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
+		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;
 
