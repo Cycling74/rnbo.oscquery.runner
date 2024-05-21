@@ -544,6 +544,33 @@ boost::optional<std::string> DB::setPreset(
 	return boost::none;
 }
 
+void DB::setPresetSave(
+		const std::string& patchername,
+		const std::string& presetName,
+		const std::string& setName,
+		unsigned int instanceIndex,
+		const std::string& content
+) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		INSERT INTO sets_presets (patcher_id, set_id, name, set_instance_index, content)
+		SELECT patchers.id, sets.id, ?1, ?2, ?3
+		FROM patchers, sets
+		WHERE patchers.id IN (SELECT MAX(id) FROM patchers WHERE name = ?5 AND runner_rnbo_version = ?4 GROUP BY name)
+		AND sets.id IN (SELECT MAX(id) FROM sets WHERE name = ?6 AND runner_rnbo_version = ?4 GROUP BY name)
+		ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime')
+	)");
+
+	query.bind(1, presetName);
+	query.bind(2, static_cast<int>(instanceIndex));
+	query.bind(3, content);
+	query.bind(4, cur_rnbo_version);
+	query.bind(5, patchername);
+	query.bind(6, setName);
+	query.exec();
+}
+
 void DB::setPresetRename(
 		const std::string& setName,
 		const std::string& oldName,
@@ -557,7 +584,6 @@ void DB::setPresetRename(
 	SQLite::Statement query(mDB, R"(
 		UPDATE sets_presets SET name = ?3
 		WHERE name = ?2
-		AND runner_rnbo_version = ?4
 		AND set_id IN (
 			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?4 GROUP BY name
 		)
@@ -580,7 +606,7 @@ void DB::setPresetDestroy(
 
 	SQLite::Statement query(mDB, R"(
 		DELETE FROM sets_presets
-		WHERE name = ?2 AND runner_rnbo_version = ?3
+		WHERE name = ?2
 		AND set_id IN (
 			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?3 GROUP BY name
 		)

@@ -83,6 +83,14 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+		void setPresetSave(
+				const std::string& patchername,
+				const std::string& presetName,
+				const std::string& setName,
+				unsigned int instanceIndex,
+				const std::string& content
+		);
+
 		void setPresetRename(
 				const std::string& setName,
 				const std::string& oldName,
