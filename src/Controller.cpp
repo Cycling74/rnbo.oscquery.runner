@@ -2156,6 +2156,7 @@ void Controller::registerCommands() {
 								i >> s;
 
 								//get presets
+								//XXX could this become too large??
 								RNBO::Json presets;
 								std::vector<std::string> presetNames = mDB->setPresets(name);
 								for (auto presetName: presetNames) {
