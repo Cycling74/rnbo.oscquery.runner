@@ -73,7 +73,13 @@ class DB {
 				const std::string& presetName
 		);
 
-		void setPresets(const std::string& setName, std::function<void(const std::string& name)> f, std::string rnbo_version = std::string());
+		std::vector<std::string> setPresets(const std::string& setName, std::string rnbo_version = std::string());
+		//get all presets for a set perset
+		void setPresets(
+				const std::string& setName,
+				const std::string& presetName,
+				std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content)> func,
+				std::string rnbo_version = std::string());
 
 		boost::optional<std::string> setPreset(
 				const std::string& patchername,

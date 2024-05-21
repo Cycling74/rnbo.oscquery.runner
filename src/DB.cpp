@@ -484,11 +484,12 @@ void DB::presetDestroy(const std::string& patchername, const std::string& preset
 
 }
 
-void DB::setPresets(const std::string& setname, std::function<void(const std::string&)> f, std::string rnbo_version) {
+std::vector<std::string> DB::setPresets(const std::string& setname, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
+	std::vector<std::string> names;
 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
@@ -498,8 +499,40 @@ void DB::setPresets(const std::string& setname, std::function<void(const std::st
 	query.bind(2, rnbo_version);
 	while (query.executeStep()) {
 		const char * s = query.getColumn(0);
-		std::string name(s);
-		f(name);
+		names.push_back(std::string(s));
+	}
+	return names;
+}
+
+void DB::setPresets(
+		const std::string& setName,
+		const std::string& presetName,
+		std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content)> func,
+		std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		SELECT patchers.name, sets_presets.set_instance_index, sets_presets.content
+		FROM sets_presets
+		JOIN patchers ON patchers.id = sets_presets.patcher_id
+		WHERE sets_presets.name = ?3
+		AND sets_presets.set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY sets_presets.set_instance_index
+	)");
+	query.bind(1, setName);
+	query.bind(2, rnbo_version);
+	query.bind(3, presetName);
+	while (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		std::string patchername(s);
+		int set_instance_index = query.getColumn(1);
+		s = query.getColumn(2);
+		std::string content(s);
+
+		func(patchername, set_instance_index, content);
 	}
 }
 
