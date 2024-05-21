@@ -87,6 +87,8 @@ class Controller {
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();
+		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
+		void updateSetPresetNames(std::string toadd = std::string());
 		void saveSetPreset(const std::string& setName, std::string presetName);
 		void loadSetPreset(const std::string& setName, std::string presetName);
 
@@ -107,7 +109,7 @@ class Controller {
 		ossia::net::node_base * mPatchersNode;
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
-		ossia::net::parameter_base * mSetLoadParam = nullptr;
+		ossia::net::node_base * mSetPresetLoadNode = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 		ossia::net::parameter_base * mSetCurrentDirtyParam = nullptr;
@@ -117,6 +119,10 @@ class Controller {
 		std::mutex mSetNamesMutex;
 		bool mSetNamesUpdated = false;
 		std::vector<ossia::value> mSetNames;
+
+		std::mutex mSetPresetNamesMutex;
+		bool mSetPresetNamesUpdated = false;
+		std::vector<ossia::value> mSetPresetNames;
 
 		std::mutex mSetLoadPendingMutex;
 		boost::optional<std::pair<boost::filesystem::path, std::string>> mSetLoadPending;

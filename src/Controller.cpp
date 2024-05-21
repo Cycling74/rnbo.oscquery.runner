@@ -574,7 +574,7 @@ Controller::Controller(std::string server_name) {
 
 			{
 				auto n = mSetLoadNode = sets->create_child("load");
-				auto p = mSetLoadParam = n->create_parameter(ossia::val_type::STRING);
+				auto p = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 				n->set(ossia::net::description_attribute{}, "Load a set with the given name");
 
@@ -669,7 +669,7 @@ Controller::Controller(std::string server_name) {
 					});
 				}
 				{
-					auto n = presets->create_child("load");
+					auto n = mSetPresetLoadNode = presets->create_child("load");
 					auto p = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 					n->set(ossia::net::description_attribute{}, "Load a loaded set preset with the given name");
@@ -1204,6 +1204,7 @@ void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname)
 		//indicate the name and dirty status
 		mSetCurrentNameParam->push_value(setname);
 		mSetCurrentDirtyParam->push_value(false);
+		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
 	} catch (...) {
@@ -1430,6 +1431,25 @@ void Controller::updateSetNames() {
 	mSetNamesUpdated = true;
 }
 
+void Controller::updateSetPresetNames(std::string toadd) {
+	std::lock_guard<std::mutex> guard(mSetPresetNamesMutex);
+	mSetPresetNames.clear();
+
+	std::string setname = getCurrentSetName();
+	if (setname.size()) {
+		std::vector<std::string> presetNames = mDB->setPresets(setname);
+		for (auto name: presetNames) {
+			if (name != toadd) {
+				mSetPresetNames.push_back(name);
+			}
+		}
+		if (toadd.size()) {
+			mSetPresetNames.push_back(toadd);
+		}
+	}
+	mSetPresetNamesUpdated = true;
+}
+
 void Controller::saveSetPreset(const std::string& setName, std::string presetName) {
 	//ditch the old one
 	mDB->setPresetDestroy(setName, presetName);
@@ -1556,6 +1576,17 @@ bool Controller::processEvents() {
 				ossia::set_values(dom, mSetNames);
 				mSetLoadNode->set(ossia::net::domain_attribute{}, dom);
 				mSetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+			}
+		}
+		{
+			std::lock_guard<std::mutex> guard(mSetPresetNamesMutex);
+			if (mSetPresetNamesUpdated) {
+				mSetPresetNamesUpdated = false;
+
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, mSetPresetNames);
+				mSetPresetLoadNode->set(ossia::net::domain_attribute{}, dom);
+				mSetPresetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 			}
 		}
 	} catch (const std::exception& e) {
@@ -1738,6 +1769,7 @@ void Controller::registerCommands() {
 				if (index < 0) {
 					mSetCurrentNameParam->push_value("");
 					mSetCurrentDirtyParam->push_value(false);
+					updateSetPresetNames();
 				} else {
 					mSetCurrentDirtyParam->push_value(true);
 				}
@@ -1764,7 +1796,10 @@ void Controller::registerCommands() {
 						{"message", "saved"},
 						{"progress", 100}
 					});
+					mSetCurrentNameParam->push_value(name);
+					mSetCurrentDirtyParam->push_value(false);
 					updateSetNames();
+					updateSetPresetNames("initial");
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -1840,6 +1875,9 @@ void Controller::registerCommands() {
 						{"message", "saved"},
 						{"progress", 100}
 					});
+
+					//saving is async so we force "name" into the list
+					updateSetPresetNames(name);
 				} else {
 					std::cerr << "no current set name, cannot save preset" << std::endl;
 					reportCommandError(id, 1, "failed");
@@ -1878,6 +1916,7 @@ void Controller::registerCommands() {
 						{"message", "deleted"},
 						{"progress", 100}
 					});
+					updateSetPresetNames();
 				} else {
 					std::cerr << "no current set name, cannot destroy preset" << std::endl;
 					reportCommandError(id, 1, "failed");
@@ -1898,6 +1937,7 @@ void Controller::registerCommands() {
 						{"message", "deleted"},
 						{"progress", 100}
 					});
+					updateSetPresetNames();
 				} else {
 					std::cerr << "no current set name, cannot rename associated preset" << std::endl;
 					reportCommandError(id, 1, "failed");
