@@ -88,10 +88,12 @@ class Controller {
 		//only to be called during setup or in the command thread
 		void updateSetNames();
 		void saveSetPreset(const std::string& setName, std::string presetName);
+		void loadSetPreset(const std::string& setName, std::string presetName);
 
 		unsigned int nextInstanceIndex();
 
 		void handleProgramChange(ProgramChange);
+		std::string getCurrentSetName();
 
 		std::shared_ptr<DB> mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
@@ -106,6 +108,9 @@ class Controller {
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
 		ossia::net::parameter_base * mSetLoadParam = nullptr;
+
+		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
+		ossia::net::parameter_base * mSetCurrentDirtyParam = nullptr;
 
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
 
