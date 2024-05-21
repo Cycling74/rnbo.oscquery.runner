@@ -1772,22 +1772,12 @@ void Controller::registerCommands() {
 			"instance_set_load",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
-				if (name.size() == 0) {
-					//unload
-					{
-						std::lock_guard<std::mutex> guard(mBuildMutex);
-						clearInstances(guard, mInstFadeOutMs);
-					}
-					mSetCurrentNameParam->push_value("");
-					mSetCurrentDirtyParam->push_value(false);
+				auto res = mDB->setGet(name);
+				if (res) {
+					loadSet(res.get(), name);
 				} else {
-					auto res = mDB->setGet(name);
-					if (res) {
-						loadSet(res.get(), name);
-					} else {
-						reportCommandError(id, 1, "failed");
-						return;
-					}
+					reportCommandError(id, 1, "failed");
+					return;
 				}
 				reportCommandResult(id, {
 					{"code", 0},
