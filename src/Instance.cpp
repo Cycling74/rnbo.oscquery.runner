@@ -814,15 +814,26 @@ void Instance::processEvents() {
 	{
 		std::tuple<std::string, RNBO::ConstPresetPtr, std::string> preset;
 		while (mPresetSaveQueue->try_dequeue(preset)) {
+			RNBO::Json data;
 			std::string name = std::get<0>(preset);
-			auto j = RNBO::convertPresetToJSONObj(*std::get<1>(preset));
+
+			data["runner_preset"] = RNBO::convertPresetToJSONObj(*std::get<1>(preset));
+
 			std::string set_name = std::get<2>(preset);
 
-			//XXX add dataref mapping
+			//add dataref mapping
+			RNBO::Json datarefs = RNBO::Json::object();
+			{
+				std::lock_guard<std::mutex> bguard(mDataRefFileNameMutex);
+				for (auto& kv: mDataRefFileNameMap)
+					datarefs[kv.first] = kv.second;
+			}
+			data["datarefs"] = datarefs;
+
 			if (set_name.size()) {
-				mDB->setPresetSave(mName, name, set_name, mIndex, j.dump());
+				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump());
 			} else {
-				mDB->presetSave(mName, name, j.dump());
+				mDB->presetSave(mName, name, data.dump());
 			}
 
 			mPresetsDirty = true;
@@ -990,9 +1001,36 @@ bool Instance::loadJsonPreset(const std::string& preset, const std::string& name
 	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
+
+		//added data to the preset JSON to support datarefs
+		//using a special key "runner_preset" to specify this format
+		//"runner_preset" contains the actual rnbo formatted JSON preset
+		bool trydatarefs = false;
 		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
-		convertJSONObjToPreset(j, *unique);
+		if (j["runner_preset"].is_object()) {
+			trydatarefs = true;
+			convertJSONObjToPreset(j["runner_preset"], *unique);
+		} else {
+			convertJSONObjToPreset(j, *unique);
+		}
 		mCore->setPreset(std::move(unique));
+
+		if (trydatarefs && j["datarefs"].is_object()) {
+			auto datarefs = j["datarefs"];
+			//push directly to the nodes so that we queue up changes
+			for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+				if (!it.value().is_string()) {
+					std::cerr << "dataref value for key " << it.key() << " is not a string" << std::endl;
+					continue;
+				}
+
+				auto nodeit = mDataRefNodes.find(it.key());
+				if (nodeit != mDataRefNodes.end()) {
+					nodeit->second->push_value(it.value().get<std::string>());
+				}
+			}
+		}
+
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;
