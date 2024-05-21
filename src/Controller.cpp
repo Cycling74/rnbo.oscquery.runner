@@ -979,15 +979,15 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 }
 
 //actually just queue it
-void Controller::loadSet(boost::filesystem::path filename) {
+void Controller::loadSet(boost::filesystem::path filename, std::string name) {
 	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 	if (!tryActivateAudio()) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
 		return;
 	}
-	mSetLoadPendingPath = saveFilePath();
+	mSetLoadPending = std::make_pair(saveFilePath(), name);
 	if (!filename.empty()) {
-		mSetLoadPendingPath = config::get<fs::path>(config::key::SaveDir).get() / filename;
+		mSetLoadPending = std::make_pair(config::get<fs::path>(config::key::SaveDir).get() / filename, name);
 	}
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -995,7 +995,7 @@ void Controller::loadSet(boost::filesystem::path filename) {
 	}
 }
 
-void Controller::doLoadSet(boost::filesystem::path setFile) {
+void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname) {
 	try {
 		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
@@ -1086,10 +1086,13 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			mProcessAudio->connect(c[set_connections_key]);
 		}
 
-		//start instances
+		//load presets and start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			for (auto inst: instances) {
+				if (setname.size()) {
+					inst->loadPreset("initial", setname);
+				}
 				inst->start(mInstFadeInMs);
 			}
 		}
@@ -1326,6 +1329,13 @@ void Controller::updateSetNames() {
 	mSetNamesUpdated = true;
 }
 
+void Controller::saveSetPreset(const std::string& setName, std::string presetName) {
+	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+	for (auto& i: mInstances) {
+		std::get<0>(i)->savePreset(presetName, setName);
+	}
+}
+
 unsigned int Controller::nextInstanceIndex() {
 	unsigned int index = 0;
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
@@ -1385,13 +1395,13 @@ bool Controller::processEvents() {
 
 		//if we have no instances, look to see if we should load a set
 		if (!anyInstances) {
-			boost::filesystem::path path;
+			boost::optional<std::pair<boost::filesystem::path, std::string>> pending;
 			{
 				std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
-				mSetLoadPendingPath.swap(path);
+				mSetLoadPending.swap(pending);
 			}
-			if (!path.empty()) {
-				doLoadSet(path);
+			if (pending) {
+				doLoadSet(pending->first, pending->second);
 			}
 		}
 
@@ -1630,6 +1640,7 @@ void Controller::registerCommands() {
 				auto p = saveSet(name, meta, true);
 				if (p) {
 					mDB->setSave(name, p->filename());
+					saveSetPreset(name, "initial");
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "saved"},
@@ -1648,7 +1659,7 @@ void Controller::registerCommands() {
 				std::string name = params["name"].get<std::string>();
 				auto res = mDB->setGet(name);
 				if (res) {
-					loadSet(res.get());
+					loadSet(res.get(), name);
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "loaded"},
@@ -1833,6 +1844,8 @@ void Controller::registerCommands() {
 			//TODO validate set data?
 			mDB->setSave(fileName, filePath.filename());
 			updateSetNames();
+
+			//XXX set presets?
 		}
 
 		reportCommandResult(id, {

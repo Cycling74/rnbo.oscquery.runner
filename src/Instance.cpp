@@ -218,7 +218,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	});
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
-	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 32>>(32);
+	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial) {
 			if (initial) {
@@ -812,12 +812,19 @@ void Instance::processEvents() {
 
 	//handle queued presets
 	{
-		std::pair<std::string, RNBO::ConstPresetPtr> preset;
+		std::tuple<std::string, RNBO::ConstPresetPtr, std::string> preset;
 		while (mPresetSaveQueue->try_dequeue(preset)) {
-			std::string name = preset.first;
+			std::string name = std::get<0>(preset);
+			auto j = RNBO::convertPresetToJSONObj(*std::get<1>(preset));
+			std::string set_name = std::get<2>(preset);
 
-			auto j = RNBO::convertPresetToJSONObj(*preset.second);
-			mDB->presetSave(mName, name, j.dump());
+			//XXX add dataref mapping
+			if (set_name.size()) {
+				mDB->setPresetSave(mName, name, set_name, mIndex, j.dump());
+			} else {
+				mDB->presetSave(mName, name, j.dump());
+			}
+
 			mPresetsDirty = true;
 			{
 				std::lock_guard<std::mutex> guard(mPresetMutex);
@@ -851,7 +858,7 @@ void Instance::processEvents() {
 						auto name = cmd.preset;
 						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
 							//get preset called in audio thread, queue to do heavy work outside that thread
-							mPresetSaveQueue->try_enqueue({name, preset});
+							mPresetSaveQueue->try_enqueue({name, preset, std::string()});
 						});
 					}
 					break;
@@ -920,6 +927,13 @@ void Instance::processEvents() {
 	}
 }
 
+void Instance::savePreset(std::string name, std::string set_name) {
+	mCore->getPreset([name, set_name, this] (RNBO::ConstPresetPtr preset) {
+		//get preset called in audio thread, queue to do heavy work outside that thread
+		mPresetSaveQueue->try_enqueue({name, preset, set_name});
+	});
+}
+
 void Instance::loadPreset(std::string name, std::string set_name) {
 	boost::optional<std::string> preset;
 	if (set_name.size()) {
@@ -945,7 +959,11 @@ void Instance::loadPreset(std::string name, std::string set_name) {
 	if (preset) {
 		loadJsonPreset(*preset, name);
 	} else {
-		std::cerr << "couldn't find preset with name or index: " << name << std::endl;
+		std::cerr << "couldn't find preset with name or index: " << name;
+		if (set_name.size()) {
+			std::cerr << " in set " << set_name;
+		}
+		std::cerr << std::endl;
 	}
 }
 

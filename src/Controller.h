@@ -37,7 +37,7 @@ class Controller {
 
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
-		void loadSet(boost::filesystem::path filename = boost::filesystem::path());
+		void loadSet(boost::filesystem::path filename = boost::filesystem::path(), std::string name = std::string());
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
 #endif
@@ -45,7 +45,7 @@ class Controller {
 		//returns true until we should quit
 		bool processEvents();
 	private:
-		void doLoadSet(boost::filesystem::path filename);
+		void doLoadSet(boost::filesystem::path filename, std::string name = std::string());
 
 		bool tryActivateAudio();
 		void reportActive();
@@ -87,6 +87,7 @@ class Controller {
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();
+		void saveSetPreset(const std::string& setName, std::string presetName);
 
 		unsigned int nextInstanceIndex();
 
@@ -113,7 +114,7 @@ class Controller {
 		std::vector<ossia::value> mSetNames;
 
 		std::mutex mSetLoadPendingMutex;
-		boost::filesystem::path mSetLoadPendingPath;
+		boost::optional<std::pair<boost::filesystem::path, std::string>> mSetLoadPending;
 
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
