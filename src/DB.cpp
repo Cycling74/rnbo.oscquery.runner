@@ -212,7 +212,7 @@ void DB::patcherStore(
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	int old_id = 0; //ids always start at 1 right?
-	if (migrate_presets) {
+	{
 		SQLite::Statement query(mDB, "SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
 		query.bind(1, name);
 		query.bind(2, cur_rnbo_version);
@@ -238,11 +238,18 @@ void DB::patcherStore(
 		query.exec();
 	}
 
-	if (old_id) {
-		auto new_id = mDB.getLastInsertRowid();
+	auto new_id = mDB.getLastInsertRowid();
+	if (migrate_presets) {
 		SQLite::Statement query(mDB, R"(
 			INSERT INTO presets (patcher_id, name, content, initial, created_at, updated_at)
 			SELECT ?2, name, content, initial, created_at, updated_at FROM presets WHERE patcher_id = ?1)");
+		query.bind(1, old_id);
+		query.bind(2, new_id);
+		query.exec();
+	}
+	//always update set presets
+	{
+		SQLite::Statement query(mDB, "UPDATE sets_presets SET patcher_id = ?2 WHERE patcher_id = ?1");
 		query.bind(1, old_id);
 		query.bind(2, new_id);
 		query.exec();
