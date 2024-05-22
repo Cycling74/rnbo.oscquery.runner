@@ -112,7 +112,6 @@ class Controller {
 		ossia::net::node_base * mSetPresetLoadNode = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
-		ossia::net::parameter_base * mSetCurrentDirtyParam = nullptr;
 
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
 

@@ -643,12 +643,6 @@ Controller::Controller(std::string server_name) {
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "The currently loaded set's name");
 				}
-				{
-					auto n = current->create_child("dirty");
-					mSetCurrentDirtyParam = n->create_parameter(ossia::val_type::BOOL);
-					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-					n->set(ossia::net::description_attribute{}, "The currently loaded set's dirty status");
-				}
 			}
 
 			{
@@ -1203,7 +1197,6 @@ void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname)
 
 		//indicate the name and dirty status
 		mSetCurrentNameParam->push_value(setname);
-		mSetCurrentDirtyParam->push_value(false);
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -1741,7 +1734,6 @@ void Controller::registerCommands() {
 							inst->start(mInstFadeInMs);
 						}
 					}
-					mSetCurrentDirtyParam->push_value(true);
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "loaded"},
@@ -1768,10 +1760,7 @@ void Controller::registerCommands() {
 				}
 				if (index < 0) {
 					mSetCurrentNameParam->push_value("");
-					mSetCurrentDirtyParam->push_value(false);
 					updateSetPresetNames();
-				} else {
-					mSetCurrentDirtyParam->push_value(true);
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
@@ -1797,7 +1786,6 @@ void Controller::registerCommands() {
 						{"progress", 100}
 					});
 					mSetCurrentNameParam->push_value(name);
-					mSetCurrentDirtyParam->push_value(false);
 					updateSetNames();
 					updateSetPresetNames("initial");
 				} else {
