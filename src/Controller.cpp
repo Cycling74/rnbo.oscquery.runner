@@ -332,10 +332,21 @@ Controller::Controller(std::string server_name) {
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
 		//might not be enough to indicate disk space
-		auto n = info->create_child("disk_bytes_available");
-		mDiskSpaceParam = n->create_parameter(ossia::val_type::STRING);
-		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-		updateDiskSpace();
+		{
+			auto n = info->create_child("disk_bytes_available");
+			mDiskSpaceParam = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->set(ossia::net::description_attribute{}, "a byte count (as a string) of the bytes available in the compile cache dir");
+		}
+
+		{
+			auto n = info->create_child("datafile_dir_mtime");
+			mDataFileDirMTimeParam = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->set(ossia::net::description_attribute{}, "the last modification time of the datafile directory, as a string representation, time since epoch");
+		}
+
+		updateDiskStats();
 	}
 
 	//add support for commands
@@ -1529,11 +1540,11 @@ bool Controller::processEvents() {
 			}
 		}
 
-		if (mDiskSpacePollNext <= now) {
+		if (mDiskPollNext <= now) {
 			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
 			//using a hammer to make sure that doesn't happen
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-			updateDiskSpace();
+			updateDiskStats();
 		}
 
 		bool save = false;
@@ -2676,7 +2687,7 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 	}
 }
 
-void Controller::updateDiskSpace() {
+void Controller::updateDiskStats() {
 		//could also look at sample dir?
 		fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir).get()));
 		auto available = compileCacheSpace.available;
@@ -2685,7 +2696,23 @@ void Controller::updateDiskSpace() {
 			if (mDiskSpaceParam)
 				mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
 		}
-		mDiskSpacePollNext = steady_clock::now() + mDiskSpacePollPeriod;
+
+		{
+			auto dir = fs::absolute(config::get<fs::path>(config::key::DataFileDir).get());
+			auto time = fs::last_write_time(dir);
+
+			char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
+			std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
+
+			std::string s(timeString);
+
+			if (s != mDataFileDirMTimeLast) {
+				mDataFileDirMTimeParam->push_value(s);
+				mDataFileDirMTimeLast = s;
+			}
+		}
+
+		mDiskPollNext = steady_clock::now() + mDiskPollPeriod;
 }
 
 void Controller::updateListenersList() {

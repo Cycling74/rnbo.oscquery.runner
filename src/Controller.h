@@ -59,7 +59,7 @@ class Controller {
 		void reportCommandStatus(std::string id, RNBO::Json obj);
 
 		void handleActive(bool active);
-		void updateDiskSpace();
+		void updateDiskStats();
 		void updateListenersList();
 		void restoreListeners();
 		void listenersAddProtocol(const std::string& ip, uint16_t port);
@@ -132,9 +132,12 @@ class Controller {
 		std::vector<std::shared_ptr<Instance>> mStoppingInstances;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
+		ossia::net::parameter_base * mDataFileDirMTimeParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
-		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
-		std::chrono::time_point<std::chrono::steady_clock> mDiskSpacePollNext;
+		std::string mDataFileDirMTimeLast;
+
+		std::chrono::duration<int> mDiskPollPeriod = std::chrono::seconds(10);
+		std::chrono::time_point<std::chrono::steady_clock> mDiskPollNext;
 
 		std::shared_ptr<ProcessAudio> mProcessAudio;
 		ossia::net::parameter_base * mAudioActive;
