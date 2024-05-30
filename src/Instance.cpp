@@ -100,14 +100,19 @@ namespace {
 		}
 	}
 
-	void add_meta_to_param(RNBO::Json& meta, ossia::net::node_base& param) {
+	std::pair<ossia::net::node_base *, ossia::net::parameter_base *> add_meta_to_param(RNBO::Json& meta, ossia::net::node_base& param) {
+		auto m = param.create_child("meta");
+		auto p = m->create_parameter(ossia::val_type::STRING);
+
 		if (meta.is_object() && meta.size()) {
-			auto m = param.create_child("meta");
-			auto p = m->create_parameter(ossia::val_type::STRING);
 			p->push_value(meta.dump());
-			m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			recurse_add_meta(meta, m);
+		} else {
+			p->push_value("");
 		}
+		m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+
+		return std::make_pair(m, p);
 	}
 
 	void add_node_ref(const std::string& addr, bool exists) {
@@ -251,13 +256,27 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				if (!paramConfig.is_array()) {
 					return;
 				}
+
+				//XXX what if there is no param config entry for this parameter? will there ever be?
+
 				//find the parameter
 				for (auto p: paramConfig) {
 					if (p.contains("index") && p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
-						if (p.contains("meta")) {
-							auto meta = p["meta"];
-							add_meta_to_param(meta, param);
+						auto meta = p["meta"]; //might be null
+						auto param_meta = add_meta_to_param(meta, param);
+
+						//save default
+						if (meta.is_object()) {
+							mParamMetaDefault.insert({index, meta.dump()});
 						}
+
+						auto on = param_meta.first;
+						auto op = param_meta.second;
+
+						op->add_callback([this, op, on, index](const ossia::value& val) {
+								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
+								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
+						});
 					}
 				}
 			};
@@ -590,11 +609,23 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							auto p = n.create_parameter(ossia::val_type::LIST);
 							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 
-							if (i.contains("meta"))
+							//add meta
 							{
 								auto meta = i["meta"];
-								add_meta_to_param(meta, n);
-								addr = osc_meta(name, addr, meta);
+								auto param_meta = add_meta_to_param(meta, n);
+								if (meta.is_object())
+								{
+									addr = osc_meta(name, addr, meta);
+									mInportMetaDefault.insert({name, meta.dump()});
+								}
+
+								auto on = param_meta.first;
+								auto op = param_meta.second;
+
+								op->add_callback([this, op, on, name](const ossia::value& val) {
+										std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
+										mMetaUpdateQueue.push(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, s));
+								});
 							}
 
 							//XXX should we disallow a /rnbo/ prefix??
@@ -645,11 +676,23 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							//we may have another param associated with this outport
 							std::vector<ossia::net::parameter_base *> params = { p };
 
-							if (i.contains("meta"))
+							//add meta
 							{
 								auto meta = i["meta"];
-								add_meta_to_param(meta, n);
-								addr = osc_meta(name, addr, meta);
+								auto param_meta = add_meta_to_param(meta, n);
+								if (meta.is_object())
+								{
+									addr = osc_meta(name, addr, meta);
+									mOutportMetaDefault.insert({name, meta.dump()});
+								}
+
+								auto on = param_meta.first;
+								auto op = param_meta.second;
+
+								op->add_callback([this, op, on, name](const ossia::value& val) {
+										std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
+										mMetaUpdateQueue.push(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, s));
+								});
 							}
 
 							//XXX should we disallow a /rnbo/ prefix?? what if you want to send to a param?
@@ -842,6 +885,63 @@ void Instance::processEvents() {
 				mPresetLatest = name;
 			}
 			updatePresetEntries();
+		}
+	}
+
+	//handle meta updates
+	while (auto item = mMetaUpdateQueue.tryPop()) {
+		auto update = item.get();
+
+		std::string defaultMeta;
+		switch (update.subject) {
+			case MetaUpdateCommand::Subject::Param:
+				{
+					auto it = mParamMetaDefault.find(update.paramIndex);
+					if (it != mParamMetaDefault.end()) {
+						defaultMeta = it->second;
+					}
+				}
+				break;
+			case MetaUpdateCommand::Subject::Inport:
+				{
+					auto it = mInportMetaDefault.find(update.messageTag);
+					if (it != mInportMetaDefault.end()) {
+						defaultMeta = it->second;
+					}
+				}
+				break;
+			case MetaUpdateCommand::Subject::Outport:
+				{
+					auto it = mOutportMetaDefault.find(update.messageTag);
+					if (it != mOutportMetaDefault.end()) {
+						defaultMeta = it->second;
+					}
+				}
+				break;
+			default:
+				break;
+		}
+
+
+		//set default meta if length is zero and there is a default
+		if (update.meta.length() == 0) {
+			update.node->clear_children();
+			if (defaultMeta.size()) {
+				update.param->push_value(defaultMeta);
+			}
+		} else {
+			try {
+				//XXX if update.meta != defaultMeta, mark dirty
+				RNBO::Json meta = RNBO::Json::parse(update.meta);
+				update.node->clear_children();
+				if (meta.is_object()) {
+					recurse_add_meta(meta, update.node);
+				}
+			} catch (...) {
+				//XXX clear out??
+				std::cerr << "failed to parse meta as json: " << update.meta << std::endl;
+				continue;
+			}
 		}
 	}
 

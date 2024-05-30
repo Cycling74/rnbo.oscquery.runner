@@ -101,6 +101,35 @@ class Instance {
 			PresetCommand(CommandType t, std::string p, std::string n = std::string()) : type(t), preset(p), newname(n) {}
 		};
 
+		struct MetaUpdateCommand {
+			enum class Subject {
+				Param,
+				Inport,
+				Outport
+			};
+
+			ossia::net::node_base * node = nullptr; //"meta" node (and children)
+			ossia::net::parameter_base * param = nullptr; //"meta" string value param
+
+			Subject subject = Subject::Param;
+			std::string messageTag;
+			RNBO::ParameterIndex paramIndex = 0;
+			std::string meta;
+			MetaUpdateCommand(
+				ossia::net::node_base * n,
+				ossia::net::parameter_base * p,
+				RNBO::ParameterIndex index, std::string m) :
+				node(n), param(p),
+				subject(Subject::Param), paramIndex(index), meta(m) { }
+			MetaUpdateCommand(
+				ossia::net::node_base * n,
+				ossia::net::parameter_base * p,
+				Subject s,
+				std::string tag, std::string m) :
+				node(n), param(p),
+				subject(s), messageTag(tag), meta(m) { }
+		};
+
 		void processDataRefCommands();
 		void updatePresetEntries();
 		void handleProgramChange(ProgramChange);
@@ -143,6 +172,12 @@ class Instance {
 		//keep the parameters so we can clear out when files don't exist
 		std::unordered_map<std::string, ossia::net::parameter_base *> mDataRefNodes;
 
+		Queue<MetaUpdateCommand> mMetaUpdateQueue;
+
+		//name -> value (if any)
+		std::unordered_map<std::string, std::string> mInportMetaDefault;
+		std::unordered_map<std::string, std::string> mOutportMetaDefault;
+		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaDefault;
 
 		//map of dataref name to file name
 		std::mutex mDataRefFileNameMutex;
