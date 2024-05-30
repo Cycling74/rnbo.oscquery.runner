@@ -46,7 +46,8 @@ class Instance {
 		//process any events in the current thread
 		void processEvents();
 
-		void loadPreset(std::string name);
+		void savePreset(std::string name, std::string set_name = std::string());
+		void loadPreset(std::string name, std::string set_name = std::string());
 		void loadPreset(unsigned int index);
 
 		//does not save "latest".. used for loading between audio sessions
@@ -132,7 +133,8 @@ class Instance {
 		Queue<DataRefCommand> mDataRefCommandQueue;
 		//queue for moving dataref deallocs out of audio thread
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>> mDataRefCleanupQueue;
-		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 32>> mPresetSaveQueue;
+		//preset name, preset ptr, set name (maybe empty)
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>> mPresetSaveQueue;
 
 		//only accessed in the data ref thread
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;

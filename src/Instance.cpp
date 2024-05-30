@@ -218,7 +218,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	});
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
-	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<std::string, RNBO::ConstPresetPtr>, 32>>(32);
+	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial) {
 			if (initial) {
@@ -812,12 +812,30 @@ void Instance::processEvents() {
 
 	//handle queued presets
 	{
-		std::pair<std::string, RNBO::ConstPresetPtr> preset;
+		std::tuple<std::string, RNBO::ConstPresetPtr, std::string> preset;
 		while (mPresetSaveQueue->try_dequeue(preset)) {
-			std::string name = preset.first;
+			RNBO::Json data;
+			std::string name = std::get<0>(preset);
 
-			auto j = RNBO::convertPresetToJSONObj(*preset.second);
-			mDB->presetSave(mName, name, j.dump());
+			data["runner_preset"] = RNBO::convertPresetToJSONObj(*std::get<1>(preset));
+
+			std::string set_name = std::get<2>(preset);
+
+			//add dataref mapping
+			RNBO::Json datarefs = RNBO::Json::object();
+			{
+				std::lock_guard<std::mutex> bguard(mDataRefFileNameMutex);
+				for (auto& kv: mDataRefFileNameMap)
+					datarefs[kv.first] = kv.second;
+			}
+			data["datarefs"] = datarefs;
+
+			if (set_name.size()) {
+				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump());
+			} else {
+				mDB->presetSave(mName, name, data.dump());
+			}
+
 			mPresetsDirty = true;
 			{
 				std::lock_guard<std::mutex> guard(mPresetMutex);
@@ -851,7 +869,7 @@ void Instance::processEvents() {
 						auto name = cmd.preset;
 						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
 							//get preset called in audio thread, queue to do heavy work outside that thread
-							mPresetSaveQueue->try_enqueue({name, preset});
+							mPresetSaveQueue->try_enqueue({name, preset, std::string()});
 						});
 					}
 					break;
@@ -920,23 +938,43 @@ void Instance::processEvents() {
 	}
 }
 
-void Instance::loadPreset(std::string name) {
-	auto preset = mDB->preset(mName, name);
-	if (!preset) {
-		try {
-			int index = std::stoi(name);
-			if (index >= 0) {
-				preset = mDB->preset(mName, static_cast<unsigned int>(index));
+void Instance::savePreset(std::string name, std::string set_name) {
+	mCore->getPreset([name, set_name, this] (RNBO::ConstPresetPtr preset) {
+		//get preset called in audio thread, queue to do heavy work outside that thread
+		mPresetSaveQueue->try_enqueue({name, preset, set_name});
+	});
+}
+
+void Instance::loadPreset(std::string name, std::string set_name) {
+	boost::optional<std::string> preset;
+	if (set_name.size()) {
+		preset = mDB->setPreset(mName, name, set_name, mIndex);
+	} else {
+		auto p = mDB->preset(mName, name);
+		if (!p) {
+			try {
+				int index = std::stoi(name);
+				if (index >= 0) {
+					p = mDB->preset(mName, static_cast<unsigned int>(index));
+				}
+			} catch (...) {
+				//do nothing
 			}
-		} catch (...) {
-			//do nothing
+		}
+		if (p) {
+			preset = p->first;
+			name = p->second;
 		}
 	}
 
 	if (preset) {
-		loadJsonPreset(preset->first, preset->second);
+		loadJsonPreset(*preset, name);
 	} else {
-		std::cerr << "couldn't find preset with name or index: " << name << std::endl;
+		std::cerr << "couldn't find preset with name or index: " << name;
+		if (set_name.size()) {
+			std::cerr << " in set " << set_name;
+		}
+		std::cerr << std::endl;
 	}
 }
 
@@ -963,9 +1001,36 @@ bool Instance::loadJsonPreset(const std::string& preset, const std::string& name
 	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
+
+		//added data to the preset JSON to support datarefs
+		//using a special key "runner_preset" to specify this format
+		//"runner_preset" contains the actual rnbo formatted JSON preset
+		bool trydatarefs = false;
 		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
-		convertJSONObjToPreset(j, *unique);
+		if (j["runner_preset"].is_object()) {
+			trydatarefs = true;
+			convertJSONObjToPreset(j["runner_preset"], *unique);
+		} else {
+			convertJSONObjToPreset(j, *unique);
+		}
 		mCore->setPreset(std::move(unique));
+
+		if (trydatarefs && j["datarefs"].is_object()) {
+			auto datarefs = j["datarefs"];
+			//push directly to the nodes so that we queue up changes
+			for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+				if (!it.value().is_string()) {
+					std::cerr << "dataref value for key " << it.key() << " is not a string" << std::endl;
+					continue;
+				}
+
+				auto nodeit = mDataRefNodes.find(it.key());
+				if (nodeit != mDataRefNodes.end()) {
+					nodeit->second->push_value(it.value().get<std::string>());
+				}
+			}
+		}
+
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;

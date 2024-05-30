@@ -41,12 +41,14 @@ class DB {
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f, std::string rnbo_version = std::string());
 
 		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial)> f, std::string rnbo_version = std::string());
+
 		//content, name
 		boost::optional<std::pair<std::string, std::string>> preset(
 				const std::string& patchername,
 				const std::string& presetName,
 				std::string rnbo_version = std::string()
 		);
+
 		//content, name
 		boost::optional<std::pair<std::string, std::string>> preset(
 				const std::string& patchername,
@@ -71,9 +73,47 @@ class DB {
 				const std::string& presetName
 		);
 
+		std::vector<std::string> setPresets(const std::string& setName, std::string rnbo_version = std::string());
+		//get all presets for a set perset
+		void setPresets(
+				const std::string& setName,
+				const std::string& presetName,
+				std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content)> func,
+				std::string rnbo_version = std::string());
+
+		boost::optional<std::string> setPreset(
+				const std::string& patchername,
+				const std::string& presetName,
+				const std::string& setName,
+				unsigned int instanceIndex,
+				std::string rnbo_version = std::string()
+		);
+
+		void setPresetSave(
+				const std::string& patchername,
+				const std::string& presetName,
+				const std::string& setName,
+				unsigned int instanceIndex,
+				const std::string& content
+		);
+
+		void setPresetRename(
+				const std::string& setName,
+				const std::string& oldName,
+				const std::string& newName,
+				std::string rnbo_version = std::string()
+		);
+
+		void setPresetDestroy(
+				const std::string& setName,
+				const std::string& presetName,
+				std::string rnbo_version = std::string()
+		);
+
 		void setSave(
 				const std::string& name,
-				const boost::filesystem::path& filename
+				const boost::filesystem::path& filename,
+				bool migrate_presets = true
 		);
 		bool setDestroy(const std::string& name);
 		bool setRename(const std::string& oldName, const std::string& newName);

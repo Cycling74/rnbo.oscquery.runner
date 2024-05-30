@@ -37,7 +37,7 @@ class Controller {
 
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
-		void loadSet(boost::filesystem::path filename = boost::filesystem::path());
+		void loadSet(boost::filesystem::path filename = boost::filesystem::path(), std::string name = std::string());
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
 #endif
@@ -45,7 +45,7 @@ class Controller {
 		//returns true until we should quit
 		bool processEvents();
 	private:
-		void doLoadSet(boost::filesystem::path filename);
+		void doLoadSet(boost::filesystem::path filename, std::string name = std::string());
 
 		bool tryActivateAudio();
 		void reportActive();
@@ -59,7 +59,7 @@ class Controller {
 		void reportCommandStatus(std::string id, RNBO::Json obj);
 
 		void handleActive(bool active);
-		void updateDiskSpace();
+		void updateDiskStats();
 		void updateListenersList();
 		void restoreListeners();
 		void listenersAddProtocol(const std::string& ip, uint16_t port);
@@ -87,10 +87,15 @@ class Controller {
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();
+		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
+		void updateSetPresetNames(std::string toadd = std::string());
+		void saveSetPreset(const std::string& setName, std::string presetName);
+		void loadSetPreset(const std::string& setName, std::string presetName);
 
 		unsigned int nextInstanceIndex();
 
 		void handleProgramChange(ProgramChange);
+		std::string getCurrentSetName();
 
 		std::shared_ptr<DB> mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
@@ -104,7 +109,9 @@ class Controller {
 		ossia::net::node_base * mPatchersNode;
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
-		ossia::net::parameter_base * mSetLoadParam = nullptr;
+		ossia::net::node_base * mSetPresetLoadNode = nullptr;
+
+		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
 
@@ -112,8 +119,12 @@ class Controller {
 		bool mSetNamesUpdated = false;
 		std::vector<ossia::value> mSetNames;
 
+		std::mutex mSetPresetNamesMutex;
+		bool mSetPresetNamesUpdated = false;
+		std::vector<ossia::value> mSetPresetNames;
+
 		std::mutex mSetLoadPendingMutex;
-		boost::filesystem::path mSetLoadPendingPath;
+		boost::optional<std::pair<boost::filesystem::path, std::string>> mSetLoadPending;
 
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
@@ -121,9 +132,12 @@ class Controller {
 		std::vector<std::shared_ptr<Instance>> mStoppingInstances;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
+		ossia::net::parameter_base * mDataFileDirMTimeParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
-		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
-		std::chrono::time_point<std::chrono::steady_clock> mDiskSpacePollNext;
+		std::string mDataFileDirMTimeLast;
+
+		std::chrono::duration<int> mDiskPollPeriod = std::chrono::seconds(10);
+		std::chrono::time_point<std::chrono::steady_clock> mDiskPollNext;
 
 		std::shared_ptr<ProcessAudio> mProcessAudio;
 		ossia::net::parameter_base * mAudioActive;

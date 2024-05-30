@@ -332,10 +332,21 @@ Controller::Controller(std::string server_name) {
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
 		//might not be enough to indicate disk space
-		auto n = info->create_child("disk_bytes_available");
-		mDiskSpaceParam = n->create_parameter(ossia::val_type::STRING);
-		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-		updateDiskSpace();
+		{
+			auto n = info->create_child("disk_bytes_available");
+			mDiskSpaceParam = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->set(ossia::net::description_attribute{}, "a byte count (as a string) of the bytes available in the compile cache dir");
+		}
+
+		{
+			auto n = info->create_child("datafile_dir_mtime");
+			mDataFileDirMTimeParam = n->create_parameter(ossia::val_type::STRING);
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->set(ossia::net::description_attribute{}, "the last modification time of the datafile directory, as a string representation, time since epoch");
+		}
+
+		updateDiskStats();
 	}
 
 	//add support for commands
@@ -574,7 +585,7 @@ Controller::Controller(std::string server_name) {
 
 			{
 				auto n = mSetLoadNode = sets->create_child("load");
-				auto p = mSetLoadParam = n->create_parameter(ossia::val_type::STRING);
+				auto p = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 				n->set(ossia::net::description_attribute{}, "Load a set with the given name");
 
@@ -633,6 +644,97 @@ Controller::Controller(std::string server_name) {
 					}
 				});
 			}
+
+			//current
+			{
+				auto current = sets->create_child("current");
+				{
+					auto n = current->create_child("name");
+					mSetCurrentNameParam = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "The currently loaded set's name");
+				}
+			}
+
+			{
+				auto presets = sets->create_child("presets");
+				{
+					auto n = presets->create_child("save");
+					auto p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Save a loaded set preset with the given name");
+
+					p->add_callback([this, cmdBuilder](const ossia::value& v) {
+							if (v.get_type() == ossia::val_type::STRING) {
+								auto name = v.get<std::string>();
+								if (name.size()) {
+									mCommandQueue.push(cmdBuilder("instance_set_preset_save", name));
+								}
+							}
+					});
+				}
+				{
+					auto n = mSetPresetLoadNode = presets->create_child("load");
+					auto p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Load a loaded set preset with the given name");
+
+					p->add_callback([this, cmdBuilder](const ossia::value& v) {
+							if (v.get_type() == ossia::val_type::STRING) {
+								auto name = v.get<std::string>();
+								if (name.size()) {
+									mCommandQueue.push(cmdBuilder("instance_set_preset_load", name));
+								}
+							}
+					});
+				}
+				{
+					auto n = presets->create_child("destroy");
+					auto p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Delete a loaded set preset with the given name");
+
+					p->add_callback([this, cmdBuilder](const ossia::value& v) {
+							if (v.get_type() == ossia::val_type::STRING) {
+								auto name = v.get<std::string>();
+								if (name.size()) {
+									mCommandQueue.push(cmdBuilder("instance_set_preset_delete", name));
+								}
+							}
+					});
+				}
+
+				{
+					auto n = presets->create_child("rename");
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Rename the loaded set's preset: oldName, newName");
+
+					p->add_callback([this](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::LIST) {
+							auto l = v.get<std::vector<ossia::value>>();
+							if (l.size() == 2 && l[0].get_type() == ossia::val_type::STRING && l[1].get_type() == ossia::val_type::STRING) {
+								auto name = l[0].get<std::string>();
+								auto newName = l[1].get<std::string>();
+								if (name.size() && newName.size()) {
+									RNBO::Json cmd = {
+										{"method", "instance_set_preset_rename"},
+										{"id", "internal"},
+										{"params",
+											{
+												{"name", name},
+												{"newName", newName}
+											}
+										}
+									};
+									mCommandQueue.push(cmd.dump());
+								}
+							}
+						}
+					});
+				}
+			}
+
 			updateSetNames();
 		}
 	}
@@ -979,15 +1081,15 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 }
 
 //actually just queue it
-void Controller::loadSet(boost::filesystem::path filename) {
+void Controller::loadSet(boost::filesystem::path filename, std::string name) {
 	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 	if (!tryActivateAudio()) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
 		return;
 	}
-	mSetLoadPendingPath = saveFilePath();
+	mSetLoadPending = std::make_pair(saveFilePath(), name);
 	if (!filename.empty()) {
-		mSetLoadPendingPath = config::get<fs::path>(config::key::SaveDir).get() / filename;
+		mSetLoadPending = std::make_pair(config::get<fs::path>(config::key::SaveDir).get() / filename, name);
 	}
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -995,7 +1097,7 @@ void Controller::loadSet(boost::filesystem::path filename) {
 	}
 }
 
-void Controller::doLoadSet(boost::filesystem::path setFile) {
+void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname) {
 	try {
 		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
@@ -1064,6 +1166,8 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			instances.push_back(inst);
 		}
 
+		/*
+		//XXX check in on this
 		//load last preset if we have it
 		if (presets.size()) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -1076,16 +1180,21 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 				}
 			}
 		}
+		*/
+
 		mProcessAudio->updatePorts();
 
 		if (c.contains(set_connections_key)) {
 			mProcessAudio->connect(c[set_connections_key]);
 		}
 
-		//start instances
+		//load presets and start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			for (auto inst: instances) {
+				if (setname.size()) {
+					inst->loadPreset("initial", setname);
+				}
 				inst->start(mInstFadeInMs);
 			}
 		}
@@ -1096,6 +1205,10 @@ void Controller::doLoadSet(boost::filesystem::path setFile) {
 			}
 			mSetMetaParam->push_value(meta);
 		}
+
+		//indicate the name and dirty status
+		mSetCurrentNameParam->push_value(setname);
+		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
 	} catch (...) {
@@ -1322,6 +1435,42 @@ void Controller::updateSetNames() {
 	mSetNamesUpdated = true;
 }
 
+void Controller::updateSetPresetNames(std::string toadd) {
+	std::lock_guard<std::mutex> guard(mSetPresetNamesMutex);
+	mSetPresetNames.clear();
+
+	std::string setname = getCurrentSetName();
+	if (setname.size()) {
+		std::vector<std::string> presetNames = mDB->setPresets(setname);
+		for (auto name: presetNames) {
+			if (name != toadd) {
+				mSetPresetNames.push_back(name);
+			}
+		}
+		if (toadd.size()) {
+			mSetPresetNames.push_back(toadd);
+		}
+	}
+	mSetPresetNamesUpdated = true;
+}
+
+void Controller::saveSetPreset(const std::string& setName, std::string presetName) {
+	//ditch the old one
+	mDB->setPresetDestroy(setName, presetName);
+	//save the new ones
+	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+	for (auto& i: mInstances) {
+		std::get<0>(i)->savePreset(presetName, setName);
+	}
+}
+
+void Controller::loadSetPreset(const std::string& setName, std::string presetName) {
+	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+	for (auto& i: mInstances) {
+		std::get<0>(i)->loadPreset(presetName, setName);
+	}
+}
+
 unsigned int Controller::nextInstanceIndex() {
 	unsigned int index = 0;
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
@@ -1381,21 +1530,21 @@ bool Controller::processEvents() {
 
 		//if we have no instances, look to see if we should load a set
 		if (!anyInstances) {
-			boost::filesystem::path path;
+			boost::optional<std::pair<boost::filesystem::path, std::string>> pending;
 			{
 				std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
-				mSetLoadPendingPath.swap(path);
+				mSetLoadPending.swap(pending);
 			}
-			if (!path.empty()) {
-				doLoadSet(path);
+			if (pending) {
+				doLoadSet(pending->first, pending->second);
 			}
 		}
 
-		if (mDiskSpacePollNext <= now) {
+		if (mDiskPollNext <= now) {
 			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
 			//using a hammer to make sure that doesn't happen
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-			updateDiskSpace();
+			updateDiskStats();
 		}
 
 		bool save = false;
@@ -1431,6 +1580,17 @@ bool Controller::processEvents() {
 				ossia::set_values(dom, mSetNames);
 				mSetLoadNode->set(ossia::net::domain_attribute{}, dom);
 				mSetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+			}
+		}
+		{
+			std::lock_guard<std::mutex> guard(mSetPresetNamesMutex);
+			if (mSetPresetNamesUpdated) {
+				mSetPresetNamesUpdated = false;
+
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, mSetPresetNames);
+				mSetPresetLoadNode->set(ossia::net::domain_attribute{}, dom);
+				mSetPresetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 			}
 		}
 	} catch (const std::exception& e) {
@@ -1609,6 +1769,10 @@ void Controller::registerCommands() {
 						unloadInstance(guard, index);
 					}
 				}
+				if (index < 0) {
+					mSetCurrentNameParam->push_value("");
+					updateSetPresetNames();
+				}
 				mProcessAudio->updatePorts();
 				queueSave();
 				reportCommandResult(id, {
@@ -1626,12 +1790,15 @@ void Controller::registerCommands() {
 				auto p = saveSet(name, meta, true);
 				if (p) {
 					mDB->setSave(name, p->filename());
+					saveSetPreset(name, "initial");
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "saved"},
 						{"progress", 100}
 					});
+					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
+					updateSetPresetNames("initial");
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -1644,15 +1811,16 @@ void Controller::registerCommands() {
 				std::string name = params["name"].get<std::string>();
 				auto res = mDB->setGet(name);
 				if (res) {
-					loadSet(res.get());
-					reportCommandResult(id, {
-						{"code", 0},
-						{"message", "loaded"},
-						{"progress", 100}
-					});
+					loadSet(res.get(), name);
 				} else {
 					reportCommandError(id, 1, "failed");
+					return;
 				}
+				reportCommandResult(id, {
+					{"code", 0},
+					{"message", "loaded"},
+					{"progress", 100}
+				});
 			}
 	});
 
@@ -1681,8 +1849,96 @@ void Controller::registerCommands() {
 						{"message", "renamed"},
 						{"progress", 100}
 					});
+					//if we renamed the current set, indicate that
+					if (getCurrentSetName() == name) {
+						mSetCurrentNameParam->push_value(newName);
+					}
 					updateSetNames();
 				} else {
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	//set presets
+
+	mCommandHandlers.insert({
+			"instance_set_preset_save",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					saveSetPreset(setname, name);
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "saved"},
+						{"progress", 100}
+					});
+
+					//saving is async so we force "name" into the list
+					updateSetPresetNames(name);
+				} else {
+					std::cerr << "no current set name, cannot save preset" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_preset_load",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					loadSetPreset(setname, name);
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "loaded"},
+						{"progress", 100}
+					});
+				} else {
+					std::cerr << "no current set name, cannot load preset" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_preset_delete",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					mDB->setPresetDestroy(setname, name);
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "deleted"},
+						{"progress", 100}
+					});
+					updateSetPresetNames();
+				} else {
+					std::cerr << "no current set name, cannot destroy preset" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_preset_rename",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string newName = params["newName"].get<std::string>();
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					mDB->setPresetRename(setname, name, newName);
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "deleted"},
+						{"progress", 100}
+					});
+					updateSetPresetNames();
+				} else {
+					std::cerr << "no current set name, cannot rename associated preset" << std::endl;
 					reportCommandError(id, 1, "failed");
 				}
 			}
@@ -1829,6 +2085,34 @@ void Controller::registerCommands() {
 			//TODO validate set data?
 			mDB->setSave(fileName, filePath.filename());
 			updateSetNames();
+
+			//handle presets
+			RNBO::Json setData;
+			{
+				std::ifstream i(filePath.string());
+				i >> setData;
+				i.close();
+			}
+			if (setData["presets"].is_object()) {
+				//TODO delete all existing presets?
+				for (const auto& kv: setData["presets"].items()) {
+					std::string presetName = kv.key();
+					mDB->setPresetDestroy(fileName, presetName);
+					if (kv.value().is_array()) {
+						auto& presets = kv.value();
+						for (const auto& entry: presets) {
+							if (entry["patchername"].is_string() && entry["instanceindex"].is_number() && entry["content"].is_object()) {
+								std::string patchername = entry["patchername"];
+								unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
+								const RNBO::Json& content = entry["content"];
+								mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump());
+							} else {
+								std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
+							}
+						}
+					}
+				}
+			}
 		}
 
 		reportCommandResult(id, {
@@ -1909,6 +2193,28 @@ void Controller::registerCommands() {
 								RNBO::Json s;
 								std::ifstream i(setPath.string());
 								i >> s;
+
+								//get presets
+								//XXX could this become too large??
+								RNBO::Json presets;
+								std::vector<std::string> presetNames = mDB->setPresets(name);
+								for (auto presetName: presetNames) {
+									RNBO::Json preset;
+
+									mDB->setPresets(
+											name, presetName,
+											[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content) {
+												RNBO::Json entry;
+												entry["patchername"] = patcherName;
+												entry["instanceindex"] = static_cast<int>(instanceIndex);
+												entry["content"] = RNBO::Json::parse(content);
+												preset.push_back(entry);
+											});
+
+									presets[presetName] = preset;
+								}
+								s["presets"] = presets;
+
 								content[name] = s;
 							} else {
 								std::cerr << "no set file at path: " << setPath << std::endl;
@@ -2381,7 +2687,7 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 	}
 }
 
-void Controller::updateDiskSpace() {
+void Controller::updateDiskStats() {
 		//could also look at sample dir?
 		fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir).get()));
 		auto available = compileCacheSpace.available;
@@ -2390,7 +2696,23 @@ void Controller::updateDiskSpace() {
 			if (mDiskSpaceParam)
 				mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
 		}
-		mDiskSpacePollNext = steady_clock::now() + mDiskSpacePollPeriod;
+
+		{
+			auto dir = fs::absolute(config::get<fs::path>(config::key::DataFileDir).get());
+			auto time = fs::last_write_time(dir);
+
+			char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
+			std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
+
+			std::string s(timeString);
+
+			if (s != mDataFileDirMTimeLast) {
+				mDataFileDirMTimeParam->push_value(s);
+				mDataFileDirMTimeLast = s;
+			}
+		}
+
+		mDiskPollNext = steady_clock::now() + mDiskPollPeriod;
 }
 
 void Controller::updateListenersList() {
@@ -2446,5 +2768,12 @@ void Controller::handleProgramChange(ProgramChange p) {
 		}
 
 	}
+}
+
+std::string Controller::getCurrentSetName() {
+	if (mSetCurrentNameParam && mSetCurrentNameParam->get_value_type() == ossia::val_type::STRING) {
+		return mSetCurrentNameParam->value().get<std::string>();
+	}
+	return std::string();
 }
 
