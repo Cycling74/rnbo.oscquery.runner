@@ -985,6 +985,7 @@ RNBO::UniquePresetPtr Instance::getPresetSync() {
 RNBO::Json Instance::currentConfig() {
 	RNBO::Json config = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();
+	RNBO::Json meta = RNBO::Json::object();
 
 	//store last preset
 	{
@@ -1002,6 +1003,40 @@ RNBO::Json Instance::currentConfig() {
 	config["datarefs"] = datarefs;
 
 	//mAudio->addConfig(config);
+
+	//meta mappings
+	try {
+		std::lock_guard<std::mutex> guard(mMetaMapMutex);
+		RNBO::Json params = RNBO::Json::array();
+		for (auto& kv: mParamMetaMapped) {
+			RNBO::Json entry;
+			entry["index"] = kv.first;
+			entry["meta"] = RNBO::Json::parse(kv.second);
+			params.push_back(entry);
+		}
+		meta["params"] = params;
+
+		RNBO::Json inports = RNBO::Json::array();
+		for (auto& kv: mInportMetaMapped) {
+			RNBO::Json entry;
+			entry["tag"] = kv.first;
+			entry["meta"] = RNBO::Json::parse(kv.second);
+			inports.push_back(entry);
+		}
+		meta["inports"] = inports;
+
+		RNBO::Json outports = RNBO::Json::array();
+		for (auto& kv: mOutportMetaMapped) {
+			RNBO::Json entry;
+			entry["tag"] = kv.first;
+			entry["meta"] = RNBO::Json::parse(kv.second);
+			outports.push_back(entry);
+		}
+		meta["outports"] = outports;
+	} catch (...) {
+		std::cerr << "problem creating meta config" << std::endl;
+	}
+	config["meta"] = meta;
 
 	return config;
 }
@@ -1257,7 +1292,6 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	//do we default ports named with "/" prefixes to become top level OSC messages?
 	const bool portToOSC = config::get<bool>(config::key::InstancePortToOSC).value_or(true);
 
-	std::string defaultMeta;
 	//default access mode of a new param if we make one
 	ossia::access_mode oscAccessMode = ossia::access_mode::BI;
 	ossia::val_type oscValueType = ossia::val_type::LIST;
@@ -1265,70 +1299,18 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	std::string name;
 	std::string cleanupKey;
 	ParameterInfo paramInfo;
-
-	switch (update.subject) {
-		case MetaUpdateCommand::Subject::Param:
-			{
-				//empty name and default address, metadata can fill it in though
-				oscAccessMode = ossia::access_mode::BI;
-				cleanupKey = "Param" + std::to_string(update.paramIndex);
-
-				mCore->getParameterInfo(update.paramIndex, &paramInfo);
-
-				//enum are string
-				oscValueType = paramInfo.enumValues == nullptr ? ossia::val_type::FLOAT : ossia::val_type::STRING;
-				auto it = mParamMetaDefault.find(update.paramIndex);
-				if (it != mParamMetaDefault.end()) {
-					defaultMeta = it->second;
-				}
-			}
-			break;
-		case MetaUpdateCommand::Subject::Inport:
-			{
-				name = update.messageTag;
-				oscAccessMode = ossia::access_mode::SET;
-				oscAddr = portToOSC ? name : "";
-				cleanupKey = "Inport" + name;
-
-				auto it = mInportMetaDefault.find(name);
-				if (it != mInportMetaDefault.end()) {
-					defaultMeta = it->second;
-				}
-			}
-			break;
-		case MetaUpdateCommand::Subject::Outport:
-			{
-				name = update.messageTag;
-				oscAccessMode = ossia::access_mode::GET;
-				oscAddr = portToOSC ? name : "";
-				cleanupKey = "Outport" + name;
-
-				{
-					auto it = mOutportMetaDefault.find(name);
-					if (it != mOutportMetaDefault.end()) {
-						defaultMeta = it->second;
-					}
-				}
-			}
-			break;
-		default:
-			//shouldn't ever happen
-			std::cerr << "unknown MetaUpdateCommand subject" << std::endl;
-			return;
-	}
-
 	RNBO::Json meta;
+	bool setDefault = false;
+
 	//set default meta if length is zero and there is a default
 	if (update.meta.length() == 0) {
 		update.node->clear_children();
-		if (defaultMeta.size()) {
-			update.param->push_value(defaultMeta);
-		}
+		setDefault = true;
 	} else {
 		try {
-			//XXX if update.meta != defaultMeta, mark dirty
 			meta = RNBO::Json::parse(update.meta);
 			update.node->clear_children();
+
 			if (meta.is_object()) {
 				recurse_add_meta(meta, update.node);
 			}
@@ -1338,6 +1320,94 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 			return;
 		}
 	}
+
+	{
+		std::lock_guard<std::mutex> guard(mMetaMapMutex);
+		switch (update.subject) {
+			case MetaUpdateCommand::Subject::Param:
+				{
+					//empty name and default address, metadata can fill it in though
+					oscAccessMode = ossia::access_mode::BI;
+					cleanupKey = "Param" + std::to_string(update.paramIndex);
+
+					mCore->getParameterInfo(update.paramIndex, &paramInfo);
+
+					//enum are string
+					oscValueType = paramInfo.enumValues == nullptr ? ossia::val_type::FLOAT : ossia::val_type::STRING;
+
+					bool isCustom = !setDefault;
+					auto it = mParamMetaDefault.find(update.paramIndex);
+					if (it != mParamMetaDefault.end()) {
+						//push new value but let fall through to unmap meta
+						if (setDefault) {
+							update.param->push_value(it->second);
+						} else {
+							isCustom = update.meta != it->second;
+						}
+					}
+					if (isCustom) {
+						mParamMetaMapped[update.paramIndex] = update.meta;
+					} else {
+						mParamMetaMapped.erase(update.paramIndex);
+					}
+				}
+				break;
+			case MetaUpdateCommand::Subject::Inport:
+				{
+					name = update.messageTag;
+					oscAccessMode = ossia::access_mode::SET;
+					oscAddr = portToOSC ? name : "";
+					cleanupKey = "Inport" + name;
+
+					//push new value but let fall through to unmap meta
+					bool isCustom = !setDefault;
+					auto it = mInportMetaDefault.find(name);
+					if (it != mInportMetaDefault.end()) {
+						//push new value but let fall through to unmap meta
+						if (setDefault) {
+							update.param->push_value(it->second);
+						} else {
+							isCustom = update.meta != it->second;
+						}
+					}
+					if (isCustom) {
+						mInportMetaMapped[name] = update.meta;
+					} else {
+						mInportMetaMapped.erase(name);
+					}
+				}
+				break;
+			case MetaUpdateCommand::Subject::Outport:
+				{
+					name = update.messageTag;
+					oscAccessMode = ossia::access_mode::GET;
+					oscAddr = portToOSC ? name : "";
+					cleanupKey = "Outport" + name;
+
+					bool isCustom = !setDefault;
+					auto it = mOutportMetaDefault.find(name);
+					if (it != mOutportMetaDefault.end()) {
+						//push new value but let fall through to unmap meta
+						if (setDefault) {
+							update.param->push_value(it->second);
+						} else {
+							isCustom = update.meta != it->second;
+						}
+					}
+					if (isCustom) {
+						mOutportMetaMapped[name] = update.meta;
+					} else {
+						mOutportMetaMapped.erase(name);
+					}
+				}
+				break;
+			default:
+				//shouldn't ever happen
+				std::cerr << "unknown MetaUpdateCommand subject" << std::endl;
+				return;
+		}
+	}
+	queueConfigChangeSignal();
 
 	auto osc_meta = [](const std::string& name, std::string addr, const RNBO::Json& meta) -> std::string {
 		if (meta.contains("osc")) {

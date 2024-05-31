@@ -199,6 +199,13 @@ class Instance {
 		std::unordered_map<std::string, std::string> mInportMetaDefault;
 		std::unordered_map<std::string, std::string> mOutportMetaDefault;
 		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaDefault;
+
+		//mappings that aren't default, to be stored with configuration
+		std::mutex mMetaMapMutex;
+		std::unordered_map<std::string, std::string> mInportMetaMapped;
+		std::unordered_map<std::string, std::string> mOutportMetaMapped;
+		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaMapped;
+
 		ossia::net::node_base * mOSCRoot = nullptr;
 		//functions to run when we clear out OSC mapping
 		//cleanupKey -> function
