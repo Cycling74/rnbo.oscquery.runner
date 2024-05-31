@@ -130,6 +130,21 @@ class Instance {
 				subject(s), messageTag(tag), meta(m) { }
 		};
 
+		struct ParamOSCUpdateData {
+			std::shared_ptr<std::mutex> mutex; //mutex to avoid infinite recursion
+			std::shared_ptr<std::mutex> oscmutex;
+			ossia::net::parameter_base * param = nullptr;
+			ossia::net::parameter_base * normparam = nullptr;
+			ossia::net::parameter_base * oscparam = nullptr;
+
+			//map between string enum value and numeric values, only used for enum params
+			std::unordered_map<std::string, RNBO::ParameterValue> nameToVal;
+			std::unordered_map<int, std::string> valToName;
+
+			ParamOSCUpdateData();
+			void push_osc(ossia::value val);
+		};
+
 		void processDataRefCommands();
 		void updatePresetEntries();
 		void handleProgramChange(ProgramChange);
@@ -147,13 +162,19 @@ class Instance {
 		void handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value);
 		void handlePresetEvent(const RNBO::PresetEvent& e);
 
+		void handleMetadataUpdate(MetaUpdateCommand update);
+
+		void handleEnumParamOscUpdate(RNBO::ParameterIndex index, const ossia::value& val);
+		void handleFloatParamOscUpdate(RNBO::ParameterIndex index, const ossia::value& val);
+		void handleNormalizedFloatParamOscUpdate(RNBO::ParameterIndex index, const ossia::value& val);
+
 		std::unique_ptr<InstanceAudio> mAudio;
 		std::unique_ptr<EventHandler> mEventHandler;
 		std::shared_ptr<PatcherFactory> mPatcherFactory;
 		std::shared_ptr<RNBO::CoreObject> mCore;
 
-		//parameter index -> (node and optional int -> string for enum lookups)
-		std::map<RNBO::ParameterIndex, std::pair<ossia::net::parameter_base*, boost::optional<std::unordered_map<int, std::string>>>> mIndexToParam;
+		//parameter index -> update data
+		std::map<RNBO::ParameterIndex, ParamOSCUpdateData> mIndexToParam;
 
 		ossia::net::parameter_base* mActiveParam;
 		ossia::net::parameter_base* mMIDIOutParam;
@@ -178,6 +199,10 @@ class Instance {
 		std::unordered_map<std::string, std::string> mInportMetaDefault;
 		std::unordered_map<std::string, std::string> mOutportMetaDefault;
 		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaDefault;
+		ossia::net::node_base * mOSCRoot = nullptr;
+		//functions to run when we clear out OSC mapping
+		//cleanupKey -> function
+		std::unordered_map<std::string, std::function<void()>> mMetaCleanup;
 
 		//map of dataref name to file name
 		std::mutex mDataRefFileNameMutex;
@@ -196,10 +221,8 @@ class Instance {
 		Queue<PresetCommand> mPresetCommandQueue;
 
 		//simply the names of outports, for building up OSCQuery
+		//the first in the vector is always the standard outport
 		std::unordered_map<std::string, std::vector<ossia::net::parameter_base *>> mOutportParams;
-
-		//functions to run on destruction, to cleanup callbacks etc
-		std::vector<std::function<void()>> mCleanupQueue;
 
 		RNBO::Json mConfig;
 		unsigned int mIndex = 0;

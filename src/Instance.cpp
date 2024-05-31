@@ -103,15 +103,7 @@ namespace {
 	std::pair<ossia::net::node_base *, ossia::net::parameter_base *> add_meta_to_param(RNBO::Json& meta, ossia::net::node_base& param) {
 		auto m = param.create_child("meta");
 		auto p = m->create_parameter(ossia::val_type::STRING);
-
-		if (meta.is_object() && meta.size()) {
-			p->push_value(meta.dump());
-			recurse_add_meta(meta, m);
-		} else {
-			p->push_value("");
-		}
 		m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-
 		return std::make_pair(m, p);
 	}
 
@@ -232,6 +224,11 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	});
 
 	builder([this, &dataRefMap, conf](ossia::net::node_base * root) {
+		//get namespace root so we can add OSC at it with metadata later
+		mOSCRoot = root;
+		while (auto r = mOSCRoot->get_parent()) {
+			mOSCRoot = r;
+		}
 
 		//set name
 		if (conf.contains("name") && conf["name"].is_string()) {
@@ -265,13 +262,16 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 						auto meta = p["meta"]; //might be null
 						auto param_meta = add_meta_to_param(meta, param);
 
-						//save default
-						if (meta.is_object()) {
-							mParamMetaDefault.insert({index, meta.dump()});
-						}
-
 						auto on = param_meta.first;
 						auto op = param_meta.second;
+
+						//save default and process meta
+						if (meta.is_object()) {
+							mParamMetaDefault.insert({index, meta.dump()});
+							handleMetadataUpdate(MetaUpdateCommand(on, op, index, meta.dump()));
+						} else {
+							op->push_value("");
+						}
 
 						op->add_callback([this, op, on, index](const ossia::value& val) {
 								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
@@ -282,17 +282,17 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			};
 
 			ParameterInfo info;
+
 			mCore->getParameterInfo(index, &info);
 			//only supporting numbers right now
 			//don't bind invisible or debug
 			if (info.type != ParameterType::ParameterTypeNumber || !info.visible || info.debug)
 				continue;
 
-			//use a mutex to make sure we don't update in a loop
-			auto active = std::make_shared<std::mutex>();
+			ParamOSCUpdateData updateData;
 
 			//create comon, return normalized version
-			auto ccommon = [this, info, index, active](ossia::net::node_base& param) -> ossia::net::parameter_base * {
+			auto ccommon = [this, info, index](ossia::net::node_base& param) -> ossia::net::parameter_base * {
 				{
 					auto n = param.create_child("index");
 
@@ -313,15 +313,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					p->push_value(mCore->convertToNormalizedParameterValue(index, info.initialValue));
 
 					//normalized callback
-					p->add_callback([this, index, active](const ossia::value& val) mutable {
-						if (val.get_type() == ossia::val_type::FLOAT) {
-							if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-								double f = static_cast<double>(val.get<float>());
-								f = mCore->convertFromNormalizedParameterValue(index, f);
-								mCore->setParameterValue(index, f);
-								handleParamUpdate(index, f);
-							}
-						}
+					p->add_callback([this, index](const ossia::value& val) {
+						handleNormalizedFloatParamOscUpdate(index, val);
 					});
 
 					return p;
@@ -340,36 +333,20 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				p->push_value(info.initialValue);
 				add_meta(n);
 
-				//normalized
-				auto norm = ccommon(n);
+				updateData.normparam = ccommon(n);
+				updateData.param = p;
 
-				//param callback, set norm
-				p->add_callback([this, index, active, norm](const ossia::value& val) mutable {
-					if (val.get_type() == ossia::val_type::FLOAT) {
-						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-							double f = static_cast<double>(val.get<float>());
-							mCore->setParameterValue(index, f);
-							f = mCore->convertToNormalizedParameterValue(index, f);
-							norm->push_value(static_cast<float>(f));
-						}
-					}
-				});
-
-				//setup lookup, no enum
-				mIndexToParam[index] = std::make_pair(p, boost::none);
-
+				p->add_callback([this, index](const ossia::value& val) { handleFloatParamOscUpdate(index, val); });
 			} else {
 				//enumerated parameters
 				std::vector<ossia::value> values;
 
 				//build out lookup maps between strings and numbers
-				std::unordered_map<std::string, ParameterValue> nameToVal;
-				std::unordered_map<int, std::string> valToName;
 				for (int e = 0; e < info.steps; e++) {
 					std::string s(info.enumValues[e]);
 					values.push_back(s);
-					nameToVal[s] = static_cast<ParameterValue>(e);
-					valToName[e] = s;
+					updateData.nameToVal[s] = static_cast<ParameterValue>(e);
+					updateData.valToName[e] = s;
 				}
 
 				auto& n = ossia::net::create_node(*params, mCore->getParameterId(index));
@@ -382,23 +359,13 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				p->push_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
 				add_meta(n);
 
-				//normalized
-				auto norm = ccommon(n);
+				updateData.normparam = ccommon(n);
+				updateData.param = p;
 
-				p->add_callback([this, index, nameToVal, active, norm](const ossia::value& val) mutable {
-					if (val.get_type() == ossia::val_type::STRING) {
-						if (auto _lock = std::unique_lock<std::mutex> (*active, std::try_to_lock)) {
-							auto f = nameToVal.find(val.get<std::string>());
-							if (f != nameToVal.end()) {
-								mCore->setParameterValue(index, f->second);
-								norm->push_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second)));
-							}
-						}
-					}
-				});
-				//set lookup with enum lookup
-				mIndexToParam[index] = std::make_pair(p, valToName);
+				p->add_callback([this, index](const ossia::value& val) { handleEnumParamOscUpdate(index, val); });
 			}
+
+			mIndexToParam[index] = updateData;
 
 		}
 
@@ -571,38 +538,13 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				bool hasInports = (inports.is_array() && inports.size() > 0);
 				bool hasOutports = (outports.is_array() && outports.size() > 0);
 
-				//get OSC root
-				auto oscRoot = root;
-				while (auto r = oscRoot->get_parent()) {
-					oscRoot = r;
-				}
-
 				if (hasInports || hasOutports) {
 					auto msgs = root->create_child("messages");
-					bool toOSC = config::get<bool>(config::key::InstancePortToOSC).value_or(true);
-					auto osc_meta = [](const std::string& name, std::string addr, const RNBO::Json& meta) -> std::string {
-						if (meta.contains("osc")) {
-							if (meta["osc"].is_string()) {
-								addr = meta["osc"].get<std::string>();
-							} else if (meta["osc"].is_boolean()) {
-								if (!meta["osc"].get<bool>())
-									return "";
-								addr = name;
-							}
-						} else {
-							return addr;
-						}
-						if (addr.size() && !addr.starts_with('/')) {
-							addr = "/" + addr;
-						}
-						return addr;
-					};
 
 					if (hasInports) {
 						auto in = msgs->create_child("in");
 						for (auto i: inports) {
 							std::string name = i["tag"];
-							std::string addr = toOSC ? name : "";
 							auto tag = RNBO::TAG(name.c_str());
 
 							auto& n = ossia::net::create_node(*in, name);
@@ -613,48 +555,18 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							{
 								auto meta = i["meta"];
 								auto param_meta = add_meta_to_param(meta, n);
-								if (meta.is_object())
-								{
-									addr = osc_meta(name, addr, meta);
-									mInportMetaDefault.insert({name, meta.dump()});
-								}
-
 								auto on = param_meta.first;
 								auto op = param_meta.second;
+
+								if (meta.is_object())
+								{
+									mInportMetaDefault.insert({name, meta.dump()});
+									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, meta.dump()));
+								}
 
 								op->add_callback([this, op, on, name](const ossia::value& val) {
 										std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
 										mMetaUpdateQueue.push(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, s));
-								});
-							}
-
-							//XXX should we disallow a /rnbo/ prefix??
-							if (addr.starts_with('/')) {
-								bool exists = ossia::net::find_node(*oscRoot, addr) != nullptr;
-								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
-								auto pp = pn.get_parameter();
-
-								if (pp == nullptr) {
-									pp = pn.create_parameter(ossia::val_type::LIST);
-									pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-								} else {
-									//if it is get only, chanage to bi
-									auto mode = ossia::net::get_access_mode(pn);
-									if (mode && *mode == ossia::access_mode::GET) {
-										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-									}
-								}
-
-								auto cb = pp->add_callback([this, tag](const ossia::value& val) {
-									handleInportMessage(tag, val);
-								});
-
-								//queue cleanup
-								add_node_ref(addr, exists);
-								auto node_ptr = ossia::net::find_node(*oscRoot, addr);
-								mCleanupQueue.push_back([addr, cb, pp, node_ptr]() {
-										pp->remove_callback(cb);
-										cleanup_param(addr, node_ptr, pp);
 								});
 							}
 
@@ -668,61 +580,31 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 						for (auto i: outports) {
 							std::string name = i["tag"];
-							std::string addr = toOSC ? name : "";
 							auto& n = ossia::net::create_node(*o, name);
 							auto p = n.create_parameter(ossia::val_type::LIST);
 							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 
-							//we may have another param associated with this outport
-							std::vector<ossia::net::parameter_base *> params = { p };
+							//we may have another param associated with this outport but the default outport is at the front of the list
+							mOutportParams[name] = { p };
 
 							//add meta
 							{
 								auto meta = i["meta"];
 								auto param_meta = add_meta_to_param(meta, n);
-								if (meta.is_object())
-								{
-									addr = osc_meta(name, addr, meta);
-									mOutportMetaDefault.insert({name, meta.dump()});
-								}
-
 								auto on = param_meta.first;
 								auto op = param_meta.second;
+
+								if (meta.is_object())
+								{
+									mOutportMetaDefault.insert({name, meta.dump()});
+									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, meta.dump()));
+								}
 
 								op->add_callback([this, op, on, name](const ossia::value& val) {
 										std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
 										mMetaUpdateQueue.push(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, s));
 								});
 							}
-
-							//XXX should we disallow a /rnbo/ prefix?? what if you want to send to a param?
-							if (addr.starts_with('/')) {
-								bool exists = ossia::net::find_node(*oscRoot, addr) != nullptr;
-								auto& pn = ossia::net::find_or_create_node(*oscRoot, addr);
-								auto pp = pn.get_parameter();
-
-								if (pp == nullptr) {
-									pp = pn.create_parameter(ossia::val_type::LIST);
-									pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-								} else {
-									//if it is set only, chanage to bi
-									auto mode = ossia::net::get_access_mode(pn);
-									if (mode && *mode == ossia::access_mode::SET) {
-										pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-									}
-								}
-
-								params.push_back(pp);
-
-								//queue cleanup
-								add_node_ref(addr, exists);
-								auto node_ptr = ossia::net::find_node(*oscRoot, addr);
-								mCleanupQueue.push_back([pp, addr, node_ptr]() {
-										cleanup_param(addr, node_ptr, pp);
-								});
-							}
-
-							mOutportParams[name] = params;
 						}
 					}
 				}
@@ -791,8 +673,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 Instance::~Instance() {
 	//cleanup callbacks
-	for (auto f: mCleanupQueue) {
-		f();
+	for (auto& kv: mMetaCleanup) {
+		kv.second();
 	}
 
 	mDataRefProcessCommands.store(false);
@@ -840,6 +722,7 @@ void Instance::processDataRefCommands() {
 	}
 }
 
+//build mutex is locked, we can build
 void Instance::processEvents() {
 	const auto state = audioState();
 	const auto active = state == AudioState::Starting || state == AudioState::Running;
@@ -891,58 +774,7 @@ void Instance::processEvents() {
 	//handle meta updates
 	while (auto item = mMetaUpdateQueue.tryPop()) {
 		auto update = item.get();
-
-		std::string defaultMeta;
-		switch (update.subject) {
-			case MetaUpdateCommand::Subject::Param:
-				{
-					auto it = mParamMetaDefault.find(update.paramIndex);
-					if (it != mParamMetaDefault.end()) {
-						defaultMeta = it->second;
-					}
-				}
-				break;
-			case MetaUpdateCommand::Subject::Inport:
-				{
-					auto it = mInportMetaDefault.find(update.messageTag);
-					if (it != mInportMetaDefault.end()) {
-						defaultMeta = it->second;
-					}
-				}
-				break;
-			case MetaUpdateCommand::Subject::Outport:
-				{
-					auto it = mOutportMetaDefault.find(update.messageTag);
-					if (it != mOutportMetaDefault.end()) {
-						defaultMeta = it->second;
-					}
-				}
-				break;
-			default:
-				break;
-		}
-
-
-		//set default meta if length is zero and there is a default
-		if (update.meta.length() == 0) {
-			update.node->clear_children();
-			if (defaultMeta.size()) {
-				update.param->push_value(defaultMeta);
-			}
-		} else {
-			try {
-				//XXX if update.meta != defaultMeta, mark dirty
-				RNBO::Json meta = RNBO::Json::parse(update.meta);
-				update.node->clear_children();
-				if (meta.is_object()) {
-					recurse_add_meta(meta, update.node);
-				}
-			} catch (...) {
-				//XXX clear out??
-				std::cerr << "failed to parse meta as json: " << update.meta << std::endl;
-				continue;
-			}
-		}
+		handleMetadataUpdate(update);
 	}
 
 	if (active) {
@@ -1390,16 +1222,25 @@ void Instance::handleMidiCallback(RNBO::MidiEvent e) {
 void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValue value) {
 	//RNBO is telling us we have a parameter update, tell ossia
 	auto it = mIndexToParam.find(index);
-	if (it != mIndexToParam.end()) {
-		//enumerated value
-		if (it->second.second) {
-			auto it2 = it->second.second->find(static_cast<int>(value));
-			if (it2 != it->second.second->end()) {
-				it->second.first->push_value(it2->second);
+	if (it == mIndexToParam.end()) {
+		//XXX error
+		return;
+	}
+
+	auto& info = it->second;
+	//prevent recursion
+	if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
+		if (info.valToName.size()) {
+			auto it2 = info.valToName.find(static_cast<int>(value));
+			if (it2 != info.valToName.end()) {
+				info.param->push_value(it2->second);
+				info.push_osc(it2->second);
 			}
 		} else {
-			it->second.first->push_value(value);
+			info.param->push_value(value);
+			info.push_osc(static_cast<float>(value));
 		}
+		info.normparam->push_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, value)));
 	}
 }
 
@@ -1407,5 +1248,349 @@ void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
 	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
 		std::lock_guard<std::mutex> guard(mPresetMutex);
 		mPresetLoadedParam->push_value(mPresetLatest);
+	}
+}
+
+void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
+	//assumes build mutex is locked which is the case in processEvents or builder
+
+	//do we default ports named with "/" prefixes to become top level OSC messages?
+	const bool portToOSC = config::get<bool>(config::key::InstancePortToOSC).value_or(true);
+
+	std::string defaultMeta;
+	//default access mode of a new param if we make one
+	ossia::access_mode oscAccessMode = ossia::access_mode::BI;
+	ossia::val_type oscValueType = ossia::val_type::LIST;
+	std::string oscAddr;
+	std::string name;
+	std::string cleanupKey;
+	ParameterInfo paramInfo;
+
+	switch (update.subject) {
+		case MetaUpdateCommand::Subject::Param:
+			{
+				//empty name and default address, metadata can fill it in though
+				oscAccessMode = ossia::access_mode::BI;
+				cleanupKey = "Param" + std::to_string(update.paramIndex);
+
+				mCore->getParameterInfo(update.paramIndex, &paramInfo);
+
+				//enum are string
+				oscValueType = paramInfo.enumValues == nullptr ? ossia::val_type::FLOAT : ossia::val_type::STRING;
+				auto it = mParamMetaDefault.find(update.paramIndex);
+				if (it != mParamMetaDefault.end()) {
+					defaultMeta = it->second;
+				}
+			}
+			break;
+		case MetaUpdateCommand::Subject::Inport:
+			{
+				name = update.messageTag;
+				oscAccessMode = ossia::access_mode::SET;
+				oscAddr = portToOSC ? name : "";
+				cleanupKey = "Inport" + name;
+
+				auto it = mInportMetaDefault.find(name);
+				if (it != mInportMetaDefault.end()) {
+					defaultMeta = it->second;
+				}
+			}
+			break;
+		case MetaUpdateCommand::Subject::Outport:
+			{
+				name = update.messageTag;
+				oscAccessMode = ossia::access_mode::GET;
+				oscAddr = portToOSC ? name : "";
+				cleanupKey = "Outport" + name;
+
+				{
+					auto it = mOutportMetaDefault.find(name);
+					if (it != mOutportMetaDefault.end()) {
+						defaultMeta = it->second;
+					}
+				}
+			}
+			break;
+		default:
+			//shouldn't ever happen
+			std::cerr << "unknown MetaUpdateCommand subject" << std::endl;
+			return;
+	}
+
+	RNBO::Json meta;
+	//set default meta if length is zero and there is a default
+	if (update.meta.length() == 0) {
+		update.node->clear_children();
+		if (defaultMeta.size()) {
+			update.param->push_value(defaultMeta);
+		}
+	} else {
+		try {
+			//XXX if update.meta != defaultMeta, mark dirty
+			meta = RNBO::Json::parse(update.meta);
+			update.node->clear_children();
+			if (meta.is_object()) {
+				recurse_add_meta(meta, update.node);
+			}
+		} catch (...) {
+			//XXX clear out??
+			std::cerr << "failed to parse meta as json: " << update.meta << std::endl;
+			return;
+		}
+	}
+
+	auto osc_meta = [](const std::string& name, std::string addr, const RNBO::Json& meta) -> std::string {
+		if (meta.contains("osc")) {
+			if (meta["osc"].is_string()) {
+				addr = meta["osc"].get<std::string>();
+			} else if (meta["osc"].is_boolean()) {
+				if (!meta["osc"].get<bool>())
+					return "";
+				addr = name;
+			}
+		} else {
+			return addr;
+		}
+		if (addr.size() && !addr.starts_with('/')) {
+			addr = "/" + addr;
+		}
+		return addr;
+	};
+
+	//clear out existing OSC and figure out if we need to map new OSC
+	{
+		auto it = mMetaCleanup.find(cleanupKey);
+		if (it != mMetaCleanup.end()) {
+			//do cleanup and clear
+			it->second();
+			mMetaCleanup.erase(it);
+		}
+	}
+
+	oscAddr = osc_meta(name, oscAddr, meta);
+
+	//XXX should we disallow a /rnbo/ prefix??
+	if (oscAddr.starts_with('/')) {
+		bool exists = ossia::net::find_node(*mOSCRoot, oscAddr) != nullptr;
+		auto& pn = ossia::net::find_or_create_node(*mOSCRoot, oscAddr);
+		auto pp = pn.get_parameter();
+
+		if (pp == nullptr) {
+			pp = pn.create_parameter(oscValueType);
+			pn.set(ossia::net::access_mode_attribute{}, oscAccessMode);
+		} else {
+			//make sure we have a compatible mode, if not, convert it
+			auto mode = ossia::net::get_access_mode(pn);
+			if (mode && *mode == oscAccessMode && mode != ossia::access_mode::BI) {
+				pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+			}
+		}
+
+		//hook up OSC
+		std::function<void()> cleanup;
+
+		//setup reference for cleanup
+		add_node_ref(oscAddr, exists);
+		auto node_ptr = ossia::net::find_node(*mOSCRoot, oscAddr);
+
+		switch (update.subject) {
+			case MetaUpdateCommand::Subject::Param:
+				{
+					auto index = update.paramIndex;
+					ossia::callback_container<std::function<void (const ossia::value &)>>::iterator cb;
+
+					{
+						auto it = mIndexToParam.find(index);
+						if (it == mIndexToParam.end()) {
+							//XXX error
+							return;
+						}
+						it->second.oscparam = pp;
+					}
+
+					//TODO what about normalized?
+					//TODO remapping values?
+
+					if (paramInfo.enumValues == nullptr) {
+						cb = pp->add_callback([this, index] (const ossia::value& val) {
+								auto it = mIndexToParam.find(index);
+								if (it != mIndexToParam.end()) {
+									auto& info = it->second;
+									//this is really just a proxy and we don't want to recurse back
+									if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
+										info.param->push_value(val);
+									}
+								}
+						});
+					} else {
+						cb = pp->add_callback([this, index] (const ossia::value& val) {
+								auto it = mIndexToParam.find(index);
+								if (it != mIndexToParam.end()) {
+									auto& info = it->second;
+									//this is really just a proxy and we don't want to recurse back
+									if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
+										info.param->push_value(val);
+									}
+								}
+						});
+					}
+					cleanup = [this, index, oscAddr, cb, pp, node_ptr]() {
+						//clear out the associated oscparam
+						//remove callbacks
+						//cleanup param
+						auto it = mIndexToParam.find(index);
+						if (it != mIndexToParam.end()) {
+							it->second.oscparam = nullptr;
+						}
+						pp->remove_callback(cb);
+						cleanup_param(oscAddr, node_ptr, pp);
+					};
+				}
+				break;
+			case MetaUpdateCommand::Subject::Inport:
+				{
+					auto tag = RNBO::TAG(name.c_str());
+					auto cb = pp->add_callback([this, tag](const ossia::value& val) {
+						handleInportMessage(tag, val);
+					});
+					cleanup = [oscAddr, cb, pp, node_ptr]() {
+						pp->remove_callback(cb);
+						cleanup_param(oscAddr, node_ptr, pp);
+					};
+				}
+				break;
+			case MetaUpdateCommand::Subject::Outport:
+				{
+					{
+						auto it = mOutportParams.find(name);
+						if (it != mOutportParams.end()) {
+							//push the parameter to the list
+							it->second.push_back(pp);
+						} else {
+							//should not happen
+							return;
+						}
+					}
+					cleanup = [oscAddr, pp, node_ptr, name, this]() {
+						//remove the parameter from our outport list
+						auto it = mOutportParams.find(name);
+						if (it != mOutportParams.end()) {
+							while (it->second.size() > 1) {
+								it->second.pop_back();
+							}
+						} else {
+							//XXX shouldn't happen
+						}
+						cleanup_param(oscAddr, node_ptr, pp);
+					};
+				}
+				break;
+			default:
+				return;
+		}
+		mMetaCleanup.insert({cleanupKey, cleanup});
+	}
+}
+
+void Instance::handleEnumParamOscUpdate(RNBO::ParameterIndex index, const ossia::value& val) {
+	auto it = mIndexToParam.find(index);
+	if (it == mIndexToParam.end()) {
+		//XXX ERROR
+		return;
+	}
+
+	auto& info = it->second;
+
+	//TODO any other types valid?
+	if (val.get_type() == ossia::val_type::STRING) {
+		if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
+			auto s = val.get<std::string>();
+			auto f = info.nameToVal.find(s);
+			if (f != info.nameToVal.end()) {
+				mCore->setParameterValue(index, f->second);
+				info.push_osc(static_cast<float>(f->second));
+				info.normparam->push_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second)));
+			}
+		}
+	}
+}
+
+void Instance::handleFloatParamOscUpdate(RNBO::ParameterIndex index, const ossia::value& val) {
+	auto it = mIndexToParam.find(index);
+	if (it == mIndexToParam.end()) {
+		//XXX ERROR
+		return;
+	}
+
+	auto& info = it->second;
+
+	//support other types?
+	double f = 0.0;
+	switch(val.get_type()) {
+		case ossia::val_type::FLOAT:
+			f = static_cast<double>(val.get<float>());
+			break;
+		case ossia::val_type::INT:
+			f = static_cast<double>(val.get<int>());
+			break;
+		case ossia::val_type::BOOL:
+			f = val.get<bool>() ? 1.0 : 0.0;
+			break;
+		default:
+			return;
+	}
+
+	if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
+		//constrain in case we're getting this from some random OSC source
+		f = mCore->constrainParameterValue(index, f);
+		mCore->setParameterValue(index, f);
+		info.push_osc(static_cast<float>(f));
+		f = mCore->convertToNormalizedParameterValue(index, f);
+		info.normparam->push_value(static_cast<float>(f));
+	}
+}
+
+void Instance::handleNormalizedFloatParamOscUpdate(RNBO::ParameterIndex index, const ossia::value& val) {
+	auto it = mIndexToParam.find(index);
+	if (it == mIndexToParam.end()) {
+		//XXX ERROR
+		return;
+	}
+
+	auto& info = it->second;
+	if (val.get_type() == ossia::val_type::FLOAT) {
+		if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
+			double f = static_cast<double>(val.get<float>());
+			f = mCore->convertFromNormalizedParameterValue(index, f);
+			mCore->setParameterValue(index, f);
+
+			f = mCore->convertFromNormalizedParameterValue(index, f);
+			//is it enum?
+			if (info.valToName.size()) {
+				auto name = info.valToName.find(static_cast<int>(f));
+				if (name != info.valToName.end()) {
+					info.param->push_value(name->second);
+					info.push_osc(name->second);
+				}
+			} else {
+				ossia::value v(static_cast<float>(f));
+				info.param->push_value(v);
+				info.push_osc(v);
+			}
+		}
+	}
+}
+
+
+Instance::ParamOSCUpdateData::ParamOSCUpdateData() {
+	mutex = std::make_shared<std::mutex>();
+	oscmutex = std::make_shared<std::mutex>();
+}
+
+void Instance::ParamOSCUpdateData::push_osc(ossia::value val) {
+	if (oscparam) {
+		if (auto _olock = std::unique_lock<std::mutex> (*oscmutex, std::try_to_lock)) {
+			oscparam->push_value(val);
+		}
 	}
 }
