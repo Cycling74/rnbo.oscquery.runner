@@ -100,7 +100,7 @@ namespace {
 		}
 	}
 
-	std::pair<ossia::net::node_base *, ossia::net::parameter_base *> add_meta_to_param(RNBO::Json& meta, ossia::net::node_base& param) {
+	std::pair<ossia::net::node_base *, ossia::net::parameter_base *> add_meta_to_param(ossia::net::node_base& param) {
 		auto m = param.create_child("meta");
 		auto p = m->create_parameter(ossia::val_type::STRING);
 		m->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
@@ -239,6 +239,26 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			p->push_value(conf["name"].get<std::string>());
 		}
 
+		//get overrides
+		RNBO::Json paramMetaOverride = RNBO::Json::array();
+		RNBO::Json inportMetaOverride = RNBO::Json::object();
+		RNBO::Json outportMetaOverride = RNBO::Json::object();
+		if (conf["meta"].is_object()) {
+			auto p = conf["meta"]["params"];
+			auto i = conf["meta"]["inports"];
+			auto o = conf["meta"]["outports"];
+
+			if (p.is_array()) {
+				paramMetaOverride = p;
+			}
+			if (i.is_object()) {
+				inportMetaOverride = i;
+			}
+			if (o.is_object()) {
+				outportMetaOverride = o;
+			}
+		}
+
 		//setup parameters
 		auto params = root->create_child("params");
 		RNBO::Json paramConfig;
@@ -249,9 +269,17 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		params->set(ossia::net::description_attribute{}, "Parameter get/set");
 		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
 
-			auto add_meta = [index, &paramConfig, this](ossia::net::node_base& param) {
+			auto add_meta = [index, &paramConfig, &paramMetaOverride, this](ossia::net::node_base& param) {
 				if (!paramConfig.is_array()) {
 					return;
+				}
+
+				RNBO::Json metaOverride;
+				for (auto p: paramMetaOverride) {
+					if (p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
+						metaOverride = p["meta"];
+						break;
+					}
 				}
 
 				//XXX what if there is no param config entry for this parameter? will there ever be?
@@ -260,7 +288,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				for (auto p: paramConfig) {
 					if (p.contains("index") && p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
 						auto meta = p["meta"]; //might be null
-						auto param_meta = add_meta_to_param(meta, param);
+						auto param_meta = add_meta_to_param(param);
 
 						auto on = param_meta.first;
 						auto op = param_meta.second;
@@ -268,6 +296,13 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 						//save default and process meta
 						if (meta.is_object()) {
 							mParamMetaDefault.insert({index, meta.dump()});
+						}
+
+						if (metaOverride.is_object()) {
+							op->push_value(metaOverride.dump());
+							handleMetadataUpdate(MetaUpdateCommand(on, op, index, metaOverride.dump()));
+						} else if (meta.is_object()) {
+							op->push_value(meta.dump());
 							handleMetadataUpdate(MetaUpdateCommand(on, op, index, meta.dump()));
 						} else {
 							op->push_value("");
@@ -554,14 +589,23 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							//add meta
 							{
 								auto meta = i["meta"];
-								auto param_meta = add_meta_to_param(meta, n);
+								auto metaOverride = inportMetaOverride[name];
+								auto param_meta = add_meta_to_param(n);
 								auto on = param_meta.first;
 								auto op = param_meta.second;
 
-								if (meta.is_object())
-								{
+								if (meta.is_object()) {
 									mInportMetaDefault.insert({name, meta.dump()});
+								}
+
+								if (metaOverride.is_object()) {
+									op->push_value(metaOverride.dump());
+									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, metaOverride.dump()));
+								} else if (meta.is_object()) {
+									op->push_value(meta.dump());
 									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, meta.dump()));
+								} else {
+									op->push_value("");
 								}
 
 								op->add_callback([this, op, on, name](const ossia::value& val) {
@@ -590,14 +634,23 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							//add meta
 							{
 								auto meta = i["meta"];
-								auto param_meta = add_meta_to_param(meta, n);
+								auto metaOverride = outportMetaOverride[name];
+								auto param_meta = add_meta_to_param(n);
 								auto on = param_meta.first;
 								auto op = param_meta.second;
 
-								if (meta.is_object())
-								{
+								if (meta.is_object()) {
 									mOutportMetaDefault.insert({name, meta.dump()});
+								}
+
+								if (metaOverride.is_object()) {
+									op->push_value(metaOverride.dump());
+									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, metaOverride.dump()));
+								} else if (meta.is_object()) {
+									op->push_value(meta.dump());
 									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, meta.dump()));
+								} else {
+									op->push_value("");
 								}
 
 								op->add_callback([this, op, on, name](const ossia::value& val) {
@@ -1016,21 +1069,15 @@ RNBO::Json Instance::currentConfig() {
 		}
 		meta["params"] = params;
 
-		RNBO::Json inports = RNBO::Json::array();
+		RNBO::Json inports = RNBO::Json::object();
 		for (auto& kv: mInportMetaMapped) {
-			RNBO::Json entry;
-			entry["tag"] = kv.first;
-			entry["meta"] = RNBO::Json::parse(kv.second);
-			inports.push_back(entry);
+			inports[kv.first] = RNBO::Json::parse(kv.second);
 		}
 		meta["inports"] = inports;
 
-		RNBO::Json outports = RNBO::Json::array();
+		RNBO::Json outports = RNBO::Json::object();
 		for (auto& kv: mOutportMetaMapped) {
-			RNBO::Json entry;
-			entry["tag"] = kv.first;
-			entry["meta"] = RNBO::Json::parse(kv.second);
-			outports.push_back(entry);
+			outports[kv.first] = RNBO::Json::parse(kv.second);
 		}
 		meta["outports"] = outports;
 	} catch (...) {
