@@ -355,17 +355,16 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				}
 			};
 
+			auto& n = ossia::net::create_node(*params, mCore->getParameterId(index));
 			if (info.enumValues == nullptr) {
 				//numerical parameters
 				//set parameter access, range, etc etc
-				auto& n = ossia::net::create_node(*params, mCore->getParameterId(index));
 				auto p = n.create_parameter(ossia::val_type::FLOAT);
 
 				n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 				n.set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
 				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 				p->push_value(info.initialValue);
-				add_meta(n);
 
 				updateData.normparam = ccommon(n);
 				updateData.param = p;
@@ -383,7 +382,6 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					updateData.valToName[e] = s;
 				}
 
-				auto& n = ossia::net::create_node(*params, mCore->getParameterId(index));
 				auto p = n.create_parameter(ossia::val_type::STRING);
 
 				auto dom = ossia::init_domain(ossia::val_type::STRING);
@@ -391,7 +389,6 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				n.set(ossia::net::domain_attribute{}, dom);
 				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 				p->push_value(info.enumValues[std::min(std::max(0, static_cast<int>(info.initialValue)), info.steps - 1)]);
-				add_meta(n);
 
 				updateData.normparam = ccommon(n);
 				updateData.param = p;
@@ -400,6 +397,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			}
 
 			mIndexToParam[index] = updateData;
+			//XXX no need for this to be a lambda anymore
+			add_meta(n);
 
 		}
 
@@ -1555,7 +1554,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 					if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::GET) {
 						auto it = mIndexToParam.find(index);
 						if (it == mIndexToParam.end()) {
-							//XXX error
+							std::cerr << "failed to find param mapping info, aborting meta osc mapping" << std::endl;
 							return;
 						}
 						it->second.oscparam = pp;
