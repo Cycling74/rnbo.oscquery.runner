@@ -686,6 +686,23 @@ If the runner is running on the same machine as you want to listen on, you can u
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "foo", "params": {"ip": "localhost", "port": 9999}}'
 ```
 
+### Metadata
+
+#### OSC
+
+Inports, Outports, and Parameters can take metadata that extend their mapping to/from OSC messages.
+
+The simplest of forms, `@meta osc:'/foo/bar'` maps the item to/from the OSC message `/foo/bar`.
+
+*Direction*
+
+* Inports can only listen to OSC messages
+* Outports can only send OSC messages
+* Parameters only listen by default but can be made to send with a more verbose OSC meta entry: `@meta osc:{'addr': '/foo/bar/', 'out': true}`
+  * **NOTE**: a parameter with the above meta will only send on `/foo/bar`, it will not also listen.
+  If you want to do both you need to add, `'in': true` eg `@meta osc:{'addr': '/foo/bar/', 'out': true, 'in': true}`
+
+
 ### Testing out discovery
 
 `dns-sd` can show you available services:
