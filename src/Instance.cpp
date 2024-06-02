@@ -243,19 +243,17 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		RNBO::Json paramMetaOverride = RNBO::Json::array();
 		RNBO::Json inportMetaOverride = RNBO::Json::object();
 		RNBO::Json outportMetaOverride = RNBO::Json::object();
-		if (conf["meta"].is_object()) {
-			auto p = conf["meta"]["params"];
-			auto i = conf["meta"]["inports"];
-			auto o = conf["meta"]["outports"];
+		if (conf.contains("metaoverride") && conf["metaoverride"].is_object()) {
+			auto& o = conf["metaoverride"];
 
-			if (p.is_array()) {
-				paramMetaOverride = p;
+			if (o.contains("params") && o["params"].is_array()) {
+				paramMetaOverride = o["params"];
 			}
-			if (i.is_object()) {
-				inportMetaOverride = i;
+			if (o.contains("inports") && o["inports"].is_object()) {
+				inportMetaOverride = o["inports"];
 			}
-			if (o.is_object()) {
-				outportMetaOverride = o;
+			if (o.contains("outports") && o["outports"].is_object()) {
+				outportMetaOverride = o["outports"];
 			}
 		}
 
@@ -274,10 +272,10 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					return;
 				}
 
-				RNBO::Json metaOverride;
+				RNBO::Json metaoverride;
 				for (auto p: paramMetaOverride) {
 					if (p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
-						metaOverride = p["meta"];
+						metaoverride = p["meta"];
 						break;
 					}
 				}
@@ -298,9 +296,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							mParamMetaDefault.insert({index, meta.dump()});
 						}
 
-						if (metaOverride.is_object()) {
-							op->push_value(metaOverride.dump());
-							handleMetadataUpdate(MetaUpdateCommand(on, op, index, metaOverride.dump()));
+						if (metaoverride.is_object()) {
+							op->push_value(metaoverride.dump());
+							handleMetadataUpdate(MetaUpdateCommand(on, op, index, metaoverride.dump()));
 						} else if (meta.is_object()) {
 							op->push_value(meta.dump());
 							handleMetadataUpdate(MetaUpdateCommand(on, op, index, meta.dump()));
@@ -312,6 +310,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
 								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
 						});
+						break;
 					}
 				}
 			};
@@ -589,7 +588,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							//add meta
 							{
 								auto meta = i["meta"];
-								auto metaOverride = inportMetaOverride[name];
+								auto metaoverride = inportMetaOverride[name];
 								auto param_meta = add_meta_to_param(n);
 								auto on = param_meta.first;
 								auto op = param_meta.second;
@@ -598,9 +597,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 									mInportMetaDefault.insert({name, meta.dump()});
 								}
 
-								if (metaOverride.is_object()) {
-									op->push_value(metaOverride.dump());
-									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, metaOverride.dump()));
+								if (metaoverride.is_object()) {
+									op->push_value(metaoverride.dump());
+									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, metaoverride.dump()));
 								} else if (meta.is_object()) {
 									op->push_value(meta.dump());
 									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, meta.dump()));
@@ -634,7 +633,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							//add meta
 							{
 								auto meta = i["meta"];
-								auto metaOverride = outportMetaOverride[name];
+								auto metaoverride = outportMetaOverride[name];
 								auto param_meta = add_meta_to_param(n);
 								auto on = param_meta.first;
 								auto op = param_meta.second;
@@ -643,9 +642,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 									mOutportMetaDefault.insert({name, meta.dump()});
 								}
 
-								if (metaOverride.is_object()) {
-									op->push_value(metaOverride.dump());
-									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, metaOverride.dump()));
+								if (metaoverride.is_object()) {
+									op->push_value(metaoverride.dump());
+									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, metaoverride.dump()));
 								} else if (meta.is_object()) {
 									op->push_value(meta.dump());
 									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, meta.dump()));
@@ -1083,7 +1082,7 @@ RNBO::Json Instance::currentConfig() {
 	} catch (...) {
 		std::cerr << "problem creating meta config" << std::endl;
 	}
-	config["meta"] = meta;
+	config["metaoverride"] = meta;
 
 	return config;
 }
@@ -1343,11 +1342,13 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	ossia::access_mode oscAccessMode = ossia::access_mode::BI;
 	ossia::val_type oscValueType = ossia::val_type::LIST;
 	std::string oscAddr;
+
 	std::string name;
 	std::string cleanupKey;
 	ParameterInfo paramInfo;
 	RNBO::Json meta;
 	bool setDefault = false;
+	bool isParam = false;
 
 	//set default meta if length is zero and there is a default
 	if (update.meta.length() == 0) {
@@ -1373,8 +1374,9 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		switch (update.subject) {
 			case MetaUpdateCommand::Subject::Param:
 				{
+					isParam = true;
 					//empty name and default address, metadata can fill it in though
-					oscAccessMode = ossia::access_mode::BI;
+					oscAccessMode = ossia::access_mode::SET; //listen by default
 					cleanupKey = "Param" + std::to_string(update.paramIndex);
 
 					mCore->getParameterInfo(update.paramIndex, &paramInfo);
@@ -1456,24 +1458,6 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	}
 	queueConfigChangeSignal();
 
-	auto osc_meta = [](const std::string& name, std::string addr, const RNBO::Json& meta) -> std::string {
-		if (meta.contains("osc")) {
-			if (meta["osc"].is_string()) {
-				addr = meta["osc"].get<std::string>();
-			} else if (meta["osc"].is_boolean()) {
-				if (!meta["osc"].get<bool>())
-					return "";
-				addr = name;
-			}
-		} else {
-			return addr;
-		}
-		if (addr.size() && !addr.starts_with('/')) {
-			addr = "/" + addr;
-		}
-		return addr;
-	};
-
 	//clear out existing OSC and figure out if we need to map new OSC
 	{
 		auto it = mMetaCleanup.find(cleanupKey);
@@ -1484,7 +1468,54 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		}
 	}
 
-	oscAddr = osc_meta(name, oscAddr, meta);
+	if (meta.is_object() && meta.contains("osc")) {
+		if (meta["osc"].is_string()) {
+			oscAddr = meta["osc"].get<std::string>();
+		} else if (meta["osc"].is_boolean()) {
+			if (!meta["osc"].get<bool>())
+				oscAddr = "";
+			oscAddr = name;
+		} else if (meta["osc"].is_object()) {
+			auto& osc = meta["osc"];
+			if (osc["addr"].is_string()) {
+				oscAddr = osc["addr"].get<std::string>();
+			}
+
+			//param has direction details
+			//by default it is an input
+			//it can become an output if out: true
+			//it can become bi directional only if in:true, out: true
+			if (isParam) {
+				bool in = true;
+				bool out = false;
+
+				if (osc["in"].is_boolean()) {
+					in = osc["in"].get<bool>();
+				}
+				if (osc["out"].is_boolean()) {
+					out = osc["out"].get<bool>();
+					//if in is not defined and out is true, set in to false
+					if (out && !osc["in"].is_boolean()) {
+						in = false;
+					}
+				}
+
+				if (in && out) {
+					oscAccessMode = ossia::access_mode::BI;
+				} else if (in) {
+					oscAccessMode = ossia::access_mode::SET;
+				} else if (out) {
+					oscAccessMode = ossia::access_mode::GET;
+				} else {
+					std::cerr << "parameter osc with both in and out false is invalid" << std::endl;
+					return;
+				}
+			}
+		}
+	}
+	if (oscAddr.size() && !oscAddr.starts_with('/')) {
+		oscAddr = "/" + oscAddr;
+	}
 
 	//XXX should we disallow a /rnbo/ prefix??
 	if (oscAddr.starts_with('/')) {
@@ -1498,7 +1529,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		} else {
 			//make sure we have a compatible mode, if not, convert it
 			auto mode = ossia::net::get_access_mode(pn);
-			if (mode && *mode == oscAccessMode && mode != ossia::access_mode::BI) {
+			if (mode && *mode != oscAccessMode && mode != ossia::access_mode::BI) {
 				pn.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 			}
 		}
@@ -1516,7 +1547,12 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 					auto index = update.paramIndex;
 					ossia::callback_container<std::function<void (const ossia::value &)>>::iterator cb;
 
-					{
+					//TODO what about normalized?
+					//TODO remapping values?
+					//can we do both remapping and noramlization with an input and output std::func<float(float)> ?
+
+					//if the access mode is BI or GET, this means we send messages out so set the oscparam
+					if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::GET) {
 						auto it = mIndexToParam.find(index);
 						if (it == mIndexToParam.end()) {
 							//XXX error
@@ -1525,43 +1561,55 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						it->second.oscparam = pp;
 					}
 
-					//TODO what about normalized?
-					//TODO remapping values?
-
-					if (paramInfo.enumValues == nullptr) {
-						cb = pp->add_callback([this, index] (const ossia::value& val) {
-								auto it = mIndexToParam.find(index);
-								if (it != mIndexToParam.end()) {
-									auto& info = it->second;
-									//this is really just a proxy and we don't want to recurse back
-									if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
-										info.param->push_value(val);
+					//if access mode is BI or SET, this means we recieve messages so set the callback
+					if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::SET) {
+						if (paramInfo.enumValues == nullptr) {
+							cb = pp->add_callback([this, index] (const ossia::value& val) {
+									auto it = mIndexToParam.find(index);
+									if (it != mIndexToParam.end()) {
+										auto& info = it->second;
+										//this is really just a proxy and we don't want to recurse back
+										if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
+											info.param->push_value(val);
+										}
 									}
-								}
-						});
-					} else {
-						cb = pp->add_callback([this, index] (const ossia::value& val) {
-								auto it = mIndexToParam.find(index);
-								if (it != mIndexToParam.end()) {
-									auto& info = it->second;
-									//this is really just a proxy and we don't want to recurse back
-									if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
-										info.param->push_value(val);
+							});
+						} else {
+							cb = pp->add_callback([this, index] (const ossia::value& val) {
+									auto it = mIndexToParam.find(index);
+									if (it != mIndexToParam.end()) {
+										auto& info = it->second;
+										//this is really just a proxy and we don't want to recurse back
+										if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
+											info.param->push_value(val);
+										}
 									}
-								}
-						});
-					}
-					cleanup = [this, index, oscAddr, cb, pp, node_ptr]() {
-						//clear out the associated oscparam
-						//remove callbacks
-						//cleanup param
-						auto it = mIndexToParam.find(index);
-						if (it != mIndexToParam.end()) {
-							it->second.oscparam = nullptr;
+							});
 						}
-						pp->remove_callback(cb);
-						cleanup_param(oscAddr, node_ptr, pp);
-					};
+						cleanup = [this, index, oscAddr, cb, pp, node_ptr]() {
+							//clear out the associated oscparam
+							//remove callbacks
+							//cleanup param
+							auto it = mIndexToParam.find(index);
+							if (it != mIndexToParam.end()) {
+								//this might already be null, but there is no issue setting it null again
+								it->second.oscparam = nullptr;
+							}
+							pp->remove_callback(cb);
+							cleanup_param(oscAddr, node_ptr, pp);
+						};
+					} else {
+						//if we're GET only, there is no callback to clear out
+						cleanup = [this, index, oscAddr, pp, node_ptr]() {
+							//clear out the associated oscparam
+							//cleanup param
+							auto it = mIndexToParam.find(index);
+							if (it != mIndexToParam.end()) {
+								it->second.oscparam = nullptr;
+							}
+							cleanup_param(oscAddr, node_ptr, pp);
+						};
+					}
 				}
 				break;
 			case MetaUpdateCommand::Subject::Inport:

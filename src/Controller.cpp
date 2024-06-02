@@ -1156,8 +1156,8 @@ void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname)
 					config["preset_initial"] = c["preset_last"];
 				}
 				//override meta
-				if (c["meta"].is_object()) {
-					config["meta"] = c["meta"];
+				if (c["metaoverride"].is_object()) {
+					config["metaoverride"] = c["metaoverride"];
 				}
 			}
 
