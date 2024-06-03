@@ -19,6 +19,7 @@
 #include "Defines.h"
 #include "Queue.h"
 #include "DB.h"
+#include "MIDIMap.h"
 
 class PatcherFactory;
 namespace moodycamel {
@@ -197,6 +198,10 @@ class Instance {
 		std::unordered_map<std::string, ossia::net::parameter_base *> mDataRefNodes;
 
 		Queue<MetaUpdateCommand> mMetaUpdateQueue;
+
+		std::mutex mMIDIMapMutex;
+		std::unordered_map<uint16_t, ossia::net::parameter_base *> mMIDIMap; //ParamMIDIMap::key() -> parameter_base *
+		std::unordered_map<ossia::net::parameter_base *, uint16_t> mMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
 
 		//name -> value (if any)
 		std::unordered_map<std::string, std::string> mInportMetaDefault;
