@@ -702,6 +702,9 @@ The simplest of forms, `@meta osc:'/foo/bar'` maps the item to/from the OSC mess
   * **NOTE**: a parameter with the above meta will only send on `/foo/bar`, it will not also listen.
   If you want to do both you need to add, `'in': true` eg `@meta osc:{'addr': '/foo/bar/', 'out': true, 'in': true}`
 
+*Normalized*
+
+
 
 ### Testing out discovery
 

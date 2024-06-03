@@ -1310,17 +1310,18 @@ void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValu
 	auto& info = it->second;
 	//prevent recursion
 	if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
+		auto norm = static_cast<float>(mCore->convertToNormalizedParameterValue(index, value));
 		if (info.valToName.size()) {
 			auto it2 = info.valToName.find(static_cast<int>(value));
 			if (it2 != info.valToName.end()) {
 				info.param->push_value(it2->second);
-				info.push_osc(it2->second);
+				info.push_osc(it2->second, norm);
 			}
 		} else {
 			info.param->push_value(value);
-			info.push_osc(static_cast<float>(value));
+			info.push_osc(static_cast<float>(value),  norm);
 		}
-		info.normparam->push_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, value)));
+		info.normparam->push_value(norm);
 	}
 }
 
@@ -1348,6 +1349,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	RNBO::Json meta;
 	bool setDefault = false;
 	bool isParam = false;
+	bool usenormalized = false;
 
 	//set default meta if length is zero and there is a default
 	if (update.meta.length() == 0) {
@@ -1499,6 +1501,11 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 					}
 				}
 
+				if (osc["norm"].is_boolean()) {
+					usenormalized = osc["norm"].get<bool>();
+					oscValueType = ossia::val_type::FLOAT;
+				}
+
 				if (in && out) {
 					oscAccessMode = ossia::access_mode::BI;
 				} else if (in) {
@@ -1550,26 +1557,34 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 					//TODO remapping values?
 					//can we do both remapping and noramlization with an input and output std::func<float(float)> ?
 
-					//if the access mode is BI or GET, this means we send messages out so set the oscparam
-					if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::GET) {
+					{
 						auto it = mIndexToParam.find(index);
 						if (it == mIndexToParam.end()) {
 							std::cerr << "failed to find param mapping info, aborting meta osc mapping" << std::endl;
 							return;
 						}
-						it->second.oscparam = pp;
+						it->second.usenormalized = usenormalized;
+
+						//if the access mode is BI or GET, this means we send messages out so set the oscparam
+						if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::GET) {
+							it->second.oscparam = pp;
+						}
 					}
 
 					//if access mode is BI or SET, this means we recieve messages so set the callback
 					if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::SET) {
-						if (paramInfo.enumValues == nullptr) {
+						if (paramInfo.enumValues == nullptr || usenormalized) {
 							cb = pp->add_callback([this, index] (const ossia::value& val) {
 									auto it = mIndexToParam.find(index);
 									if (it != mIndexToParam.end()) {
 										auto& info = it->second;
 										//this is really just a proxy and we don't want to recurse back
 										if (auto _lock = std::unique_lock<std::mutex> (*info.oscmutex, std::try_to_lock)) {
-											info.param->push_value(val);
+											if (info.usenormalized) {
+												info.normparam->push_value(val);
+											} else {
+												info.param->push_value(val);
+											}
 										}
 									}
 							});
@@ -1672,8 +1687,10 @@ void Instance::handleEnumParamOscUpdate(RNBO::ParameterIndex index, const ossia:
 			auto f = info.nameToVal.find(s);
 			if (f != info.nameToVal.end()) {
 				mCore->setParameterValue(index, f->second);
-				info.push_osc(static_cast<float>(f->second));
-				info.normparam->push_value(static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second)));
+
+				auto norm = static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second));
+				info.push_osc(static_cast<float>(f->second), norm);
+				info.normparam->push_value(norm);
 			}
 		}
 	}
@@ -1708,9 +1725,10 @@ void Instance::handleFloatParamOscUpdate(RNBO::ParameterIndex index, const ossia
 		//constrain in case we're getting this from some random OSC source
 		f = mCore->constrainParameterValue(index, f);
 		mCore->setParameterValue(index, f);
-		info.push_osc(static_cast<float>(f));
-		f = mCore->convertToNormalizedParameterValue(index, f);
-		info.normparam->push_value(static_cast<float>(f));
+		auto norm = static_cast<float>(mCore->convertToNormalizedParameterValue(index, f));
+
+		info.push_osc(static_cast<float>(f), norm);
+		info.normparam->push_value(norm);
 	}
 }
 
@@ -1724,22 +1742,21 @@ void Instance::handleNormalizedFloatParamOscUpdate(RNBO::ParameterIndex index, c
 	auto& info = it->second;
 	if (val.get_type() == ossia::val_type::FLOAT) {
 		if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
-			double f = static_cast<double>(val.get<float>());
-			f = mCore->convertFromNormalizedParameterValue(index, f);
-			mCore->setParameterValue(index, f);
+			const double f = static_cast<double>(val.get<float>());
 
-			f = mCore->convertFromNormalizedParameterValue(index, f);
+			auto unnorm = mCore->convertFromNormalizedParameterValue(index, f);
+			mCore->setParameterValue(index, unnorm);
+
 			//is it enum?
 			if (info.valToName.size()) {
-				auto name = info.valToName.find(static_cast<int>(f));
+				auto name = info.valToName.find(static_cast<int>(unnorm));
 				if (name != info.valToName.end()) {
 					info.param->push_value(name->second);
-					info.push_osc(name->second);
+					info.push_osc(name->second, f);
 				}
 			} else {
-				ossia::value v(static_cast<float>(f));
-				info.param->push_value(v);
-				info.push_osc(v);
+				info.param->push_value(static_cast<float>(unnorm));
+				info.push_osc(static_cast<float>(unnorm), f);
 			}
 		}
 	}
@@ -1751,10 +1768,10 @@ Instance::ParamOSCUpdateData::ParamOSCUpdateData() {
 	oscmutex = std::make_shared<std::mutex>();
 }
 
-void Instance::ParamOSCUpdateData::push_osc(ossia::value val) {
+void Instance::ParamOSCUpdateData::push_osc(ossia::value val, float normval) {
 	if (oscparam) {
 		if (auto _olock = std::unique_lock<std::mutex> (*oscmutex, std::try_to_lock)) {
-			oscparam->push_value(val);
+			oscparam->push_value(usenormalized ? ossia::value(normval) : val);
 		}
 	}
 }

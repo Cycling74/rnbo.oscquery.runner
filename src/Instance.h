@@ -141,8 +141,11 @@ class Instance {
 			std::unordered_map<std::string, RNBO::ParameterValue> nameToVal;
 			std::unordered_map<int, std::string> valToName;
 
+			//should params map to/from normalized version?
+			bool usenormalized = false;
+
 			ParamOSCUpdateData();
-			void push_osc(ossia::value val);
+			void push_osc(ossia::value val, float normval);
 		};
 
 		void processDataRefCommands();
