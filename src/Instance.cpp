@@ -148,6 +148,7 @@ namespace {
 }
 
 Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db) {
+
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
@@ -205,7 +206,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				transportCallback, tempoCallback, beatTimeCallback, timeSigCallback,
 				std::bind(&Instance::handlePresetEvent, this, std::placeholders::_1),
 				midiCallback));
-	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance(), mEventHandler.get());
+	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance());
+	mParamInterface = mCore->createParameterInterface(RNBO::ParameterEventInterface::MultiProducer, mEventHandler.get());
 
 	std::string audioName = name + "-" + std::to_string(mIndex);
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mMIDIMap));
@@ -687,7 +689,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							return;
 						}
 					}
-					mCore->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
+					mParamInterface->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
 				}
 			});
 
@@ -1210,16 +1212,16 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 
 void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val) {
 	if (val.get_type() == ossia::val_type::IMPULSE) {
-		mCore->sendMessage(tag);
+		mParamInterface->sendMessage(tag);
 	} else if (val.get_type() == ossia::val_type::FLOAT) {
-		mCore->sendMessage(tag, static_cast<RNBO::number>(val.get<float>()));
+		mParamInterface->sendMessage(tag, static_cast<RNBO::number>(val.get<float>()));
 	} else if (val.get_type() == ossia::val_type::INT) {
-		mCore->sendMessage(tag, static_cast<RNBO::number>(val.get<int>()));
+		mParamInterface->sendMessage(tag, static_cast<RNBO::number>(val.get<int>()));
 	} else if (val.get_type() == ossia::val_type::LIST) {
 		auto list = val.get<std::vector<ossia::value>>();
 		//empty list, bang
 		if (list.size() == 0 || (list.size() == 1 && list[0].get_type() == ossia::val_type::IMPULSE)) {
-			mCore->sendMessage(tag);
+			mParamInterface->sendMessage(tag);
 		} else if (list.size() == 1) {
 			RNBO::number v = 0.0;
 			if (list[0].get_type() == ossia::val_type::INT) {
@@ -1229,7 +1231,7 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 			} else {
 				std::cerr << "only numeric items are allowed in lists, aborting message" << std::endl;
 			}
-			mCore->sendMessage(tag, v);
+			mParamInterface->sendMessage(tag, v);
 		} else {
 			//construct and send list
 			auto l = RNBO::make_unique<RNBO::list>();
@@ -1243,7 +1245,7 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 					return;
 				}
 			}
-			mCore->sendMessage(tag, std::move(l));
+			mParamInterface->sendMessage(tag, std::move(l));
 		}
 	}
 }
@@ -1458,6 +1460,37 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		}
 	}
 	queueConfigChangeSignal();
+
+	if (isParam) {
+		uint16_t midiKey = 0;
+		if (meta.is_object() && meta.contains("midi")) {
+			midiKey = midimap::key(meta["midi"]);
+		}
+
+		//clear out mapping if it doesn't match our current mapping
+		auto it = mMIDIMapLookup.find(update.paramIndex);
+		if (it != mMIDIMapLookup.end()) {
+			auto key = it->second;
+
+			if (key != midiKey) {
+				mMIDIMapLookup.erase(it);
+				std::unique_lock<std::mutex> guard(mMIDIMapMutex);
+				mMIDIMap.erase(key);
+			} else {
+				midiKey = 0; //don't change map
+			}
+		}
+
+		//setup new mapping
+		if (midiKey) {
+			std::unique_lock<std::mutex> guard(mMIDIMapMutex);
+			//TODO what if we already have something at midiKey? we should probably clear it out?
+
+			mMIDIMap[midiKey] = update.paramIndex;
+			//set reverse lookup
+			mMIDIMapLookup[update.paramIndex] = midiKey;
+		}
+	}
 
 	//clear out existing OSC and figure out if we need to map new OSC
 	{
@@ -1686,7 +1719,7 @@ void Instance::handleEnumParamOscUpdate(RNBO::ParameterIndex index, const ossia:
 			auto s = val.get<std::string>();
 			auto f = info.nameToVal.find(s);
 			if (f != info.nameToVal.end()) {
-				mCore->setParameterValue(index, f->second);
+				mParamInterface->setParameterValue(index, f->second);
 
 				auto norm = static_cast<float>(mCore->convertToNormalizedParameterValue(index, f->second));
 				info.push_osc(static_cast<float>(f->second), norm);
@@ -1724,7 +1757,7 @@ void Instance::handleFloatParamOscUpdate(RNBO::ParameterIndex index, const ossia
 	if (auto _lock = std::unique_lock<std::mutex> (*info.mutex, std::try_to_lock)) {
 		//constrain in case we're getting this from some random OSC source
 		f = mCore->constrainParameterValue(index, f);
-		mCore->setParameterValue(index, f);
+		mParamInterface->setParameterValue(index, f);
 		auto norm = static_cast<float>(mCore->convertToNormalizedParameterValue(index, f));
 
 		info.push_osc(static_cast<float>(f), norm);
@@ -1745,7 +1778,7 @@ void Instance::handleNormalizedFloatParamOscUpdate(RNBO::ParameterIndex index, c
 			const double f = static_cast<double>(val.get<float>());
 
 			auto unnorm = mCore->convertFromNormalizedParameterValue(index, f);
-			mCore->setParameterValue(index, unnorm);
+			mParamInterface->setParameterValue(index, unnorm);
 
 			//is it enum?
 			if (info.valToName.size()) {

@@ -1308,7 +1308,7 @@ InstanceAudioJack::InstanceAudioJack(
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback,
 		std::mutex& midiMapMutex,
-		std::unordered_map<uint16_t, ossia::net::parameter_base *>& midiMap
+		std::unordered_map<uint16_t, RNBO::ParameterIndex>& midiMap
 		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback),
 	mMIDIMapMutex(midiMapMutex), mMIDIMap(midiMap)
 {
@@ -1847,11 +1847,36 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 			auto midi_buf = jack_port_get_buffer(mJackMidiIn, nframes);
 			jack_nframes_t count = jack_midi_get_event_count(midi_buf);
 			jack_midi_event_t evt;
+
+
+			//try lock, might not succeed, won't block
+			std::unique_lock<std::mutex> guard(mMIDIMapMutex, std::try_to_lock);
+
 			for (auto i = 0; i < count; i++) {
 				jack_midi_event_get(&evt, midi_buf, i);
+
 				//time is in frames since the first frame in this callback
 				RNBO::MillisecondTime off = (RNBO::MillisecondTime)evt.time * mFrameMillis;
-				mMIDIInList.addEvent(RNBO::MidiEvent(nowms + off, 0, evt.buffer, evt.size));
+				auto time = nowms + off;
+
+				std::array<uint8_t, 3> bytes = { 0, 0, 0 };
+				std::memcpy(bytes.data(), evt.buffer, std::min(bytes.size(), evt.size));
+				auto key = midimap::key(bytes[0], bytes[1]);
+
+				if (key != 0 && guard.owns_lock()) {
+					//eval midi map if we have the lock
+					auto it = mMIDIMap.find(key);
+					if (it != mMIDIMap.end()) {
+						double value = midimap::value(bytes[0], bytes[1], bytes[2]);
+						mCore->setParameterValueNormalized(it->second, value, time);
+						continue;
+					}
+				}
+
+				//TODO report last key
+
+				mMIDIInList.addEvent(RNBO::MidiEvent(time, 0, evt.buffer, evt.size));
+
 				//look for program change to change preset
 				if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
 					mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });

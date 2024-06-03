@@ -176,6 +176,8 @@ class Instance {
 		std::unique_ptr<EventHandler> mEventHandler;
 		std::shared_ptr<PatcherFactory> mPatcherFactory;
 		std::shared_ptr<RNBO::CoreObject> mCore;
+		RNBO::ParameterEventInterfaceUniquePtr mParamInterface;
+
 
 		//parameter index -> update data
 		std::map<RNBO::ParameterIndex, ParamOSCUpdateData> mIndexToParam;
@@ -200,8 +202,8 @@ class Instance {
 		Queue<MetaUpdateCommand> mMetaUpdateQueue;
 
 		std::mutex mMIDIMapMutex;
-		std::unordered_map<uint16_t, ossia::net::parameter_base *> mMIDIMap; //ParamMIDIMap::key() -> parameter_base *
-		std::unordered_map<ossia::net::parameter_base *, uint16_t> mMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
+		std::unordered_map<uint16_t, RNBO::ParameterIndex> mMIDIMap; //ParamMIDIMap::key() -> parameter index
+		std::unordered_map<RNBO::ParameterIndex, uint16_t> mMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
 
 		//name -> value (if any)
 		std::unordered_map<std::string, std::string> mInportMetaDefault;
