@@ -699,6 +699,14 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				n->set(ossia::net::description_attribute{}, "midi events out of your RNBO patch");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			}
+
+			{
+				auto n = vmidi->create_child("last");
+				mMIDILastParam = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::description_attribute{}, "JSON encoded string representing the last MIDI mappable message seen by this instance");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			}
+
 		}
 	});
 
@@ -781,6 +789,18 @@ void Instance::processEvents() {
 	const auto active = state == AudioState::Starting || state == AudioState::Running;
 	if (active) {
 		mEventHandler->processEvents();
+
+		auto key = mAudio->lastMIDIKey();
+		if (key != 0) {
+			auto json = midimap::json(key);
+			if (json.is_null()) {
+				std::cerr << "cannot find json encoding for " << key << std::endl;
+			} else {
+				//XXX do we really want this much data sent from each node?
+				//maybe it isn't a big deal?
+				mMIDILastParam->push_value(json.dump());
+			}
+		}
 	}
 	mAudio->processEvents();
 

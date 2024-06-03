@@ -1602,6 +1602,10 @@ void InstanceAudioJack::stop(float fadems) {
 	}
 }
 
+ uint16_t InstanceAudioJack::lastMIDIKey() {
+	 return mLastMIDIKey.exchange(0);
+ }
+
 void InstanceAudioJack::processEvents() {
 	if (!mActivated) {
 		return;
@@ -1852,6 +1856,7 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 			//try lock, might not succeed, won't block
 			std::unique_lock<std::mutex> guard(mMIDIMapMutex, std::try_to_lock);
 
+			uint16_t lastKey = 0;
 			for (auto i = 0; i < count; i++) {
 				jack_midi_event_get(&evt, midi_buf, i);
 
@@ -1863,17 +1868,23 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 				std::memcpy(bytes.data(), evt.buffer, std::min(bytes.size(), evt.size));
 				auto key = midimap::key(bytes[0], bytes[1]);
 
-				if (key != 0 && guard.owns_lock()) {
-					//eval midi map if we have the lock
-					auto it = mMIDIMap.find(key);
-					if (it != mMIDIMap.end()) {
-						double value = midimap::value(bytes[0], bytes[1], bytes[2]);
-						mCore->setParameterValueNormalized(it->second, value, time);
-						continue;
+				if (key != 0) {
+					lastKey = key;
+
+					if (guard.owns_lock()) {
+						//eval midi map if we have the lock
+						auto it = mMIDIMap.find(key);
+						if (it != mMIDIMap.end()) {
+							double value = midimap::value(bytes[0], bytes[1], bytes[2]);
+							mCore->setParameterValueNormalized(it->second, value, time);
+							continue;
+						}
 					}
 				}
-
-				//TODO report last key
+				//report last key
+				if (lastKey) {
+					mLastMIDIKey.store(lastKey);
+				}
 
 				mMIDIInList.addEvent(RNBO::MidiEvent(time, 0, evt.buffer, evt.size));
 

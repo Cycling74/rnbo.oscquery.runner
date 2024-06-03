@@ -165,6 +165,8 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void start(float fadems=0.0f) override;
 		virtual void stop(float fadems=0.0f) override;
 
+		virtual uint16_t lastMIDIKey() override;
+
 		virtual void processEvents() override;
 
 		void process(jack_nframes_t frames);
@@ -178,6 +180,7 @@ class InstanceAudioJack : public InstanceAudio {
 		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;
+		std::atomic<uint16_t> mLastMIDIKey = 0;
 
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
