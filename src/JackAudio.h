@@ -7,6 +7,7 @@
 #include <thread>
 #include <set>
 #include <ossia-cpp/ossia-cpp98.hpp>
+#include <unordered_map>
 
 #include <jack/types.h>
 #include <jack/jack.h>
@@ -151,7 +152,9 @@ class InstanceAudioJack : public InstanceAudio {
 				RNBO::Json conf,
 				std::string name,
 				NodeBuilder builder,
-				std::function<void(ProgramChange)> progChangeCallback
+				std::function<void(ProgramChange)> progChangeCallback,
+				std::mutex& midiMapMutex,
+				std::unordered_map<uint16_t, ossia::net::parameter_base *>& midiMap
 				);
 		virtual ~InstanceAudioJack();
 
@@ -215,6 +218,9 @@ class InstanceAudioJack : public InstanceAudio {
 		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
 
 		std::function<void(ProgramChange)> mProgramChangeCallback;
+
+		std::mutex& mMIDIMapMutex;
+		std::unordered_map<uint16_t, ossia::net::parameter_base *>& mMIDIMap;
 
 		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
 		std::function<void()> mConfigChangeCallback = nullptr;

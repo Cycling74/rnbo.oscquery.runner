@@ -1,5 +1,6 @@
 #include "JackAudio.h"
 #include "Config.h"
+#include "MIDIMap.h"
 
 #include <jack/midiport.h>
 #include <jack/uuid.h>
@@ -1305,8 +1306,12 @@ InstanceAudioJack::InstanceAudioJack(
 		RNBO::Json conf,
 		std::string name,
 		NodeBuilder builder,
-		std::function<void(ProgramChange)> progChangeCallback
-		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback) {
+		std::function<void(ProgramChange)> progChangeCallback,
+		std::mutex& midiMapMutex,
+		std::unordered_map<uint16_t, ossia::net::parameter_base *>& midiMap
+		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback),
+	mMIDIMapMutex(midiMapMutex), mMIDIMap(midiMap)
+{
 
 	std::string clientName = name;
 	if (conf.contains("jack") && conf["jack"].contains("client_name")) {
