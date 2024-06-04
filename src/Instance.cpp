@@ -666,7 +666,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			std::cerr << "exception processing ports: " << e.what() << std::endl;
 		}
 
-		//setup virtual midi
+		//setup virtual midi and mapping
 		{
 			auto vmidi = root->create_child("midi");
 			auto n = vmidi->create_child("in");
@@ -689,6 +689,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							return;
 						}
 					}
+					//XXX skips MIDI mapping
 					mParamInterface->scheduleEvent(RNBO::MidiEvent(0, 0, &bytes.front(), bytes.size()));
 				}
 			});
@@ -701,10 +702,26 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			}
 
 			{
-				auto n = vmidi->create_child("last");
-				mMIDILastParam = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::description_attribute{}, "JSON encoded string representing the last MIDI mappable message seen by this instance");
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				auto last = vmidi->create_child("last");
+				{
+					auto n = last->create_child("value");
+					mMIDILastParam = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::description_attribute{}, "JSON encoded string representing the last MIDI mappable message seen by this instance, only reports if \"report\" is true");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				}
+				{
+					auto n = last->create_child("report");
+					auto p = n->create_parameter(ossia::val_type::BOOL);
+					n->set(ossia::net::description_attribute{}, "Turn on/off publishing to the last \"value\" parameter");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+
+					p->push_value(mMIDILastReport);
+					p->add_callback([this](const ossia::value& val) {
+						if (val.get_type() == ossia::val_type::BOOL) {
+							mMIDILastReport = val.get<bool>();
+						}
+					});
+				}
 			}
 
 		}
@@ -791,7 +808,7 @@ void Instance::processEvents() {
 		mEventHandler->processEvents();
 
 		auto key = mAudio->lastMIDIKey();
-		if (key != 0) {
+		if (key != 0 && mMIDILastReport) {
 			auto json = midimap::json(key);
 			if (json.is_null()) {
 				std::cerr << "cannot find json encoding for " << key << std::endl;
