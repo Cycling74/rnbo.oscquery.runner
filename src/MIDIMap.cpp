@@ -78,8 +78,7 @@ namespace midimap {
 			case PROGRAM_CHANGE:
 			case CHANNEL_PRESSURE:
 				data0 = 0; //2 byte or 14-bit, mask off data0
-				return 2;
-
+				break;
 			case 0xF0:
 				//unsupported
 				switch (status) {
