@@ -7,6 +7,7 @@
 #include <thread>
 #include <set>
 #include <ossia-cpp/ossia-cpp98.hpp>
+#include <unordered_map>
 
 #include <jack/types.h>
 #include <jack/jack.h>
@@ -151,7 +152,9 @@ class InstanceAudioJack : public InstanceAudio {
 				RNBO::Json conf,
 				std::string name,
 				NodeBuilder builder,
-				std::function<void(ProgramChange)> progChangeCallback
+				std::function<void(ProgramChange)> progChangeCallback,
+				std::mutex& midiMapMutex,
+				std::unordered_map<uint16_t, RNBO::ParameterIndex>& midiMap
 				);
 		virtual ~InstanceAudioJack();
 
@@ -161,6 +164,8 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void connect() override;
 		virtual void start(float fadems=0.0f) override;
 		virtual void stop(float fadems=0.0f) override;
+
+		virtual uint16_t lastMIDIKey() override;
 
 		virtual void processEvents() override;
 
@@ -175,6 +180,7 @@ class InstanceAudioJack : public InstanceAudio {
 		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;
+		std::atomic<uint16_t> mLastMIDIKey = 0;
 
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
@@ -215,6 +221,9 @@ class InstanceAudioJack : public InstanceAudio {
 		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
 
 		std::function<void(ProgramChange)> mProgramChangeCallback;
+
+		std::mutex& mMIDIMapMutex;
+		std::unordered_map<uint16_t, RNBO::ParameterIndex>& mMIDIMap;
 
 		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
 		std::function<void()> mConfigChangeCallback = nullptr;

@@ -61,6 +61,7 @@ set(PROJECT_SRC
 	src/Instance.cpp
 	src/EventHandler.cpp
 	src/PatcherFactory.cpp
+	src/MIDIMap.cpp
 	common/RunnerUpdateState.cpp
 	${RNBO_DIR}/RNBO.cpp
 )

@@ -26,6 +26,9 @@ class InstanceAudio {
 			return mAudioState.load();
 		}
 
+		//get the key and zero it out
+		virtual uint16_t lastMIDIKey() = 0;
+
 		//called by the instance, in the main thread, to take care of any command processing or what not
 		virtual void processEvents() {}
 
