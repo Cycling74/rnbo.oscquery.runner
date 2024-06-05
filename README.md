@@ -29,6 +29,19 @@ This currently builds and runs on Linux and Mac. Windows is TBD.
 * `ruby` 2.0+ to run the compile script
   * macOS: modern macOS comes with `ruby`
   * debian: `sudo apt-get install ruby`
+* `sdbus` lib or configure with `-DWITH_DBUS=Off
+  * debian: `sudo apt-get install libsdbus-c++-dev`
+
+on debian based systems, here is a 1 liner for setting up dependencies
+```
+sudo apt-get -y install cmake libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev python3-pip
+```
+
+on linux at least, the conan profile entry for `libcxx` is important
+
+```
+compiler.libcxx=libstdc++11
+```
 
 ### Building
 
