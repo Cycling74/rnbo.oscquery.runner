@@ -110,7 +110,6 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mPeriodFramesParam = nullptr;
 
 		std::string mExtraArgs = "";
-		bool mExtraArgsDirty = false; //has the user set them
 		ossia::net::parameter_base * mExtraArgsParam = nullptr;
 
 		//only used on systems with alsa
