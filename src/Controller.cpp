@@ -906,6 +906,66 @@ Controller::Controller(std::string server_name) {
 			});
 		}
 		{
+			auto key = config::key::SetMIDIProgramChangeChannel;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Which channel (or none or omni) should listen for program changes to load a set by index");
+			auto dom = ossia::init_domain(ossia::val_type::STRING);
+			ossia::set_values(dom, midivalues);
+			n->set(ossia::net::domain_attribute{}, dom);
+
+			auto p = n->create_parameter(ossia::val_type::STRING);
+
+			auto s = config::get<std::string>(key).value_or("none");
+			auto it = config_midi_channel_values.find(s);
+			if (it != config_midi_channel_values.end()) {
+				mSetProgramChangeChannel = it->second;
+			} else {
+				s = "none";
+			}
+			p->push_value(s);
+
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					std::string s = v.get<std::string>();
+					auto it = config_midi_channel_values.find(s);
+					if (it != config_midi_channel_values.end()) {
+						mSetProgramChangeChannel = it->second;
+						config::set(s, key);
+					}
+				}
+			});
+		}
+		{
+			auto key = config::key::SetPresetMIDIProgramChangeChannel;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Which channel (or none or omni) should listen for program changes to load a set preset by index");
+			auto dom = ossia::init_domain(ossia::val_type::STRING);
+			ossia::set_values(dom, midivalues);
+			n->set(ossia::net::domain_attribute{}, dom);
+
+			auto p = n->create_parameter(ossia::val_type::STRING);
+
+			auto s = config::get<std::string>(key).value_or("none");
+			auto it = config_midi_channel_values.find(s);
+			if (it != config_midi_channel_values.end()) {
+				mSetPresetProgramChangeChannel = it->second;
+			} else {
+				s = "none";
+			}
+			p->push_value(s);
+
+			p->add_callback([key, this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::STRING) {
+					std::string s = v.get<std::string>();
+					auto it = config_midi_channel_values.find(s);
+					if (it != config_midi_channel_values.end()) {
+						mSetPresetProgramChangeChannel = it->second;
+						config::set(s, key);
+					}
+				}
+			});
+		}
+		{
 			auto key = config::key::ControlAutoConnectMIDI;
 			auto n = conf->create_child(key);
 			n->set(ossia::net::description_attribute{}, "Automatically connect control to midi outs");
@@ -2752,25 +2812,74 @@ void Controller::listenersAddProtocol(const std::string& ip, uint16_t port) {
 }
 
 void Controller::handleProgramChange(ProgramChange p) {
-	auto chan = mPatcherProgramChangeChannel;
-	if (chan == 0 || chan == (p.chan + 1)) {
-		auto name = mDB->patcherNameByIndex(p.prog);
-		if (name) {
-			RNBO::Json cmd = {
-				{"method", "instance_load"},
-				{"id", "internal"},
-				{"params",
-					{
-						{"index", 0},
-						{"patcher_name", name.get()},
+	{
+		auto chan = mPatcherProgramChangeChannel;
+		if (chan == 0 || chan == (p.chan + 1)) {
+			auto name = mDB->patcherNameByIndex(p.prog);
+			if (name) {
+				RNBO::Json cmd = {
+					{"method", "instance_load"},
+					{"id", "internal"},
+					{"params",
+						{
+							{"index", 0},
+							{"patcher_name", name.get()},
+						}
 					}
-				}
-			};
-			mCommandQueue.push(cmd.dump());
-		} else {
-			std::cerr << "no patcher at index " << (int)p.prog << std::endl;
+				};
+				mCommandQueue.push(cmd.dump());
+			} else {
+				std::cerr << "no patcher at index " << (int)p.prog << std::endl;
+			}
 		}
+	}
+	{
+		auto chan = mSetProgramChangeChannel;
+		if (chan == 0 || chan == (p.chan + 1)) {
+			auto name = mDB->setNameByIndex(p.prog);
+			if (name) {
+				RNBO::Json cmd = {
+					{"method", "instance_set_load"},
+					{"id", "internal"},
+					{"params",
+						{
+							{"name", name.get()},
+						}
+					}
+				};
+				mCommandQueue.push(cmd.dump());
+			} else {
+				std::cerr << "no set at index " << (int)p.prog << std::endl;
+			}
 
+		}
+	}
+	{
+		auto chan = mSetPresetProgramChangeChannel;
+		if (chan == 0 || chan == (p.chan + 1)) {
+			auto setname = getCurrentSetName();
+			if (setname.size() == 0) {
+				std::cerr << "cannot find current set name to load set preset for" << std::endl;
+				return;
+			}
+
+			auto name = mDB->setPresetNameByIndex(setname, p.prog);
+			if (name) {
+				RNBO::Json cmd = {
+					{"method", "instance_set_preset_load"},
+					{"id", "internal"},
+					{"params",
+						{
+							{"name", name.get()},
+						}
+					}
+				};
+				mCommandQueue.push(cmd.dump());
+			} else {
+				std::cerr << "no set preset at index " << (int)p.prog << std::endl;
+			}
+
+		}
 	}
 }
 

@@ -161,7 +161,9 @@ class Controller {
 		float mInstFadeInMs = 20.0f;
 		float mInstFadeOutMs = 20.0f;
 
-		int mPatcherProgramChangeChannel = 17; //omni, 17 == none
+		int mPatcherProgramChangeChannel = 17; //0 == omni, 17 == none
+		int mSetProgramChangeChannel = 17; //0 == omni, 17 == none
+		int mSetPresetProgramChangeChannel = 17; //0 == omni, 17 == none
 
 		boost::filesystem::path mSourceCache;
 		boost::filesystem::path mCompileCache;
