@@ -525,7 +525,7 @@ boost::optional<std::string> DB::setPresetNameByIndex(
 		SELECT DISTINCT name FROM sets_presets
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		ORDER BY name == 'initial' DESC, name ASC
-		OFFSET ?3 LIMIT 1
+		LIMIT 1 OFFSET ?3
 	)");
 	query.bind(1, setName);
 	query.bind(2, rnbo_version);
@@ -758,6 +758,25 @@ boost::optional<boost::filesystem::path> DB::setGet(const std::string& name, std
 	if (query.executeStep()) {
 		const char * s = query.getColumn(0);
 		return fs::path(s);
+	}
+	return boost::none;
+}
+
+boost::optional<std::string> DB::setNameByIndex(
+		unsigned int index,
+		std::string rnbo_version
+)
+{
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE runner_rnbo_version = ?1 ORDER BY name ASC LIMIT 1 OFFSET ?2");
+	query.bind(1, rnbo_version);
+	query.bind(2, static_cast<int>(index));
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return { std::string(s) };
 	}
 	return boost::none;
 }

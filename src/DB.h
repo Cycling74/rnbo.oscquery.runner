@@ -132,6 +132,12 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+		//alphabetical
+		boost::optional<std::string> setNameByIndex(
+				unsigned int index,
+				std::string rnbo_version = std::string()
+		);
+
 		void sets(
 				std::function<void(const std::string& name, const std::string& created)> func,
 				std::string rnbo_version = std::string()
