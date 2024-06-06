@@ -34,6 +34,8 @@ namespace config {
 
 		const static std::string PresetMIDIProgramChangeChannel = "preset_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
 		const static std::string PatcherMIDIProgramChangeChannel = "patcher_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
+		const static std::string SetMIDIProgramChangeChannel = "set_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
+		const static std::string SetPresetMIDIProgramChangeChannel = "set_preset_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
 		const static std::string UUIDPath = "uuid_path"; //path where we store the unique identifier for the runner
 
 	}
