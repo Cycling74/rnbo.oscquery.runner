@@ -75,11 +75,19 @@ class DB {
 		);
 
 		std::vector<std::string> setPresets(const std::string& setName, std::string rnbo_version = std::string());
+
 		//get all presets for a set perset
 		void setPresets(
 				const std::string& setName,
 				const std::string& presetName,
 				std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content)> func,
+				std::string rnbo_version = std::string());
+
+		//find the name of a set preset by index
+		//"initial" is always at 0, otherwise sorted by name
+		boost::optional<std::string> setPresetNameByIndex(
+				const std::string& setName,
+				unsigned int index,
 				std::string rnbo_version = std::string());
 
 		boost::optional<std::string> setPreset(

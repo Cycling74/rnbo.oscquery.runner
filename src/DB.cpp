@@ -500,7 +500,8 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name) ORDER BY created_at DESC
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY name == 'initial' DESC, name ASC
 	)");
 	query.bind(1, setname);
 	query.bind(2, rnbo_version);
@@ -509,6 +510,31 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 		names.push_back(std::string(s));
 	}
 	return names;
+}
+
+boost::optional<std::string> DB::setPresetNameByIndex(
+		const std::string& setName,
+		unsigned int index,
+		std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		SELECT DISTINCT name FROM sets_presets
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY name == 'initial' DESC, name ASC
+		OFFSET ?3 LIMIT 1
+	)");
+	query.bind(1, setName);
+	query.bind(2, rnbo_version);
+	query.bind(3, static_cast<int>(index));
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return { std::string(s) };
+	}
+	return boost::none;
 }
 
 void DB::setPresets(
