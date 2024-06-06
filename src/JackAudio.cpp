@@ -13,6 +13,9 @@
 
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/regex.hpp>
+#include <boost/algorithm/string/trim.hpp>
 
 #include <atomic>
 #include <fstream>
@@ -175,6 +178,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 		mCardName = jconfig_get<std::string>("card_name").get_value_or("");
 		mNumPeriods = jconfig_get<int>("num_periods").get_value_or(2);
 		mMIDISystem = jconfig_get<std::string>("midi_system_name").get_value_or("seq");
+		mExtraArgs = jconfig_get<std::string>("extra").get_value_or("");
 #endif
 	}
 
@@ -350,10 +354,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 
 					{
 						//get out last extra config OR potentially one stored in the extra config for this card
-						auto extra = jconfig_get<std::string>("extra");
-						if (extra) {
-							mExtraArgs = extra.get();
-						} else if (persist_extra && mCardName.size()) {
+						if (mExtraArgs.size() == 0 && persist_extra && mCardName.size()) {
 							mExtraArgs = jextraconfig_get<std::string>(mCardName).value_or("");
 						}
 						p->push_value(mExtraArgs);
@@ -1194,7 +1195,21 @@ bool ProcessAudioJack::createServer() {
 	mHasCreatedServer = true;
 
 	//create the server, destroy on failure
-	auto create = [this]() -> bool {
+
+	std::vector<char *> args;
+	auto cleanup = [&args]() {
+		for (char * a: args) {
+			free(a);
+		}
+	};
+
+	auto create = [this, &args]() -> bool {
+		auto add_arg = [&args](std::string arg, std::string value = std::string()) {
+			args.push_back(strdup(arg.c_str()));
+			if (value.size()) {
+				args.push_back(strdup(value.c_str()));
+			}
+		};
 
 		jackctl_driver_t * audioDriver = jackctl_server_get_driver(mJackServer, jack_driver_name);
 		if (audioDriver == nullptr) {
@@ -1202,41 +1217,50 @@ bool ProcessAudioJack::createServer() {
 			return false;
 		}
 
-		std::vector<const char *> args;
-		args.push_back(jack_driver_name.c_str());
+
+		add_arg("-d", jack_driver_name);
 
 #ifndef __APPLE__
-		const std::string cardname = mCardName;
-
-		const std::string dev("--device");
-		const std::string card = cardname.empty() ? "hw:0" : cardname;
-		args.push_back(dev.c_str());
-		args.push_back(card.c_str());
-
-		const std::string midi = std::string("-X") + mMIDISystem;
-		args.push_back(midi.c_str());
-
-		const std::string nperiods("--nperiods");
-		const std::string nperiodsv = std::to_string(mNumPeriods);
-		args.push_back(nperiods.c_str());
-		args.push_back(nperiodsv.c_str());
+		add_arg("--device", mCardName.empty() ? "hw:0" : mCardName);
+		add_arg(std::string("-X") + mMIDISystem);
+		add_arg("--nperiods", std::to_string(mNumPeriods));
 #endif
 
-		const std::string period = "--period";
-		const std::string periodv = std::to_string(mPeriodFrames);
-		args.push_back(period.c_str());
-		args.push_back(periodv.c_str());
+		add_arg("--period", std::to_string(mPeriodFrames));
+		add_arg("--rate", std::to_string(mSampleRate));
 
-		const std::string rate = "--rate";
-		const std::string ratev = std::to_string(mSampleRate);
-		args.push_back(rate.c_str());
-		args.push_back(ratev.c_str());
-
-		//keep extra in scope
-		const std::string extra = mExtraArgs;
 		//add extra args
-		if (extra.size()) {
-			args.push_back(extra.c_str());
+		if (mExtraArgs.size()) {
+			std::vector<std::string> extra;
+
+			//need to separate them out, jack seems to want args and values in the same entry in the args list like -o 2 and -i 0
+			boost::algorithm::split_regex(extra, mExtraArgs, boost::regex(" -")); //space and 1 (could be 2) -, adding - back
+
+			for (auto i = 0; i < extra.size(); i++) {
+				auto e = extra[i];
+				boost::algorithm::trim(e);
+				if (e.size() == 0) {
+					continue;
+				}
+
+				//add the - back
+				if (i != 0) {
+					e = "-" + e;
+				}
+
+				std::vector<std::string> v;
+				boost::algorithm::split(v, e, boost::is_any_of(" "), boost::token_compress_on);
+
+				//split arg into: option [value]
+				if (v.size() == 1) {
+					add_arg(v[0]);
+				} else if (v.size() == 2) {
+					add_arg(v[0], v[1]);
+				} else {
+					std::cerr << "don't know how to handle extra arg: " << e;
+					return false;
+				}
+			}
 		}
 
 		if (jackctl_driver_params_parse(audioDriver, args.size(), const_cast<char **>(&args.front()))) {
@@ -1275,8 +1299,10 @@ bool ProcessAudioJack::createServer() {
 	if (!create()) {
 		jackctl_server_destroy(mJackServer);
 		mJackServer = nullptr;
+		cleanup();
 		return false;
 	}
+	cleanup();
 	std::this_thread::sleep_for(std::chrono::seconds(2));
 	return true;
 #else
