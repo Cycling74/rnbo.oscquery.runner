@@ -399,7 +399,7 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 	SQLite::Statement query(mDB, R"(
 		SELECT content, name FROM presets WHERE patcher_id IN
 		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
-		ORDER BY created_at
+		ORDER BY initial DESC, name ASC, id ASC
 		LIMIT 1 OFFSET ?1
 	)");
 

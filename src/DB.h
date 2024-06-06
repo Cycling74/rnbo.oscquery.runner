@@ -50,6 +50,7 @@ class DB {
 		);
 
 		//content, name
+		//get preset by index, initial preset is always 0, then sorted by name
 		boost::optional<std::pair<std::string, std::string>> preset(
 				const std::string& patchername,
 				unsigned int index
