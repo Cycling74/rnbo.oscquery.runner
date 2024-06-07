@@ -30,6 +30,7 @@ using std::chrono::steady_clock;
 
 namespace {
 	const auto card_poll_period = std::chrono::seconds(2);
+	const auto stats_poll_period = std::chrono::seconds(2);
 	const auto port_poll_timeout = std::chrono::milliseconds(20);
 	const std::string persist_extra_key = "persist_extra";
 
@@ -91,6 +92,11 @@ namespace {
 
 	static int processJackInstance(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<InstanceAudioJack *>(arg)->process(nframes);
+		return 0;
+	}
+
+	static int processJackXRun(void * arg) {
+		reinterpret_cast<ProcessAudioJack *>(arg)->xrun();
 		return 0;
 	}
 
@@ -259,6 +265,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 
 			auto control = root->create_child("control");
 
+			mStatsPollNext = std::chrono::steady_clock::now() + stats_poll_period;
 #ifndef __APPLE__
 			mCardListNode = mInfoNode->create_child("alsa_cards");
 			mCardNode = conf->create_child("card");
@@ -601,6 +608,21 @@ void ProcessAudioJack::processEvents() {
 		if (mJackClient == nullptr)
 			return;
 
+		//update stats
+		{
+			if (mStatsPollNext < now) {
+				mStatsPollNext = std::chrono::steady_clock::now() + stats_poll_period;
+
+				//report
+				auto c = mXRunCount.load();
+				if (c != mXRunCountLast) {
+					mXRunCountLast = c;
+					mXRunCountParam->push_value(c);
+				}
+				mCPULoadParam->push_value(jack_cpu_load(mJackClient));
+			}
+		}
+
 		{
 			std::pair<jack_port_id_t, JackPortChange> entry;
 			while (mPortQueue->try_dequeue(entry)) {
@@ -883,6 +905,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 			jack_set_port_rename_callback(mJackClient, processJackPortRenamed, this);
 			jack_set_port_registration_callback(mJackClient, processJackPortRegistration, this);
 			jack_set_port_connect_callback(mJackClient, processJackPortConnection, this);
+			jack_set_xrun_callback(mJackClient, processJackXRun, this);
 
 			mBuilder([this](ossia::net::node_base * root) {
 				if (mIsRealTimeParam == nullptr) {
@@ -899,6 +922,22 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 				}
 				mIsOwnedParam->push_value(mJackServer != nullptr);
+
+				if (mCPULoadParam == nullptr) {
+					auto n = mInfoNode->create_child("cpu_load");
+					mCPULoadParam = n->create_parameter(ossia::val_type::FLOAT);
+					n->set(ossia::net::description_attribute{}, "The current CPU load percent estimated by JACK");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				}
+
+				if (mXRunCountParam == nullptr) {
+					auto n = mInfoNode->create_child("xrun_count");
+					mXRunCountParam = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::description_attribute{}, "The count of xruns since the last server start");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				}
+				mXRunCount = mXRunCountLast = 0;
+				mXRunCountParam->push_value(0);
 
 				double sr = jack_get_sample_rate(mJackClient);
 				jack_nframes_t bs = jack_get_buffer_size(mJackClient);
@@ -1024,6 +1063,10 @@ bool ProcessAudioJack::createClient(bool startServer) {
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg) {
 	reinterpret_cast<ProcessAudioJack *>(arg)->jackPropertyChangeCallback(subject, key, change);
+}
+
+void ProcessAudioJack::xrun() {
+	mXRunCount.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {

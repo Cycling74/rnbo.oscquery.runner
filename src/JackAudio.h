@@ -55,6 +55,7 @@ class ProcessAudioJack : public ProcessAudio {
 		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
 		void jackPortRegistration(jack_port_id_t id, int reg);
 		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
+		void xrun();
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -88,6 +89,12 @@ class ProcessAudioJack : public ProcessAudio {
 
 		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
 		ossia::net::parameter_base * mIsOwnedParam = nullptr;
+		std::atomic<int> mXRunCount = 0;
+		int mXRunCountLast = 0;
+
+		ossia::net::parameter_base * mCPULoadParam = nullptr;
+		ossia::net::parameter_base * mXRunCountParam = nullptr;
+		std::chrono::time_point<std::chrono::steady_clock> mStatsPollNext;
 
 		bool mHasCreatedClient = false;
 		bool mHasCreatedServer = false;
