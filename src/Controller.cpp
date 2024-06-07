@@ -1475,6 +1475,33 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 					});
 				}
 			}
+
+			{
+				auto n = find_or_create_child(r, "rename");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "rename this patcher");
+					p->add_callback([this, name](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::STRING) {
+								std::string newName = val.get<std::string>();
+								RNBO::Json cmd = {
+									{"method", "patcher_rename"},
+									{"id", "internal"},
+									{"params",
+										{
+											{"name", name},
+											{"newName", newName}
+										}
+									}
+								};
+								mCommandQueue.push(cmd.dump());
+							}
+
+					});
+				}
+			}
 	});
 }
 
@@ -1756,6 +1783,19 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				destroyPatcher(name);
+			}
+	});
+	mCommandHandlers.insert({
+			"patcher_rename",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string newName = params["newName"].get<std::string>();
+				mDB->patcherRename(name, newName);
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+					mPatchersNode->remove_child(name);
+					updatePatchersInfo(newName);
+				}
 			}
 	});
 	mCommandHandlers.insert({
