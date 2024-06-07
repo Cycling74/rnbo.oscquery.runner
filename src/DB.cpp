@@ -319,6 +319,16 @@ void DB::patcherDestroy(const std::string& name, std::function<void(boost::files
 	}
 }
 
+void DB::patcherRename(const std::string& name, std::string& newName) {
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, "UPDATE patchers SET name = ?3 WHERE name = ?1 AND runner_rnbo_version = ?2");
+	query.bind(1, name);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, newName);
+	query.executeStep();
+}
+
 void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> func, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
