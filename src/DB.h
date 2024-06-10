@@ -4,6 +4,45 @@
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
 #include <mutex>
+#include <vector>
+
+struct SetConnectionInfo {
+	std::string source_name;
+	int source_instance_index = -1;
+	std::string source_port_name;
+
+	std::string sink_name;
+	int sink_instance_index = -1;
+	std::string sink_port_name;
+
+	SetConnectionInfo(
+			std::string src_name, std::string src_port_name,
+			std::string snk_name, std::string snk_port_name
+	) : source_name(src_name), source_port_name(src_port_name),
+			sink_name(snk_name), sink_port_name(snk_port_name)
+	{}
+
+	SetConnectionInfo() {}
+};
+
+struct SetInstanceInfo {
+	std::string patcher_name;
+	unsigned int instance_index;
+	std::string config;
+
+	SetInstanceInfo(
+			std::string name,
+			unsigned int index,
+			std::string conf
+			) : patcher_name(name), instance_index(index), config(conf) {};
+};
+
+struct SetInfo {
+	std::vector<SetConnectionInfo> connections;
+	std::vector<SetInstanceInfo> instances;
+	std::string meta;
+};
+
 
 class DB {
 	public:
@@ -122,16 +161,16 @@ class DB {
 
 		void setSave(
 				const std::string& name,
-				const boost::filesystem::path& filename,
-				bool migrate_presets = true
+				const SetInfo& info
 		);
-		bool setDestroy(const std::string& name);
-		bool setRename(const std::string& oldName, const std::string& newName);
 
-		boost::optional<boost::filesystem::path> setGet(
+		boost::optional<SetInfo> setGet(
 				const std::string& name,
 				std::string rnbo_version = std::string()
 		);
+
+		bool setDestroy(const std::string& name);
+		bool setRename(const std::string& oldName, const std::string& newName);
 
 		//alphabetical
 		boost::optional<std::string> setNameByIndex(
