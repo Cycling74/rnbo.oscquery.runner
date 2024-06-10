@@ -489,54 +489,51 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 	}
 }
 
-bool ProcessAudioJack::connect(const RNBO::Json& config) {
-	if (config.is_object() && mJackClient) {
-		for (auto& [key, value]: config.items()) {
-			bool input = value["input"].get<bool>();
-			for (auto o: value["connections"]) {
-				std::string name = o.get<std::string>();
-				if (input) {
-					jack_connect(mJackClient, name.c_str(), key.c_str());
-				} else {
-					jack_connect(mJackClient, key.c_str(), name.c_str());
-				}
-			}
+bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections) {
+	if (mJackClient) {
+		for (auto& info: connections) {
+			std::string source = info.source_name + ":" + info.source_port_name;
+			std::string sink = info.sink_name + ":" + info.sink_port_name;
+			jack_connect(mJackClient, source.c_str(), sink.c_str());
 		}
 		return true;
 	}
 	return false;
 }
 
-RNBO::Json ProcessAudioJack::connections() {
-	RNBO::Json conf;
-	const char ** ports = nullptr;
-	if ((ports = jack_get_ports(mJackClient, nullptr, nullptr, 0)) != nullptr) {
-		for (size_t i = 0; ports[i] != nullptr; i++) {
-			std::string name(ports[i]);
-			jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
-			std::vector<std::string> connections;
-			iterate_connections(port, [&connections](std::string n) {
-					connections.push_back(n);
-			});
+std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
+	std::vector<SetConnectionInfo> conn;
 
-			if (connections.size()) {
-				auto flags = jack_port_flags(port);
+	const char ** sources = nullptr;
+	if ((sources = jack_get_ports(mJackClient, nullptr, nullptr, JackPortIsOutput)) != nullptr) {
+		for (size_t i = 0; sources[i] != nullptr; i++) {
+			std::string name(sources[i]);
+			std::vector<std::string> src_info;
 
-				RNBO::Json entry;
-				entry["connections"] = connections;
-				entry["physical"] = static_cast<bool>(JackPortIsPhysical & flags);
-				entry["input"] = static_cast<bool>(JackPortIsInput & flags);
-				entry["output"] = static_cast<bool>(JackPortIsOutput & flags);
+			boost::algorithm::split(src_info, name, boost::is_any_of(":"));
 
-				conf[name] = entry;
+			jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
+
+			if (src_info.size() != 2) {
+				std::cerr << "don't know how to separate client and port name for source " << name << " skipping " << std::endl;
+				continue;
 			}
+
+			iterate_connections(src, [&conn, &src_info](std::string sinkname) {
+					std::vector<std::string> sink_info;
+					boost::algorithm::split(sink_info, sinkname, boost::is_any_of(":"));
+
+					if (sink_info.size() != 2) {
+						std::cerr << "don't know how to separate client and port name for sink " << sinkname << " skipping " << std::endl;
+					} else {
+						conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
+					}
+			});
 		}
-		jack_free(ports);
+		jack_free(sources);
 	}
 
-	//TODO filter any dupes
-
-	return conf;
+	return conn;
 }
 
 bool ProcessAudioJack::isActive() {
