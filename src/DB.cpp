@@ -901,7 +901,7 @@ boost::optional<SetInfo> DB::setGet(
 		while (query.executeStep()) {
 
 			SetConnectionInfo c;
-			c.source_name = getStringColumn(query, 1);
+			c.source_name = getStringColumn(query, 0);
 			c.source_instance_index = query.getColumn(1);
 			c.source_port_name = getStringColumn(query, 2);
 			c.sink_name = getStringColumn(query, 3);
