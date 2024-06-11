@@ -1,6 +1,7 @@
 #include "DB.h"
 #include "Config.h"
 
+#include <iostream>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/none.hpp>
@@ -1112,6 +1113,7 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 			}
 		} else {
 			//invalid
+			std::cerr << "unknown set_info_version: " << json["set_info_version"].get<int>() << std::endl;
 		}
 	} else {
 		//old format
@@ -1124,7 +1126,7 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 
 		if (json.contains("instances") && json["instances"].is_array()) {
 			for (auto& i: json["instances"]) {
-				std::string conf;
+				std::string conf = "{}";
 				if (i.contains("config") && i["config"].is_object()) {
 					conf = i["config"].dump();
 				}
@@ -1145,6 +1147,7 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 				std::vector<std::string> src_info;
 				boost::algorithm::split(src_info, name, boost::is_any_of(":"));
 				if (src_info.size() != 2) {
+					std::cerr << "don't know how to split source into client and port name for source named: " << name << " skipping" << std::endl;
 					continue;
 				}
 				std::string source_name = src_info[0], source_port_name = src_info[1];
@@ -1179,6 +1182,8 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 									conn.source_instance_index = source_instance_index;
 									conn.sink_instance_index = sink_instance_index;
 									info.connections.push_back(conn);
+								} else {
+									std::cerr << "don't know how to split sink into client and port name for sink named: " << name << " skipping" << std::endl;
 								}
 							}
 						}
