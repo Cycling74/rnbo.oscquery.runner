@@ -2168,33 +2168,36 @@ void Controller::registerCommands() {
 
 		//special handling for set saving
 		if (isSet && params.contains("complete") && params["complete"].get<bool>()) {
-			//TODO validate set data?
-			//TODO mDB->setSave(fileName, filePath.filename());
-			//XXX
-			updateSetNames();
 
-			//handle presets
 			RNBO::Json setData;
 			{
 				std::ifstream i(filePath.string());
 				i >> setData;
 				i.close();
 			}
-			if (setData["presets"].is_object()) {
-				//TODO delete all existing presets?
-				for (const auto& kv: setData["presets"].items()) {
-					std::string presetName = kv.key();
-					mDB->setPresetDestroy(fileName, presetName);
-					if (kv.value().is_array()) {
-						auto& presets = kv.value();
-						for (const auto& entry: presets) {
-							if (entry["patchername"].is_string() && entry["instanceindex"].is_number() && entry["content"].is_object()) {
-								std::string patchername = entry["patchername"];
-								unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
-								const RNBO::Json& content = entry["content"];
-								mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump());
-							} else {
-								std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
+
+			SetInfo info = SetInfo::fromJson(setData);
+			if (info.instances.size() > 0) {
+				mDB->setSave(fileName, info);
+				updateSetNames();
+
+				//handle presets
+				if (setData["presets"].is_object()) {
+					//TODO delete all existing presets?
+					for (const auto& kv: setData["presets"].items()) {
+						std::string presetName = kv.key();
+						mDB->setPresetDestroy(fileName, presetName);
+						if (kv.value().is_array()) {
+							auto& presets = kv.value();
+							for (const auto& entry: presets) {
+								if (entry["patchername"].is_string() && entry["instanceindex"].is_number() && entry["content"].is_object()) {
+									std::string patchername = entry["patchername"];
+									unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
+									const RNBO::Json& content = entry["content"];
+									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump());
+								} else {
+									std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
+								}
 							}
 						}
 					}
@@ -2275,40 +2278,30 @@ void Controller::registerCommands() {
 					for (auto name: names) {
 						auto setInfo = mDB->setGet(name, rnboVersion);
 						if (setInfo) {
-							/*
-							 * TODO
-							fs::path setPath = config::get<fs::path>(config::key::SaveDir).get() / *p;
-							if (fs::exists(setPath)) {
-								RNBO::Json s;
-								std::ifstream i(setPath.string());
-								i >> s;
+							RNBO::Json s = setInfo->toJson();
 
-								//get presets
-								//XXX could this become too large??
-								RNBO::Json presets;
-								std::vector<std::string> presetNames = mDB->setPresets(name);
-								for (auto presetName: presetNames) {
-									RNBO::Json preset;
+							//get presets
+							//XXX could this become too large??
+							RNBO::Json presets;
+							std::vector<std::string> presetNames = mDB->setPresets(name);
+							for (auto presetName: presetNames) {
+								RNBO::Json preset;
 
-									mDB->setPresets(
-											name, presetName,
-											[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content) {
-												RNBO::Json entry;
-												entry["patchername"] = patcherName;
-												entry["instanceindex"] = static_cast<int>(instanceIndex);
-												entry["content"] = RNBO::Json::parse(content);
-												preset.push_back(entry);
-											});
+								mDB->setPresets(
+										name, presetName,
+										[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content) {
+											RNBO::Json entry;
+											entry["patchername"] = patcherName;
+											entry["instanceindex"] = static_cast<int>(instanceIndex);
+											entry["content"] = RNBO::Json::parse(content);
+											preset.push_back(entry);
+										});
 
-									presets[presetName] = preset;
-								}
-								s["presets"] = presets;
-
-								content[name] = s;
-							} else {
-								std::cerr << "no set file at path: " << setPath << std::endl;
+								presets[presetName] = preset;
 							}
-							*/
+							s["presets"] = presets;
+
+							content[name] = s;
 						}
 					}
 
