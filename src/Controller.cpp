@@ -2276,6 +2276,9 @@ void Controller::registerCommands() {
 
 					RNBO::Json content = RNBO::Json::object();
 					for (auto name: names) {
+						if (name == LAST_SET_NAME) {
+							continue;
+						}
 						auto setInfo = mDB->setGet(name, rnboVersion);
 						if (setInfo) {
 							RNBO::Json s = setInfo->toJson();
