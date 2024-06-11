@@ -1091,9 +1091,18 @@ RNBO::Json SetInfo::toJson() {
 		conn.push_back(i.toJson());
 	}
 
+	RNBO::Json m = RNBO::Json::object();
+	if (meta.size()) {
+		try {
+			m = RNBO::Json::parse(meta);
+		} catch (...) {
+			std::cerr << "failed to convert string meta to json";
+		}
+	}
+
 	return {
 		{"set_info_version", 2},
-		{"meta", meta},
+		{"meta", m},
 		{"instances", inst},
 		{"connections", conn}
 	};
@@ -1104,7 +1113,9 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 	//test for key
 	if (json.contains("set_info_version")) {
 		if (json["set_info_version"].get<int>() == 2) {
-			info.meta = json["meta"].dump();
+			if (json.contains("meta") && json["meta"].is_object()) {
+				info.meta = json["meta"].dump();
+			}
 			for (auto& i: json["instances"]) {
 				info.instances.push_back(SetInstanceInfo::fromJson(i));
 			}
