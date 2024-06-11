@@ -1,9 +1,57 @@
 #pragma once
 
+#include "RNBO.h"
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
 #include <mutex>
+#include <vector>
+
+struct SetConnectionInfo {
+	std::string source_name;
+	int source_instance_index = -1;
+	std::string source_port_name;
+
+	std::string sink_name;
+	int sink_instance_index = -1;
+	std::string sink_port_name;
+
+	SetConnectionInfo(
+			std::string src_name, std::string src_port_name,
+			std::string snk_name, std::string snk_port_name
+	) : source_name(src_name), source_port_name(src_port_name),
+			sink_name(snk_name), sink_port_name(snk_port_name)
+	{}
+
+	SetConnectionInfo() {}
+
+	RNBO::Json toJson();
+	static SetConnectionInfo fromJson(const RNBO::Json& json);
+};
+
+struct SetInstanceInfo {
+	std::string patcher_name;
+	unsigned int instance_index;
+	std::string config = "{}";
+
+	SetInstanceInfo(
+			std::string name,
+			unsigned int index,
+			std::string conf
+			) : patcher_name(name), instance_index(index), config(conf) {};
+	RNBO::Json toJson();
+	static SetInstanceInfo fromJson(const RNBO::Json& json);
+};
+
+struct SetInfo {
+	std::vector<SetConnectionInfo> connections;
+	std::vector<SetInstanceInfo> instances;
+	std::string meta = "{}";
+
+	RNBO::Json toJson();
+	static SetInfo fromJson(const RNBO::Json& json);
+};
+
 
 class DB {
 	public:
@@ -37,6 +85,7 @@ class DB {
 		boost::optional<std::string> patcherNameByIndex(int index);
 
 		void patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f);
+		void patcherRename(const std::string& name, std::string& newName);
 
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f, std::string rnbo_version = std::string());
 
@@ -121,16 +170,16 @@ class DB {
 
 		void setSave(
 				const std::string& name,
-				const boost::filesystem::path& filename,
-				bool migrate_presets = true
+				const SetInfo& info
 		);
-		bool setDestroy(const std::string& name);
-		bool setRename(const std::string& oldName, const std::string& newName);
 
-		boost::optional<boost::filesystem::path> setGet(
+		boost::optional<SetInfo> setGet(
 				const std::string& name,
 				std::string rnbo_version = std::string()
 		);
+
+		bool setDestroy(const std::string& name);
+		bool setRename(const std::string& oldName, const std::string& newName);
 
 		//alphabetical
 		boost::optional<std::string> setNameByIndex(

@@ -52,6 +52,8 @@ namespace {
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 	static std::string build_program("rnbo-compile-so");
 
+	static const std::string LAST_SET_NAME = "RNBO_LAST_SET";
+
 	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
 
 	static const std::chrono::milliseconds save_debounce_timeout(500);
@@ -1141,23 +1143,26 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 }
 
 //actually just queue it
-void Controller::loadSet(boost::filesystem::path filename, std::string name) {
+void Controller::loadSet(std::string name) {
+	if (name.size() == 0) {
+		name = LAST_SET_NAME;
+	}
+
 	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 	if (!tryActivateAudio()) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
 		return;
 	}
-	mSetLoadPending = std::make_pair(saveFilePath(), name);
-	if (!filename.empty()) {
-		mSetLoadPending = std::make_pair(config::get<fs::path>(config::key::SaveDir).get() / filename, name);
-	}
+	mSetLoadPending = name;
+
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		clearInstances(guard, mInstFadeOutMs);
 	}
 }
 
-void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname) {
+void Controller::doLoadSet(std::string setname) {
+
 	try {
 		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
@@ -1166,26 +1171,15 @@ void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname)
 			std::swap(presets, mInstanceLastPreset);
 		}
 
-		//try to start the last
-		if (!fs::exists(setFile))
+		auto setInfo = mDB->setGet(setname);
+		if (!setInfo)
 			return;
-		RNBO::Json c;
-		{
-			std::ifstream i(setFile.string());
-			i >> c;
-			i.close();
-		}
-
-		if (!c[set_instances_key].is_array()) {
-			cerr << "malformed set data" << endl;
-			return;
-		}
 
 		//load instances
 		std::vector<std::shared_ptr<Instance>> instances;
-		for (const auto& entry: c[set_instances_key]) {
-			std::string name = entry["name"];
-			unsigned int index = static_cast<unsigned int>(entry["index"]);
+		for (const auto& entry: setInfo->instances) {
+			std::string name = entry.patcher_name;
+			unsigned int index = entry.instance_index;
 
 			fs::path libPath;
 			fs::path confPath;
@@ -1207,17 +1201,17 @@ void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname)
 			config["name"] = name;
 
 			//override datarefs
-			if (entry["config"].is_object()) {
-				auto c = entry["config"];
-				if (c.contains("datarefs"))
-					config["datarefs"] = c["datarefs"];
+			if (entry.config.size()) {
+				auto instConfig = RNBO::Json::parse(entry.config);
+				if (instConfig.contains("datarefs"))
+					config["datarefs"] = instConfig["datarefs"];
 				//load the last preset as the initial one
-				if (c["preset_last"].is_string()) {
-					config["preset_initial"] = c["preset_last"];
+				if (instConfig["preset_last"].is_string()) {
+					config["preset_initial"] = instConfig["preset_last"];
 				}
 				//override meta
-				if (c["metaoverride"].is_object()) {
-					config["metaoverride"] = c["metaoverride"];
+				if (instConfig["metaoverride"].is_object()) {
+					config["metaoverride"] = instConfig["metaoverride"];
 				}
 			}
 
@@ -1247,31 +1241,24 @@ void Controller::doLoadSet(boost::filesystem::path setFile, std::string setname)
 		*/
 
 		mProcessAudio->updatePorts();
-
-		if (c.contains(set_connections_key)) {
-			mProcessAudio->connect(c[set_connections_key]);
-		}
+		mProcessAudio->connect(setInfo->connections);
 
 		//load presets and start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			for (auto inst: instances) {
-				if (setname.size()) {
+				if (setname.size() && setname != LAST_SET_NAME) {
 					inst->loadPreset("initial", setname);
 				}
 				inst->start(mInstFadeInMs);
 			}
 		}
+
 		if (mSetMetaParam) {
-			std::string meta;
-			if (c.contains(set_meta_key) && c[set_meta_key].is_string()) {
-				meta = c[set_meta_key].get<std::string>();
-			}
-			mSetMetaParam->push_value(meta);
+			mSetMetaParam->push_value(setInfo->meta);
 		}
 
-		//indicate the name and dirty status
-		mSetCurrentNameParam->push_value(setname);
+		mSetCurrentNameParam->push_value(setname == LAST_SET_NAME ? "" : setname);
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -1338,36 +1325,39 @@ bool Controller::loadBuiltIn() {
 }
 #endif
 
-boost::optional<boost::filesystem::path> Controller::saveSet(std::string name, std::string meta, bool abort_empty) {
-	RNBO::Json instances = RNBO::Json::array(); //json doesn't let you use a key that is a number, so we use an array and store the index in the data
-	RNBO::Json setData = RNBO::Json::object();
-	{
-		std::lock_guard<std::mutex> iguard(mInstanceMutex);
-		if (abort_empty && mInstances.size() == 0) {
-			return boost::none;
-		}
-		for (auto& i: mInstances) {
-			auto& inst = std::get<0>(i);
-			RNBO::Json data = RNBO::Json::object();
-			data["index"] = static_cast<int>(inst->index());
-			data["name"] = inst->name();
-			data["config"] = inst->currentConfig();
+SetInfo Controller::setInfo() {
+	SetInfo info;
 
-			instances.push_back(data);
+	if (mSetMetaParam) {
+		auto v = mSetMetaParam->value();
+		if (v.get_type() == ossia::val_type::STRING) {
+			info.meta = v.get<std::string>();
 		}
 	}
-	setData[set_instances_key] = instances;
-	setData[set_meta_key] = meta;
 
-	RNBO::Json connections = mProcessAudio->connections();
-	if (!connections.is_null()) {
-		setData[set_connections_key] = connections;
+	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+
+	info.connections = mProcessAudio->connections();
+
+	for (auto& i: mInstances) {
+		auto& inst = std::get<0>(i);
+
+		info.instances.push_back(SetInstanceInfo(inst->name(), inst->index(), inst->currentConfig().dump()));
+
+		//client is named patchName-index
+		std::string clientName = inst->name() + "-" + std::to_string(inst->index());
+
+		//add index to connections
+		for (auto& c: info.connections) {
+			if (c.source_name == clientName) {
+				c.source_instance_index = static_cast<int>(inst->index());
+			} else if (c.sink_name == clientName) {
+				c.sink_instance_index = static_cast<int>(inst->index());
+			}
+		}
 	}
 
-	auto filepath = saveFilePath(name);
-	std::ofstream o(filepath.string());
-	o << std::setw(4) << setData << std::endl;
-	return filepath;
+	return info;
 }
 
 void Controller::patcherStore(
@@ -1475,6 +1465,33 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 					});
 				}
 			}
+
+			{
+				auto n = find_or_create_child(r, "rename");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "rename this patcher");
+					p->add_callback([this, name](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::STRING) {
+								std::string newName = val.get<std::string>();
+								RNBO::Json cmd = {
+									{"method", "patcher_rename"},
+									{"id", "internal"},
+									{"params",
+										{
+											{"name", name},
+											{"newName", newName}
+										}
+									}
+								};
+								mCommandQueue.push(cmd.dump());
+							}
+
+					});
+				}
+			}
 	});
 }
 
@@ -1494,7 +1511,9 @@ void Controller::updateSetNames() {
 	std::lock_guard<std::mutex> guard(mSetNamesMutex);
 	mSetNames.clear();
 	mDB->sets([this](const std::string& name, const std::string& /*created*/) {
-			mSetNames.push_back(name);
+			if (name != LAST_SET_NAME) {
+				mSetNames.push_back(name);
+			}
 	});
 	mSetNamesUpdated = true;
 }
@@ -1594,13 +1613,13 @@ bool Controller::processEvents() {
 
 		//if we have no instances, look to see if we should load a set
 		if (!anyInstances) {
-			boost::optional<std::pair<boost::filesystem::path, std::string>> pending;
+			boost::optional<std::string> pending;
 			{
 				std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 				mSetLoadPending.swap(pending);
 			}
 			if (pending) {
-				doLoadSet(pending->first, pending->second);
+				doLoadSet(pending.get());
 			}
 		}
 
@@ -1624,14 +1643,8 @@ bool Controller::processEvents() {
 			}
 		}
 		if (save) {
-			std::string meta;
-			if (mSetMetaParam) {
-				auto v = mSetMetaParam->value();
-				if (v.get_type() == ossia::val_type::STRING) {
-					meta = v.get<std::string>();
-				}
-			}
-			saveSet(std::string(), meta, false);
+			auto info = setInfo();
+			mDB->setSave(LAST_SET_NAME, info);
 		}
 
 		//sets
@@ -1759,6 +1772,19 @@ void Controller::registerCommands() {
 			}
 	});
 	mCommandHandlers.insert({
+			"patcher_rename",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				std::string newName = params["newName"].get<std::string>();
+				mDB->patcherRename(name, newName);
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+					mPatchersNode->remove_child(name);
+					updatePatchersInfo(newName);
+				}
+			}
+	});
+	mCommandHandlers.insert({
 			"instance_load",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				int index = params["index"].get<int>();
@@ -1851,9 +1877,11 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				std::string meta = params["meta"].get<std::string>();
-				auto p = saveSet(name, meta, true);
-				if (p) {
-					mDB->setSave(name, p->filename());
+				//TODO what about meta
+				//XXX
+				auto info = setInfo();
+				if (info.instances.size()) {
+					mDB->setSave(name, info);
 					saveSetPreset(name, "initial");
 					reportCommandResult(id, {
 						{"code", 0},
@@ -1873,13 +1901,7 @@ void Controller::registerCommands() {
 			"instance_set_load",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
-				auto res = mDB->setGet(name);
-				if (res) {
-					loadSet(res.get(), name);
-				} else {
-					reportCommandError(id, 1, "failed");
-					return;
-				}
+				loadSet(name);
 				reportCommandResult(id, {
 					{"code", 0},
 					{"message", "loaded"},
@@ -2146,32 +2168,36 @@ void Controller::registerCommands() {
 
 		//special handling for set saving
 		if (isSet && params.contains("complete") && params["complete"].get<bool>()) {
-			//TODO validate set data?
-			mDB->setSave(fileName, filePath.filename());
-			updateSetNames();
 
-			//handle presets
 			RNBO::Json setData;
 			{
 				std::ifstream i(filePath.string());
 				i >> setData;
 				i.close();
 			}
-			if (setData["presets"].is_object()) {
-				//TODO delete all existing presets?
-				for (const auto& kv: setData["presets"].items()) {
-					std::string presetName = kv.key();
-					mDB->setPresetDestroy(fileName, presetName);
-					if (kv.value().is_array()) {
-						auto& presets = kv.value();
-						for (const auto& entry: presets) {
-							if (entry["patchername"].is_string() && entry["instanceindex"].is_number() && entry["content"].is_object()) {
-								std::string patchername = entry["patchername"];
-								unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
-								const RNBO::Json& content = entry["content"];
-								mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump());
-							} else {
-								std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
+
+			SetInfo info = SetInfo::fromJson(setData);
+			if (info.instances.size() > 0) {
+				mDB->setSave(fileName, info);
+				updateSetNames();
+
+				//handle presets
+				if (setData["presets"].is_object()) {
+					//TODO delete all existing presets?
+					for (const auto& kv: setData["presets"].items()) {
+						std::string presetName = kv.key();
+						mDB->setPresetDestroy(fileName, presetName);
+						if (kv.value().is_array()) {
+							auto& presets = kv.value();
+							for (const auto& entry: presets) {
+								if (entry["patchername"].is_string() && entry["instanceindex"].is_number() && entry["content"].is_object()) {
+									std::string patchername = entry["patchername"];
+									unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
+									const RNBO::Json& content = entry["content"];
+									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump());
+								} else {
+									std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
+								}
 							}
 						}
 					}
@@ -2250,39 +2276,32 @@ void Controller::registerCommands() {
 
 					RNBO::Json content = RNBO::Json::object();
 					for (auto name: names) {
-						auto p = mDB->setGet(name, rnboVersion);
-						if (p) {
-							fs::path setPath = config::get<fs::path>(config::key::SaveDir).get() / *p;
-							if (fs::exists(setPath)) {
-								RNBO::Json s;
-								std::ifstream i(setPath.string());
-								i >> s;
+						auto setInfo = mDB->setGet(name, rnboVersion);
+						if (setInfo) {
+							RNBO::Json s = setInfo->toJson();
 
-								//get presets
-								//XXX could this become too large??
-								RNBO::Json presets;
-								std::vector<std::string> presetNames = mDB->setPresets(name);
-								for (auto presetName: presetNames) {
-									RNBO::Json preset;
+							//get presets
+							//XXX could this become too large??
+							RNBO::Json presets;
+							std::vector<std::string> presetNames = mDB->setPresets(name);
+							for (auto presetName: presetNames) {
+								RNBO::Json preset;
 
-									mDB->setPresets(
-											name, presetName,
-											[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content) {
-												RNBO::Json entry;
-												entry["patchername"] = patcherName;
-												entry["instanceindex"] = static_cast<int>(instanceIndex);
-												entry["content"] = RNBO::Json::parse(content);
-												preset.push_back(entry);
-											});
+								mDB->setPresets(
+										name, presetName,
+										[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content) {
+											RNBO::Json entry;
+											entry["patchername"] = patcherName;
+											entry["instanceindex"] = static_cast<int>(instanceIndex);
+											entry["content"] = RNBO::Json::parse(content);
+											preset.push_back(entry);
+										});
 
-									presets[presetName] = preset;
-								}
-								s["presets"] = presets;
-
-								content[name] = s;
-							} else {
-								std::cerr << "no set file at path: " << setPath << std::endl;
+								presets[presetName] = preset;
 							}
+							s["presets"] = presets;
+
+							content[name] = s;
 						}
 					}
 
@@ -2580,7 +2599,8 @@ void Controller::processCommands() {
 			if (cmdStr == "load_last") {
 				//terminate existing compile
 				compileProcess.reset();
-				loadSet();
+
+				loadSet(LAST_SET_NAME);
 				continue;
 			}
 
