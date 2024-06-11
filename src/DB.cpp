@@ -4,6 +4,7 @@
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/none.hpp>
+#include <boost/algorithm/string.hpp>
 
 //https://srombauts.github.io/SQLiteCpp/
 
@@ -1034,3 +1035,157 @@ void DB::listeners(std::function<void(const std::string& ip, uint16_t port)> fun
 	}
 }
 
+RNBO::Json SetConnectionInfo::toJson() {
+	return {
+		{"source_name", source_name},
+		{"source_instance_index", source_instance_index},
+		{"source_port_name", source_port_name},
+		{"sink_name", sink_name},
+		{"sink_instance_index", sink_instance_index},
+		{"sink_port_name", sink_port_name}
+	};
+}
+
+SetConnectionInfo SetConnectionInfo::fromJson(const RNBO::Json& json) {
+	//XXX assumes fully valid data
+	SetConnectionInfo info(
+		json["source_name"].get<std::string>(),
+		json["source_port_name"].get<std::string>(),
+		json["sink_name"].get<std::string>(),
+		json["sink_port_name"].get<std::string>()
+	);
+
+	info.source_instance_index = json["source_instance_index"].get<int>();
+	info.sink_instance_index = json["sink_instance_index"].get<int>();
+
+	return info;
+}
+
+RNBO::Json SetInstanceInfo::toJson() {
+	return {
+		{ "patcher_name", patcher_name },
+		{ "instance_index", static_cast<int>(instance_index) },
+		{ "config", RNBO::Json::parse(config) }
+	};
+}
+
+SetInstanceInfo SetInstanceInfo::fromJson(const RNBO::Json& json) {
+	//XXX assumes fully valid data
+	return SetInstanceInfo(
+			json["patcher_name"].get<std::string>(),
+			static_cast<unsigned int>(json["instance_index"].get<int>()),
+			json["config"].dump()
+	);
+}
+
+RNBO::Json SetInfo::toJson() {
+	RNBO::Json inst = RNBO::Json::array();
+	RNBO::Json conn = RNBO::Json::array();
+
+	for (auto& i: instances) {
+		inst.push_back(i.toJson());
+	}
+
+	for (auto& i: connections) {
+		conn.push_back(i.toJson());
+	}
+
+	return {
+		{"set_info_version", 2},
+		{"meta", meta},
+		{"instances", inst},
+		{"connections", conn}
+	};
+}
+
+SetInfo SetInfo::fromJson(const RNBO::Json& json) {
+	SetInfo info;
+	//test for key
+	if (json.contains("set_info_version")) {
+		if (json["set_info_version"].get<int>() == 2) {
+			info.meta = json["meta"].dump();
+			for (auto& i: json["instances"]) {
+				info.instances.push_back(SetInstanceInfo::fromJson(i));
+			}
+			for (auto& i: json["connections"]) {
+				info.connections.push_back(SetConnectionInfo::fromJson(i));
+			}
+		} else {
+			//invalid
+		}
+	} else {
+		//old format
+		if (json.contains("meta") && json["meta"].is_string()) {
+			info.meta = json["meta"].get<std::string>();
+		}
+
+		//get index map
+		std::unordered_map<std::string, int> instanceNameToIndex;
+
+		if (json.contains("instances") && json["instances"].is_array()) {
+			for (auto& i: json["instances"]) {
+				std::string conf;
+				if (i.contains("config") && i["config"].is_object()) {
+					conf = i["config"].dump();
+				}
+
+				int index = i["index"].get<int>();
+				SetInstanceInfo inst(
+					i["name"].get<std::string>(),
+					static_cast<unsigned int>(index),
+					conf);
+				instanceNameToIndex.insert( { inst.patcher_name + "-" + std::to_string(index), index });
+				info.instances.push_back(inst);
+			}
+		}
+		if (json.contains("connections") && json["connections"].is_object()) {
+			for (auto& kv: json["connections"].items()) {
+				std::string name = kv.key();
+
+				std::vector<std::string> src_info;
+				boost::algorithm::split(src_info, name, boost::is_any_of(":"));
+				if (src_info.size() != 2) {
+					continue;
+				}
+				std::string source_name = src_info[0], source_port_name = src_info[1];
+
+				int source_instance_index = -1;
+				{
+					auto it = instanceNameToIndex.find(source_name);
+					if (it != instanceNameToIndex.end()) {
+						source_instance_index = it->second;
+					}
+				}
+
+				auto entry = kv.value();
+				if (entry.is_object() && entry.contains("output") && entry["output"].is_boolean() && entry["output"].get<bool>()) {
+					if (entry.contains("connections") && entry["connections"].is_array()) {
+						for (auto c: entry["connections"]) {
+							if (c.is_string()) {
+								name = c.get<std::string>();
+								std::vector<std::string> sink_info;
+								boost::algorithm::split(sink_info, name, boost::is_any_of(":"));
+								if (sink_info.size() == 2) {
+									std::string sink_name = sink_info[0], sink_port_name = sink_info[1];
+									int sink_instance_index = -1;
+									{
+										auto it = instanceNameToIndex.find(sink_name);
+										if (it != instanceNameToIndex.end()) {
+											sink_instance_index = it->second;
+										}
+									}
+
+									SetConnectionInfo conn(source_name, source_port_name, sink_name, sink_port_name);
+									conn.source_instance_index = source_instance_index;
+									conn.sink_instance_index = sink_instance_index;
+									info.connections.push_back(conn);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return info;
+}

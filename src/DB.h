@@ -1,5 +1,6 @@
 #pragma once
 
+#include "RNBO.h"
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -23,24 +24,32 @@ struct SetConnectionInfo {
 	{}
 
 	SetConnectionInfo() {}
+
+	RNBO::Json toJson();
+	static SetConnectionInfo fromJson(const RNBO::Json& json);
 };
 
 struct SetInstanceInfo {
 	std::string patcher_name;
 	unsigned int instance_index;
-	std::string config;
+	std::string config = "{}";
 
 	SetInstanceInfo(
 			std::string name,
 			unsigned int index,
 			std::string conf
 			) : patcher_name(name), instance_index(index), config(conf) {};
+	RNBO::Json toJson();
+	static SetInstanceInfo fromJson(const RNBO::Json& json);
 };
 
 struct SetInfo {
 	std::vector<SetConnectionInfo> connections;
 	std::vector<SetInstanceInfo> instances;
-	std::string meta;
+	std::string meta = "{}";
+
+	RNBO::Json toJson();
+	static SetInfo fromJson(const RNBO::Json& json);
 };
 
 
