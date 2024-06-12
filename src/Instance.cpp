@@ -483,7 +483,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				mPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 
 				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded");
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			}
 
 			{
@@ -992,11 +992,13 @@ void Instance::loadPreset(std::string name, std::string set_name) {
 	if (preset) {
 		loadJsonPreset(*preset, name);
 	} else {
-		std::cerr << "couldn't find preset with name or index: " << name;
-		if (set_name.size()) {
-			std::cerr << " in set " << set_name;
+		if (set_name.size() == 0 || name != "initial") {
+			std::cerr << "couldn't find preset with name or index: " << name;
+			if (set_name.size()) {
+				std::cerr << " in set " << set_name;
+			}
+			std::cerr << std::endl;
 		}
-		std::cerr << std::endl;
 	}
 }
 
