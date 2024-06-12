@@ -77,7 +77,7 @@ class Instance {
 	private:
 		bool mPresetsDirty = false;
 
-		bool loadJsonPreset(const std::string& content, const std::string& name);
+		bool loadJsonPreset(const std::string& content, const std::string& name, std::string setname = std::string());
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::mutex mConfigChangedMutex;

@@ -30,6 +30,14 @@ namespace {
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
 
+	//construct preset name, add in set name if it exists
+	std::string presetName(std::string name, std::string setname) {
+		if (setname.size()) {
+			return setname + "/" + name;
+		}
+		return name;
+	}
+
 	//referece count nodes created via metadata as they might be shared, this lets us cleanup
 	std::unordered_map<std::string, unsigned int> node_reference_count;
 	std::mutex node_reference_count_mutex;
@@ -482,7 +490,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				auto n = presets->create_child("loaded");
 				mPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 
-				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded");
+				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded. A name with a / indiciates a set preset where the format is setname/setpresetname");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			}
 
@@ -855,7 +863,7 @@ void Instance::processEvents() {
 			mPresetsDirty = true;
 			{
 				std::lock_guard<std::mutex> guard(mPresetMutex);
-				mPresetLatest = name;
+				mPresetLatest = presetName(name, set_name);
 			}
 			updatePresetEntries();
 		}
@@ -990,7 +998,7 @@ void Instance::loadPreset(std::string name, std::string set_name) {
 	}
 
 	if (preset) {
-		loadJsonPreset(*preset, name);
+		loadJsonPreset(*preset, name, set_name);
 	} else {
 		if (set_name.size() == 0 || name != "initial") {
 			std::cerr << "couldn't find preset with name or index: " << name;
@@ -1015,13 +1023,13 @@ void Instance::loadPreset(RNBO::UniquePresetPtr preset) {
 	mCore->setPreset(std::move(preset));
 }
 
-bool Instance::loadJsonPreset(const std::string& preset, const std::string& name) {
+bool Instance::loadJsonPreset(const std::string& preset, const std::string& name, std::string setname) {
 	//set preset latest so we can correctly send loaded param
 	std::string last;
 	{
 		std::lock_guard<std::mutex> guard(mPresetMutex);
 		last = mPresetLatest;
-		mPresetLatest = name;
+		mPresetLatest = presetName(name, setname);
 	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
