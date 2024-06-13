@@ -96,6 +96,7 @@ class Controller {
 
 		void handleProgramChange(ProgramChange);
 		std::string getCurrentSetName();
+		std::string getCurrentSetPresetName();
 
 		std::shared_ptr<DB> mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
@@ -110,6 +111,7 @@ class Controller {
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
 		ossia::net::node_base * mSetPresetLoadNode = nullptr;
+		ossia::net::parameter_base * mSetPresetLoadedParam = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 

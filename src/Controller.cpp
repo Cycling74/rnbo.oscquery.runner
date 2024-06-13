@@ -691,6 +691,12 @@ Controller::Controller(std::string server_name) {
 					});
 				}
 				{
+					auto n = presets->create_child("loaded");
+					auto p = mSetPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "Indicates the last loaded preset");
+				}
+				{
 					auto n = presets->create_child("destroy");
 					auto p = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
@@ -1243,11 +1249,13 @@ void Controller::doLoadSet(std::string setname) {
 		mProcessAudio->updatePorts();
 		mProcessAudio->connect(setInfo->connections);
 
+		const bool loadInitial = setname.size() && setname != LAST_SET_NAME;
+
 		//load presets and start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			for (auto inst: instances) {
-				if (setname.size() && setname != LAST_SET_NAME) {
+				if (loadInitial) {
 					inst->loadPreset("initial", setname);
 				}
 				inst->start(mInstFadeInMs);
@@ -1259,6 +1267,7 @@ void Controller::doLoadSet(std::string setname) {
 		}
 
 		mSetCurrentNameParam->push_value(setname == LAST_SET_NAME ? "" : setname);
+		mSetPresetLoadedParam->push_value(loadInitial ? "initial" : "");
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -1552,6 +1561,7 @@ void Controller::loadSetPreset(const std::string& setName, std::string presetNam
 	for (auto& i: mInstances) {
 		std::get<0>(i)->loadPreset(presetName, setName);
 	}
+	mSetPresetLoadedParam->push_value(presetName);
 }
 
 unsigned int Controller::nextInstanceIndex() {
@@ -1861,6 +1871,7 @@ void Controller::registerCommands() {
 				}
 				if (index < 0) {
 					mSetCurrentNameParam->push_value("");
+					mSetPresetLoadedParam->push_value("");
 					updateSetPresetNames();
 				}
 				mProcessAudio->updatePorts();
@@ -1882,7 +1893,8 @@ void Controller::registerCommands() {
 				auto info = setInfo();
 				if (info.instances.size()) {
 					mDB->setSave(name, info);
-					saveSetPreset(name, "initial");
+					const std::string presetName = "initial";
+					saveSetPreset(name, presetName);
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "saved"},
@@ -1890,7 +1902,8 @@ void Controller::registerCommands() {
 					});
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
-					updateSetPresetNames("initial");
+					updateSetPresetNames(presetName);
+					mSetPresetLoadedParam->push_value(presetName);
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -1963,6 +1976,7 @@ void Controller::registerCommands() {
 
 					//saving is async so we force "name" into the list
 					updateSetPresetNames(name);
+					mSetPresetLoadedParam->push_value(name);
 				} else {
 					std::cerr << "no current set name, cannot save preset" << std::endl;
 					reportCommandError(id, 1, "failed");
@@ -2001,6 +2015,9 @@ void Controller::registerCommands() {
 						{"message", "deleted"},
 						{"progress", 100}
 					});
+					if (name == getCurrentSetPresetName()) {
+						mSetPresetLoadedParam->push_value("");
+					}
 					updateSetPresetNames();
 				} else {
 					std::cerr << "no current set name, cannot destroy preset" << std::endl;
@@ -2017,6 +2034,10 @@ void Controller::registerCommands() {
 				std::string setname = getCurrentSetName();
 				if (setname.size()) {
 					mDB->setPresetRename(setname, name, newName);
+					if (name == getCurrentSetPresetName()) {
+						mSetPresetLoadedParam->push_value(newName);
+					}
+
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "deleted"},
@@ -2913,3 +2934,9 @@ std::string Controller::getCurrentSetName() {
 	return std::string();
 }
 
+std::string Controller::getCurrentSetPresetName() {
+	if (mSetPresetLoadedParam && mSetPresetLoadedParam->get_value_type() == ossia::val_type::STRING) {
+		return mSetPresetLoadedParam->value().get<std::string>();
+	}
+	return std::string();
+}
