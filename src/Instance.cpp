@@ -934,6 +934,7 @@ void Instance::processEvents() {
 						}
 						if (mPresetLatest == cmd.preset) {
 							mPresetLatest.clear();
+							mPresetLoadedParam->push_value(mPresetLatest);
 						}
 						updated = true;
 					}
@@ -950,6 +951,7 @@ void Instance::processEvents() {
 						}
 						if (mPresetLatest == cmd.preset) {
 							mPresetLatest = cmd.newname;
+							mPresetLoadedParam->push_value(mPresetLatest);
 						}
 						updated = true;
 					}
@@ -959,8 +961,9 @@ void Instance::processEvents() {
 				break;
 		}
 
-		if (updated)
+		if (updated) {
 			updatePresetEntries();
+		}
 
 		if (changed && mConfigChangeCallback != nullptr) {
 			mConfigChangeCallback();
