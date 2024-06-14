@@ -61,6 +61,7 @@ class Controller {
 
 		void handleActive(bool active);
 		void updateDiskStats();
+		void updateDatafileStats();
 		void updateListenersList();
 		void restoreListeners();
 		void listenersAddProtocol(const std::string& ip, uint16_t port);
@@ -138,8 +139,11 @@ class Controller {
 		std::uintmax_t mDiskSpaceLast = 0;
 		std::string mDataFileDirMTimeLast;
 
-		std::chrono::duration<int> mDiskPollPeriod = std::chrono::seconds(10);
-		std::chrono::time_point<std::chrono::steady_clock> mDiskPollNext;
+		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
+		std::chrono::time_point<std::chrono::steady_clock> mDiskSpacePollNext;
+
+		std::chrono::duration<int> mDatafilePollPeriod = std::chrono::seconds(1);
+		std::chrono::time_point<std::chrono::steady_clock> mDatafilePollNext;
 
 		std::shared_ptr<ProcessAudio> mProcessAudio;
 		ossia::net::parameter_base * mAudioActive;

@@ -60,6 +60,8 @@ namespace {
 
 	static const std::chrono::milliseconds process_poll_period(10);
 
+	static const std::chrono::milliseconds datafile_poll_delay(50);
+
 	static const std::string last_file_name = "last";
 	static const std::string set_instances_key = "instances";
 	static const std::string set_meta_key = "meta";
@@ -349,6 +351,7 @@ Controller::Controller(std::string server_name) {
 		}
 
 		updateDiskStats();
+		updateDatafileStats();
 	}
 
 	//add support for commands
@@ -1633,11 +1636,18 @@ bool Controller::processEvents() {
 			}
 		}
 
-		if (mDiskPollNext <= now) {
+		if (mDiskSpacePollNext <= now) {
 			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
 			//using a hammer to make sure that doesn't happen
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 			updateDiskStats();
+		}
+
+		if (mDatafilePollNext <= now) {
+			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
+			//using a hammer to make sure that doesn't happen
+			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+			updateDatafileStats();
 		}
 
 		bool save = false;
@@ -2139,8 +2149,7 @@ void Controller::registerCommands() {
 
 					//update file stats after datafile delete
 					if (filetype == "datafile") {
-						std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-						updateDiskStats();
+						mDatafilePollNext = steady_clock::now() + datafile_poll_delay;
 					}
 
 				} else {
@@ -2199,8 +2208,7 @@ void Controller::registerCommands() {
 
 		//update file stats after datafile write
 		if (complete && filetype == "datafile") {
-			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-			updateDiskStats();
+			mDatafilePollNext = steady_clock::now() + datafile_poll_delay;
 		}
 
 		//special handling for set saving
@@ -2820,23 +2828,24 @@ void Controller::updateDiskStats() {
 			if (mDiskSpaceParam)
 				mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
 		}
+		mDiskSpacePollNext = steady_clock::now() + mDiskSpacePollPeriod;
+}
 
-		{
-			auto dir = fs::absolute(config::get<fs::path>(config::key::DataFileDir).get());
-			auto time = fs::last_write_time(dir);
+void Controller::updateDatafileStats() {
+	auto dir = fs::absolute(config::get<fs::path>(config::key::DataFileDir).get());
+	auto time = fs::last_write_time(dir);
 
-			char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
-			std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
+	char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
+	std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
 
-			std::string s(timeString);
+	std::string s(timeString);
 
-			if (s != mDataFileDirMTimeLast) {
-				mDataFileDirMTimeParam->push_value(s);
-				mDataFileDirMTimeLast = s;
-			}
-		}
+	if (s != mDataFileDirMTimeLast) {
+		mDataFileDirMTimeParam->push_value(s);
+		mDataFileDirMTimeLast = s;
+	}
 
-		mDiskPollNext = steady_clock::now() + mDiskPollPeriod;
+	mDatafilePollNext = steady_clock::now() + mDatafilePollPeriod;
 }
 
 void Controller::updateListenersList() {
