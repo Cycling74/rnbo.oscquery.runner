@@ -191,6 +191,15 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 	mBuilder([this](ossia::net::node_base * root) {
 			mInfoNode = root->create_child("info");
 
+			{
+				auto n = mInfoNode->create_child("is_active");
+				n->set(ossia::net::description_attribute{}, "Gives the actual status of the jack server being active or not");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+
+				mAudioActiveParam = n->create_parameter(ossia::val_type::BOOL);
+				mAudioActiveParam->push_value(false);
+			}
+
 			auto connections = root->create_child("connections");
 			connections->set(ossia::net::description_attribute{}, "Jack connections: sources and their connected sinks, disconnect and connect utilities");
 			mPortAudioSourceConnectionsNode = connections->create_child("audio");
@@ -583,6 +592,7 @@ bool ProcessAudioJack::setActive(bool active) {
 			mJackServer = nullptr;
 		}
 #endif
+		mAudioActiveParam->push_value(false);
 		return false;
 	}
 }
@@ -883,6 +893,7 @@ bool ProcessAudioJack::createClient(bool startServer) {
 		//start server
 		if (startServer && mJackServer == nullptr && !createServer()) {
 			std::cerr << "failed to create jack server" << std::endl;
+			mAudioActiveParam->push_value(false);
 			return false;
 		}
 
@@ -1055,7 +1066,9 @@ bool ProcessAudioJack::createClient(bool startServer) {
 
 		}
 	}
-	return mJackClient != nullptr;
+	bool active = mJackClient != nullptr;
+	mAudioActiveParam->push_value(active);
+	return active;
 }
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg) {
