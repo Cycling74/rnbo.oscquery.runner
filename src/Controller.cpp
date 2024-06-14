@@ -2122,7 +2122,8 @@ void Controller::registerCommands() {
 			[this, validateFileCmd, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				if (!validateFileCmd(id, params, false))
 					return;
-				auto dir = fileCmdDir(id, params["filetype"]);
+				std::string filetype = params["filetype"];
+				auto dir = fileCmdDir(id, filetype);
 				if (!dir)
 					return;
 
@@ -2135,6 +2136,13 @@ void Controller::registerCommands() {
 						{"message", "deleted"},
 						{"progress", 100}
 					});
+
+					//update file stats after datafile delete
+					if (filetype == "datafile") {
+						std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+						updateDiskStats();
+					}
+
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DeleteFailed), "delete failed with message " + ec.message());
 				}
@@ -2187,8 +2195,16 @@ void Controller::registerCommands() {
 			fs.close();
 		}
 
+		const bool complete = params.contains("complete") && params["complete"].get<bool>();
+
+		//update file stats after datafile write
+		if (complete && filetype == "datafile") {
+			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+			updateDiskStats();
+		}
+
 		//special handling for set saving
-		if (isSet && params.contains("complete") && params["complete"].get<bool>()) {
+		if (isSet && complete) {
 
 			RNBO::Json setData;
 			{
