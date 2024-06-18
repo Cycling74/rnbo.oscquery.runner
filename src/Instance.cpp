@@ -606,15 +606,18 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 									mInportMetaDefault.insert({name, meta.dump()});
 								}
 
+								std::string mapping;
 								if (metaoverride.is_object()) {
 									op->push_value(metaoverride.dump());
-									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, metaoverride.dump()));
+									mapping = metaoverride.dump();
 								} else if (meta.is_object()) {
 									op->push_value(meta.dump());
-									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, meta.dump()));
+									mapping = meta.dump();
 								} else {
 									op->push_value("");
 								}
+								//empty string may still cause a mapping based on the name of the port and the config InstancePortToOSC
+								handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Inport, name, mapping));
 
 								op->add_callback([this, op, on, name](const ossia::value& val) {
 										std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
@@ -651,15 +654,18 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 									mOutportMetaDefault.insert({name, meta.dump()});
 								}
 
+								std::string mapping;
 								if (metaoverride.is_object()) {
 									op->push_value(metaoverride.dump());
-									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, metaoverride.dump()));
+									mapping = metaoverride.dump();
 								} else if (meta.is_object()) {
 									op->push_value(meta.dump());
-									handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, meta.dump()));
+									mapping = meta.dump();
 								} else {
 									op->push_value("");
 								}
+								//empty string may still cause a mapping based on the name of the port and the config InstancePortToOSC
+								handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::Outport, name, mapping));
 
 								op->add_callback([this, op, on, name](const ossia::value& val) {
 										std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
