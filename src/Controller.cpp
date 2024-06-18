@@ -60,7 +60,7 @@ namespace {
 
 	static const std::chrono::milliseconds process_poll_period(10);
 
-	static const std::chrono::milliseconds datafile_poll_delay(50);
+	static const std::chrono::milliseconds datafile_debounce_timeout(50);
 
 	static const std::string last_file_name = "last";
 	static const std::string set_instances_key = "instances";
@@ -2149,7 +2149,7 @@ void Controller::registerCommands() {
 
 					//update file stats after datafile delete
 					if (filetype == "datafile") {
-						mDatafilePollNext = steady_clock::now() + datafile_poll_delay;
+						mDatafilePollNext = steady_clock::now() + datafile_debounce_timeout;
 					}
 
 				} else {
@@ -2170,6 +2170,11 @@ void Controller::registerCommands() {
 		if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
 			return;
+		}
+
+		//update timeout for datafile polling while file is writing, we want to read after all file operations complete
+		if (filetype == "datafile") {
+			mDatafilePollNext = steady_clock::now() + datafile_debounce_timeout;
 		}
 
 		//special handling for sets, filename == set name, we actually store
@@ -2205,11 +2210,6 @@ void Controller::registerCommands() {
 		}
 
 		const bool complete = params.contains("complete") && params["complete"].get<bool>();
-
-		//update file stats after datafile write
-		if (complete && filetype == "datafile") {
-			mDatafilePollNext = steady_clock::now() + datafile_poll_delay;
-		}
 
 		//special handling for set saving
 		if (isSet && complete) {
