@@ -1524,23 +1524,36 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		}
 
 		//clear out mapping if it doesn't match our current mapping
-		auto it = mMIDIMapLookup.find(update.paramIndex);
-		if (it != mMIDIMapLookup.end()) {
-			auto key = it->second;
+		{
+			auto it = mMIDIMapLookup.find(update.paramIndex);
+			if (it != mMIDIMapLookup.end()) {
+				auto key = it->second;
 
-			if (key != midiKey) {
-				mMIDIMapLookup.erase(it);
-				std::unique_lock<std::mutex> guard(mMIDIMapMutex);
-				mMIDIMap.erase(key);
-			} else {
-				midiKey = 0; //don't change map
+				if (key != midiKey) {
+					mMIDIMapLookup.erase(it);
+					std::unique_lock<std::mutex> guard(mMIDIMapMutex);
+					mMIDIMap.erase(key);
+				} else {
+					midiKey = 0; //don't change map
+				}
 			}
 		}
 
 		//setup new mapping
 		if (midiKey) {
 			std::unique_lock<std::mutex> guard(mMIDIMapMutex);
-			//TODO what if we already have something at midiKey? we should probably clear it out?
+
+			//if we already have something at midiKey? we should probably clear it out?
+			{
+				auto it = mMIDIMap.find(midiKey);
+				if (it != mMIDIMap.end()) {
+					auto oldIndex = it->second;
+					std::cerr << "mapping to midiKey: " << midiKey << " exists for parameter index: " << oldIndex << " removing and adding mapping for parameter index: " << update.paramIndex << std::endl;
+					mMIDIMapLookup.erase(oldIndex);
+
+					//TODO should we indicate that there was a mapping collision?
+				}
+			}
 
 			mMIDIMap[midiKey] = update.paramIndex;
 			//set reverse lookup
