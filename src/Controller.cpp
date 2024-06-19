@@ -191,20 +191,27 @@ Controller::Controller(std::string server_name) {
 
 		auto cmdBuilder = [](std::string method, const std::string& payload) -> std::string {
 			try {
+				//default ip to localhost, maybe override with message payload
+				std::string ip = "127.0.0.1";
+				int port = 0;
 				auto p = payload.find(":");
 				if (p != std::string::npos) {
-					RNBO::Json cmd = {
-						{"method", method},
-						{"id", "internal"},
-						{"params",
-							{
-								{"ip", payload.substr(0, p)},
-								{"port", std::stoi(payload.substr(p + 1, std::string::npos))},
-							}
-						}
-					};
-					return cmd.dump();
+					ip =  payload.substr(0, p);
+					port = std::stoi(payload.substr(p + 1, std::string::npos));
+				} else {
+					port = std::stoi(payload);
 				}
+				RNBO::Json cmd = {
+					{"method", method},
+					{"id", "internal"},
+					{"params",
+						{
+							{"ip", ip},
+							{"port", port},
+						}
+					}
+				};
+				return cmd.dump();
 			} catch (...) {
 			}
 			std::cerr << "failed to make " + method + " command for " + payload << std::endl;
@@ -215,14 +222,22 @@ Controller::Controller(std::string server_name) {
 			auto n = rep->create_child("add");
 			auto p = n->create_parameter(ossia::val_type::STRING);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "add OSC UDP listener: \"ip:port\"");
+			n->set(ossia::net::description_attribute{}, "add OSC UDP listener: \"[ip:]port\"");
 
 			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				std::string addr;
+				//address can be just a port or ip:port
+				//port can be int or string
 				if (v.get_type() == ossia::val_type::STRING) {
-					auto cmd = cmdBuilder("listener_add", v.get<std::string>());
-					if (cmd.size()) {
-						mCommandQueue.push(cmd);
-					}
+					addr = v.get<std::string>();
+				} else if (v.get_type() == ossia::val_type::INT) {
+					addr = std::to_string(v.get<int>());
+				} else {
+					return;
+				}
+				auto cmd = cmdBuilder("listener_add", addr);
+				if (cmd.size()) {
+					mCommandQueue.push(cmd);
 				}
 			});
 		}
@@ -231,14 +246,20 @@ Controller::Controller(std::string server_name) {
 			auto n = rep->create_child("del");
 			auto p = n->create_parameter(ossia::val_type::STRING);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-			n->set(ossia::net::description_attribute{}, "delete OSC UDP listener: \"ip:port\"");
+			n->set(ossia::net::description_attribute{}, "delete OSC UDP listener: \"[ip:]port\"");
 
 			p->add_callback([this, cmdBuilder](const ossia::value& v) {
+				std::string addr;
 				if (v.get_type() == ossia::val_type::STRING) {
-					auto cmd = cmdBuilder("listener_del", v.get<std::string>());
-					if (cmd.size()) {
-						mCommandQueue.push(cmd);
-					}
+					addr = v.get<std::string>();
+				} else if (v.get_type() == ossia::val_type::INT) {
+					addr = std::to_string(v.get<int>());
+				} else {
+					return;
+				}
+				auto cmd = cmdBuilder("listener_del", addr);
+				if (cmd.size()) {
+					mCommandQueue.push(cmd);
 				}
 			});
 		}
@@ -2458,14 +2479,21 @@ void Controller::registerCommands() {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "request object invalid");
 			return false;
 		}
+		auto ip = params["ip"].get<std::string>();
+		auto port = static_cast<uint16_t>(params["port"].get<int>());
+		key = std::make_pair(ip, port);
+
+		//protect against feedback
+		if (ip == "127.0.0.1" && (port == 1234 || port == 5678)) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "feedback detected");
+			return false;
+		}
+
 		reportCommandResult(id, {
 			{"code", static_cast<unsigned int>(ListenerCommandStatus::Received)},
 			{"message", "received"},
 			{"progress", 1}
 		});
-		auto ip = params["ip"].get<std::string>();
-		auto port = static_cast<uint16_t>(params["port"].get<int>());
-		key = std::make_pair(ip, port);
 		return true;
 	};
 
