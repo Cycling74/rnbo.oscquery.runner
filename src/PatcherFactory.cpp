@@ -15,6 +15,7 @@ RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction() {
 	throw new std::runtime_error("global factory allocation not supported");
 }
 
+extern "C"
 void SetLogger(RNBO::Logger* logger) {
 	throw new std::runtime_error("global logger setting not supported");
 }
