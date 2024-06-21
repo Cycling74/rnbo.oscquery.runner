@@ -18,7 +18,6 @@ namespace ossia {
 //a callback function that lets you safely alter the tree of nodes, passes your root
 typedef std::function<void(std::function<void(ossia::net::node_base*)>)> NodeBuilder;
 
-
 enum class CompileLoadStatus : unsigned int {
 	Received = 0,
 	Compiled = 1,
@@ -93,3 +92,5 @@ static const std::map<std::string, int> config_midi_channel_values = {
 	{"16", 16},
 	{"none", 17} //17 will never be valid
 };
+
+static const std::string LAST_SET_NAME = "RNBO_LAST_SET";

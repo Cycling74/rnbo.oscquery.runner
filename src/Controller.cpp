@@ -52,8 +52,6 @@ namespace {
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 	static std::string build_program("rnbo-compile-so");
 
-	static const std::string LAST_SET_NAME = "RNBO_LAST_SET";
-
 	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
 
 	static const std::chrono::milliseconds save_debounce_timeout(500);
@@ -1174,10 +1172,6 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 
 //actually just queue it
 void Controller::loadSet(std::string name) {
-	if (name.size() == 0) {
-		name = LAST_SET_NAME;
-	}
-
 	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 	if (!tryActivateAudio()) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
@@ -1293,6 +1287,7 @@ void Controller::doLoadSet(std::string setname) {
 
 		mSetCurrentNameParam->push_value(setname == LAST_SET_NAME ? "" : setname);
 		mSetPresetLoadedParam->push_value(loadInitial ? "initial" : "");
+		config::set(setname, config::key::SetLastName);
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -1687,6 +1682,7 @@ bool Controller::processEvents() {
 		if (save) {
 			auto info = setInfo();
 			mDB->setSave(LAST_SET_NAME, info);
+			config::set(LAST_SET_NAME, config::key::SetLastName);
 		}
 
 		//sets
@@ -1902,9 +1898,11 @@ void Controller::registerCommands() {
 					}
 				}
 				if (index < 0) {
-					mSetCurrentNameParam->push_value("");
-					mSetPresetLoadedParam->push_value("");
+					std::string empty;
+					mSetCurrentNameParam->push_value(empty);
+					mSetPresetLoadedParam->push_value(empty);
 					updateSetPresetNames();
+					config::set(empty, config::key::SetLastName);
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
@@ -1936,6 +1934,7 @@ void Controller::registerCommands() {
 					updateSetNames();
 					updateSetPresetNames(presetName);
 					mSetPresetLoadedParam->push_value(presetName);
+					config::set(name, config::key::SetLastName);
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -1966,6 +1965,12 @@ void Controller::registerCommands() {
 					{"progress", 100}
 				});
 				updateSetNames();
+
+				if (getCurrentSetName() == name) {
+					std::string empty;
+					config::set(empty, config::key::SetLastName);
+					mSetCurrentNameParam->push_value("");
+				}
 			}
 	});
 
@@ -1983,6 +1988,7 @@ void Controller::registerCommands() {
 					//if we renamed the current set, indicate that
 					if (getCurrentSetName() == name) {
 						mSetCurrentNameParam->push_value(newName);
+						config::set(newName, config::key::SetLastName);
 					}
 					updateSetNames();
 				} else {

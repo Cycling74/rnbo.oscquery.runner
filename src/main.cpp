@@ -97,7 +97,8 @@ int main(int argc, const char * argv[]) {
 		if (options["filename"].size()) {
 			c.loadLibrary(options["filename"]);
 		} else if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true)){
-			c.loadSet();
+			std::string set = config::get<std::string>(config::key::SetLastName).value_or(LAST_SET_NAME);
+			c.loadSet(set);
 		}
 #else
 			c.loadBuiltIn();

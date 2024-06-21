@@ -37,7 +37,7 @@ class Controller {
 
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
-		void loadSet(std::string name = std::string());
+		void loadSet(std::string name);
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
 #endif
