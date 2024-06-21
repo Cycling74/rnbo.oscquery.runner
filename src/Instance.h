@@ -217,6 +217,7 @@ class Instance {
 		std::unordered_map<std::string, std::string> mInportMetaMapped;
 		std::unordered_map<std::string, std::string> mOutportMetaMapped;
 		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaMapped;
+		std::unordered_map<RNBO::ParameterIndex, ossia::net::parameter_base *> mParamMetaParams;
 
 		ossia::net::node_base * mOSCRoot = nullptr;
 		//functions to run when we clear out OSC mapping

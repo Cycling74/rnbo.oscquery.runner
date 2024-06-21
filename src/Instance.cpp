@@ -320,6 +320,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
 								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
 						});
+
+						//keep track of parameter
+						mParamMetaParams.insert({index, op});
 						break;
 					}
 				}
@@ -1548,10 +1551,29 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 				auto it = mMIDIMap.find(midiKey);
 				if (it != mMIDIMap.end()) {
 					auto oldIndex = it->second;
-					std::cerr << "mapping to midiKey: " << midiKey << " exists for parameter index: " << oldIndex << " removing and adding mapping for parameter index: " << update.paramIndex << std::endl;
-					mMIDIMapLookup.erase(oldIndex);
+					if (oldIndex != update.paramIndex) {
+						std::cerr << "mapping to midiKey: " << midiKey << " exists for parameter index: " << oldIndex << " removing and adding mapping for parameter index: " << update.paramIndex << std::endl;
+						mMIDIMapLookup.erase(oldIndex);
 
-					//TODO should we indicate that there was a mapping collision?
+						//clear out midi from meta
+						auto it = mParamMetaParams.find(oldIndex);
+						if (it != mParamMetaParams.end()) {
+							//XXX what if there is already a queued change for this parameter?
+							auto p = it->second;
+							auto v = p->value();
+							if (v.get_type() == ossia::val_type::STRING) {
+								try {
+									//remove the "midi" entry
+									auto j = RNBO::Json::parse(v.get<std::string>());
+									if (j.is_object()) {
+										j.erase("midi");
+										p->push_value(j.dump());
+									}
+								} catch (...) {
+								}
+							}
+						}
+					}
 				}
 			}
 
