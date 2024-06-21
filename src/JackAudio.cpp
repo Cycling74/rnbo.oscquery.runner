@@ -514,27 +514,63 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 	std::vector<SetConnectionInfo> conn;
 
 	const char ** sources = nullptr;
+	std::array<std::vector<char>, 2> aliasStrings = {
+		std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0'),
+		std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0')
+	};
+	std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[0].data() };
+
+	//use a port alias for physical midi ports instead of the system name
+	auto use_midi_port_alias = [this, &aliases](std::string name) -> std::string {
+		const jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+		const auto port_type = jack_port_type(port);
+		const auto flags = jack_port_flags(port);
+		if (strcmp(port_type, JACK_DEFAULT_MIDI_TYPE) == 0 && flags & JackPortIsPhysical) {
+			auto cnt = jack_port_get_aliases(port, aliases.data());
+			for (auto i = 0; i < cnt; i++) {
+				std::string alias(aliases[i]);
+				//don't use alsa_pcm: prefix if we don't have to
+				if (!alias.starts_with("alsa_pcm") || cnt == 1) {
+					name = alias;
+				}
+			}
+		}
+		return name;
+	};
+
+	auto cleanup_name_info = [](std::vector<std::string>& info) {
+		//if there are more than 2 entries, build them back into 2
+		for (auto j = 2; j < info.size(); j++) {
+			info[1] += ":" + info[j];
+		}
+	};
+
 	if ((sources = jack_get_ports(mJackClient, nullptr, nullptr, JackPortIsOutput)) != nullptr) {
 		for (size_t i = 0; sources[i] != nullptr; i++) {
 			std::string name(sources[i]);
-			std::vector<std::string> src_info;
+		 	jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
+			name = use_midi_port_alias(name);
 
+			std::vector<std::string> src_info;
 			boost::algorithm::split(src_info, name, boost::is_any_of(":"));
 
-			jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
-
-			if (src_info.size() != 2) {
+			if (src_info.size() < 2) {
 				std::cerr << "don't know how to separate client and port name for source " << name << " skipping " << std::endl;
 				continue;
 			}
 
-			iterate_connections(src, [&conn, &src_info](std::string sinkname) {
+			cleanup_name_info(src_info);
+
+			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias, &cleanup_name_info](std::string sinkname) {
+					sinkname = use_midi_port_alias(sinkname);
+
 					std::vector<std::string> sink_info;
 					boost::algorithm::split(sink_info, sinkname, boost::is_any_of(":"));
 
-					if (sink_info.size() != 2) {
+					if (sink_info.size() < 2) {
 						std::cerr << "don't know how to separate client and port name for sink " << sinkname << " skipping " << std::endl;
 					} else {
+						cleanup_name_info(sink_info);
 						conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
 					}
 			});
