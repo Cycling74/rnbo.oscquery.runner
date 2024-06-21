@@ -498,9 +498,12 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 	}
 }
 
-bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections) {
+bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) {
 	if (mJackClient) {
 		for (auto& info: connections) {
+			if (info.sink_name == CONTROL_CLIENT_NAME && !withControlConnections) {
+				continue;
+			}
 			std::string source = info.source_name + ":" + info.source_port_name;
 			std::string sink = info.sink_name + ":" + info.sink_port_name;
 			jack_connect(mJackClient, source.c_str(), sink.c_str());

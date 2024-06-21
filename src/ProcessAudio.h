@@ -12,7 +12,7 @@ class ProcessAudio {
 		virtual void processEvents() = 0;
 
 		//try to connect with a previous config, return true if successful
-		virtual bool connect(const std::vector<SetConnectionInfo>& connections) { return false; }
+		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) { return false; }
 
 		//get the current connection config
 		virtual std::vector<SetConnectionInfo> connections() { return {}; }

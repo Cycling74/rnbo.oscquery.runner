@@ -43,7 +43,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void processEvents() override;
 		void process(jack_nframes_t frames);
 
-		virtual bool connect(const std::vector<SetConnectionInfo>& connections) override;
+		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) override;
 		virtual std::vector<SetConnectionInfo> connections() override;
 
 		virtual void handleTransportState(bool running) override;

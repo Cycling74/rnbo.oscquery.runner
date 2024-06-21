@@ -1271,7 +1271,8 @@ void Controller::doLoadSet(std::string setname) {
 		*/
 
 		mProcessAudio->updatePorts();
-		mProcessAudio->connect(setInfo->connections);
+		mProcessAudio->connect(setInfo->connections, mFirstSetLoad); //only do control connections when loading first set
+		mFirstSetLoad = false;
 
 		const bool loadInitial = setname.size() && setname != LAST_SET_NAME;
 
