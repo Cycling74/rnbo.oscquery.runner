@@ -2034,10 +2034,6 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 						}
 					}
 				}
-				//report last key
-				if (lastKey) {
-					mLastMIDIKey.store(lastKey);
-				}
 
 				mMIDIInList.addEvent(RNBO::MidiEvent(time, 0, evt.buffer, evt.size));
 
@@ -2045,6 +2041,11 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 				if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
 					mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });
 				}
+			}
+
+			//report last key
+			if (lastKey) {
+				mLastMIDIKey.store(lastKey);
 			}
 		}
 
