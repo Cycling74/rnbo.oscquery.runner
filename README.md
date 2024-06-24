@@ -706,24 +706,31 @@ oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "
 
 Inports, Outports, and Parameters can take metadata that extend their mapping to/from OSC messages.
 
-The simplest of forms, `@meta osc:'/foo/bar'` maps the item to/from the OSC message `/foo/bar`.
+*Format*
+
+The simplest of forms, `{"osc": "/foo/bar"}` maps the item to/from the OSC message `/foo/bar`.
+You can also use a more verbose format `{"osc": {"addr": "/your/addr", "out": true}}`
 
 *Direction*
 
 * Inports can only listen to OSC messages
 * Outports can only send OSC messages
-* Parameters only listen by default but can be made to send with a more verbose OSC meta entry: `@meta osc:{'addr': '/foo/bar/', 'out': true}`
+* Inport and Outports default to mapping to/from OSC addresses if you prefix their name with a `/`, for instance `[inport /synth/freq]`
+  * You can toggle this behavior with the `Instance: Port To OSC` setting in the [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide) settings.
+* Parameters only listen by default but can be made to send with a more verbose OSC meta entry: `{"osc":{"addr": "/foo/bar/", "out": true}`
   * **NOTE**: a parameter with the above meta will only send on `/foo/bar`, it will not also listen.
-  If you want to do both you need to add, `'in': true` eg `@meta osc:{'addr': '/foo/bar/', 'out': true, 'in': true}`
+  If you want to do both you need to add, `"in": true` eg `{"osc":{"addr": "/foo/bar/", "out": true, "in": true}}`
 
 *Normalized*
+
+By default parameter OSC values map to/from unnormalized values but if you add `"norm": true` to your meta you map to/from normalized values.
 
 #### MIDI
 
 Parameters support MIDI mapping via a `midi` entry in their metadata. The [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide)
 now helps automate setting this value but you can set it explicitly if you prefer.
 
-Some misc notes:
+*Misc notes*
 
 * As of this writing the MIDI value is scaled to `0..1` and applied, without any additional augmentation, to the normalized value for a parameter.
 * Notes simply map to `0` for note off and `1` for note on indendent of velocity.
@@ -732,7 +739,7 @@ Some misc notes:
 * The `chan` entry is `1` based, so valid values are `1-16`.
 * The `chan` entry is optional and defaults to `1` if it isn't present.
 
-Meta JSON format:
+*Meta JSON format*
 
 * multiple per channel mappings
   * note: `{"note": 2, "chan": 10}`
