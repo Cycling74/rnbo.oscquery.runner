@@ -702,6 +702,10 @@ oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "
 
 ### Metadata
 
+If you have your own uses for the `meta` entry, you can add anything you'd like but it has to be a `JSON` key-value map at the top level.
+
+The runner supports the following `meta` entries directly.
+
 #### OSC
 
 Inports, Outports, and Parameters can take metadata that extend their mapping to/from OSC messages.
