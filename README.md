@@ -715,15 +715,18 @@ You can also use a more verbose format `{"osc": {"addr": "/your/addr", "out": tr
 
 * Inports can only listen to OSC messages
 * Outports can only send OSC messages
-* Inport and Outports default to mapping to/from OSC addresses if you prefix their name with a `/`, for instance `[inport /synth/freq]`
-  * You can toggle this behavior with the `Instance: Port To OSC` setting in the [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide) settings.
-* Parameters only listen by default but can be made to send with a more verbose OSC meta entry: `{"osc":{"addr": "/foo/bar/", "out": true}`
+* Parameters only listen by default but can be made to send with a more verbose OSC meta entry: `{"osc":{"addr": "/foo/bar/", "out": true}}`
   * **NOTE**: a parameter with the above meta will only send on `/foo/bar`, it will not also listen.
   If you want to do both you need to add, `"in": true` eg `{"osc":{"addr": "/foo/bar/", "out": true, "in": true}}`
 
 *Normalized*
 
 By default parameter OSC values map to/from unnormalized values but if you add `"norm": true` to your meta you map to/from normalized values.
+
+*Misc notes*
+
+* Inport and Outports default to mapping to/from OSC addresses if you prefix their name with a `/`, for instance `[inport /synth/freq]`
+  * You can toggle this behavior with the `Instance: Port To OSC` setting in the [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide) settings.
 
 #### MIDI
 
@@ -739,7 +742,7 @@ now helps automate setting this value but you can set it explicitly if you prefe
 * The `chan` entry is `1` based, so valid values are `1-16`.
 * The `chan` entry is optional and defaults to `1` if it isn't present.
 
-*Meta JSON format*
+*midi JSON format*
 
 * multiple per channel mappings
   * note: `{"note": 2, "chan": 10}`
