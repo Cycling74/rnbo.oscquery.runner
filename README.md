@@ -718,7 +718,33 @@ The simplest of forms, `@meta osc:'/foo/bar'` maps the item to/from the OSC mess
 
 *Normalized*
 
+#### MIDI
 
+Parameters support MIDI mapping via a `midi` entry in their metadata. The [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide)
+now helps automate setting this value but you can set it explicitly if you prefer.
+
+Some misc notes:
+
+* As of this writing the MIDI value is scaled to `0..1` and applied, without any additional augmentation, to the normalized value for a parameter.
+* Notes simply map to `0` for note off and `1` for note on indendent of velocity.
+* When you map a MIDI message, it is filtered out and not sent along your patcher beyond setting the parameter value it is associated with.
+* You can only map 1 parameter per source, so for instance, ctrl 12 on channel 2 can only control a single parameter.
+* The `chan` entry is `1` based, so valid values are `1-16`.
+* The `chan` entry is optional and defaults to `1` if it isn't present.
+
+Meta JSON format:
+
+* multiple per channel mappings
+  * note: `{"note": 2, "chan": 10}`
+  * controller change: `{"ctrl": 5, "chan": 10}`
+  * key pressure: `{"keypress": 1, "chan": 1}`
+* one per channel mappings
+  * pitch bend: `{"bend": 1}`
+  * program change: `{"prgchg": 10}`
+  * channel pressure: `{"chanpress": 1}`
+
+As an example, a parameter might have meta with: `{"midi": {"ctrl": 4, "chan": 16}}`.
+This would map controller change 4 on channel 16's value, scaled to 0..1 to the parameter's normalized value.
 
 ### Testing out discovery
 
