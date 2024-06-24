@@ -29,6 +29,7 @@ namespace midimap {
 			case NOTE_OFF:
 				return 0.0;
 			case NOTE_ON:
+				//TODO velocity?
 				return data1 == 0 ? 0.0 : 1.0;
 				break;
 			case KEY_PRESSURE:
@@ -40,7 +41,6 @@ namespace midimap {
 			case PROGRAM_CHANGE:
 			case CHANNEL_PRESSURE:
 				return static_cast<double>(data0) / 127.0;
-
 			case 0xF0:
 				switch (status) {
 					case SONG_POSITION_POINTER:
@@ -80,6 +80,9 @@ namespace midimap {
 				data0 = 0; //2 byte or 14-bit, mask off data0
 				break;
 			case 0xF0:
+				//disabled
+				return 0;
+				/*
 				//unsupported
 				switch (status) {
 					case TIMING_CLOCK:
@@ -90,6 +93,7 @@ namespace midimap {
 
 				data0 = 0;//mask off data0
 				break;
+				*/
 		}
 
 		return (static_cast<uint16_t>(status) << 8) | static_cast<uint16_t>(data0);
@@ -113,8 +117,8 @@ namespace midimap {
 				return ((chan | KEY_PRESSURE) << 8) + num;
 			}
 
-			if (json.contains("cc") && json["cc"].is_number()) {
-				uint8_t num = static_cast<uint8_t>(std::clamp(json["cc"].get<int>(), 0, 127));
+			if (json.contains("ctrl") && json["ctrl"].is_number()) {
+				uint8_t num = static_cast<uint8_t>(std::clamp(json["ctrl"].get<int>(), 0, 127));
 				return ((chan | CONTROL_CHANGE) << 8) + num;
 			}
 
@@ -138,7 +142,11 @@ namespace midimap {
 				}
 				return ((chan | CHANNEL_PRESSURE) << 8);
 			}
-		} else if (json.is_string()) {
+		}
+
+		/*
+		 * disabled
+		else if (json.is_string()) {
 			std::string v = json.get<std::string>();
 			uint8_t byte = 0;
 			if (v == "songpos") {
@@ -162,6 +170,7 @@ namespace midimap {
 			}
 			return byte << 8;
 		}
+		*/
 		return 0;
 	}
 
@@ -185,7 +194,7 @@ namespace midimap {
 				};
 			case CONTROL_CHANGE:
 				return {
-					{ "cc", data0 },
+					{ "ctrl", data0 },
 					{ "chan", chan }
 				};
 			case PITCH_BEND_CHANGE:
@@ -200,6 +209,8 @@ namespace midimap {
 				return {
 					{ "chanpress", chan }
 				};
+				/*
+				 * disabled
 			case 0xF0:
 				switch (status) {
 					case SONG_POSITION_POINTER:
@@ -221,6 +232,9 @@ namespace midimap {
 					case RESET:
 						return "reset";
 				}
+				*/
+			default:
+				break;
 		}
 
 		return { nullptr };
