@@ -165,7 +165,7 @@ class InstanceAudioJack : public InstanceAudio {
 				NodeBuilder builder,
 				std::function<void(ProgramChange)> progChangeCallback,
 				std::mutex& midiMapMutex,
-				std::unordered_map<uint16_t, RNBO::ParameterIndex>& midiMap
+				std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& midiMap
 				);
 		virtual ~InstanceAudioJack();
 
@@ -234,7 +234,7 @@ class InstanceAudioJack : public InstanceAudio {
 		std::function<void(ProgramChange)> mProgramChangeCallback;
 
 		std::mutex& mMIDIMapMutex;
-		std::unordered_map<uint16_t, RNBO::ParameterIndex>& mMIDIMap;
+		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& mMIDIMap;
 
 		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
 		std::function<void()> mConfigChangeCallback = nullptr;

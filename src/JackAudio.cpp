@@ -1500,7 +1500,7 @@ InstanceAudioJack::InstanceAudioJack(
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback,
 		std::mutex& midiMapMutex,
-		std::unordered_map<uint16_t, RNBO::ParameterIndex>& midiMap
+		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& midiMap
 		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback),
 	mMIDIMapMutex(midiMapMutex), mMIDIMap(midiMap)
 {
@@ -2068,7 +2068,9 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 						auto it = mMIDIMap.find(key);
 						if (it != mMIDIMap.end()) {
 							double value = midimap::value(bytes[0], bytes[1], bytes[2]);
-							mCore->setParameterValueNormalized(it->second, value, time);
+							for (auto paramId: it->second) {
+								mCore->setParameterValueNormalized(paramId, value, time);
+							}
 							continue;
 						}
 					}
