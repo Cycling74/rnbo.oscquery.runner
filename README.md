@@ -741,8 +741,7 @@ now helps automate setting this value but you can set it explicitly if you prefe
 
 * As of this writing the MIDI value is scaled to `0..1` and applied, without any additional augmentation, to the normalized value for a parameter.
 * Notes simply map to `0` for note off and `1` for note on indendent of velocity.
-* When you map a MIDI message, it is filtered out and not sent along your patcher beyond setting the parameter value it is associated with.
-* You can only map 1 parameter per source, so for instance, ctrl 12 on channel 2 can only control a single parameter.
+* When you map a MIDI message, it is filtered out and not sent along your patcher beyond setting the parameter value(s) it is associated with.
 * The `chan` entry is `1` based, so valid values are `1-16`.
 * The `chan` entry is optional and defaults to `1` if it isn't present.
 

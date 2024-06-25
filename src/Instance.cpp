@@ -1534,10 +1534,22 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 				if (key != midiKey) {
 					mMIDIMapLookup.erase(it);
+
 					std::unique_lock<std::mutex> guard(mMIDIMapMutex);
-					mMIDIMap.erase(key);
+					auto mapIt = mMIDIMap.find(key);
+					if (mapIt != mMIDIMap.end()) {
+						//remove this param from the set and maybe ditch the set
+						mapIt->second.erase(update.paramIndex);
+						if (mapIt->second.empty()) {
+							mMIDIMap.erase(mapIt);
+						}
+					} else {
+						//ERROR?
+					}
+
 				} else {
 					midiKey = 0; //don't change map
+					// TODO we may need to change once we allow for ranges etc
 				}
 			}
 		}
@@ -1546,38 +1558,16 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		if (midiKey) {
 			std::unique_lock<std::mutex> guard(mMIDIMapMutex);
 
-			//if we already have something at midiKey? we should probably clear it out?
+			//is there already a set in the midi map?
 			{
 				auto it = mMIDIMap.find(midiKey);
 				if (it != mMIDIMap.end()) {
-					auto oldIndex = it->second;
-					if (oldIndex != update.paramIndex) {
-						std::cerr << "mapping to midiKey: " << midiKey << " exists for parameter index: " << oldIndex << " removing and adding mapping for parameter index: " << update.paramIndex << std::endl;
-						mMIDIMapLookup.erase(oldIndex);
-
-						//clear out midi from meta
-						auto it = mParamMetaParams.find(oldIndex);
-						if (it != mParamMetaParams.end()) {
-							//XXX what if there is already a queued change for this parameter?
-							auto p = it->second;
-							auto v = p->value();
-							if (v.get_type() == ossia::val_type::STRING) {
-								try {
-									//remove the "midi" entry
-									auto j = RNBO::Json::parse(v.get<std::string>());
-									if (j.is_object()) {
-										j.erase("midi");
-										p->push_value(j.dump());
-									}
-								} catch (...) {
-								}
-							}
-						}
-					}
+					it->second.insert(update.paramIndex);
+				} else {
+					mMIDIMap.insert({midiKey, {update.paramIndex}});
 				}
 			}
 
-			mMIDIMap[midiKey] = update.paramIndex;
 			//set reverse lookup
 			mMIDIMapLookup[update.paramIndex] = midiKey;
 		}
