@@ -33,8 +33,6 @@ include(${RNBO_CPP_DIR}/cmake/CCache.cmake)
 
 add_library(RNBOso SHARED
 	${RNBO_CLASS_FILE}
-	#until we get a host logger exposed
-	ConsoleLogger.cpp
 )
 set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${RNBO_VERSION}")
 
