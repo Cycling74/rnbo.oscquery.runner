@@ -49,7 +49,8 @@ class Instance {
 		void processEvents();
 
 		void savePreset(std::string name, std::string set_name = std::string());
-		void loadPreset(std::string name, std::string set_name = std::string());
+		//returns true if the preset was found and load is being attempted
+		bool loadPreset(std::string name, std::string set_name = std::string());
 		void loadPreset(unsigned int index);
 
 		//does not save "latest".. used for loading between audio sessions
@@ -60,9 +61,11 @@ class Instance {
 		//  last loaded preset
 		//  sample mapping
 		RNBO::Json currentConfig();
+
 		//register a function to be called when configuration values change
 		//this will be called in the same thread as `processEvents`
 		void registerConfigChangeCallback(std::function<void()> cb);
+		void registerPresetLoadedCallback(std::function<void(const std::string& presetName, const std::string& setName)> cb);
 
 		bool presetsDirty() {
 			auto dirty = mPresetsDirty;
@@ -81,6 +84,8 @@ class Instance {
 		bool loadJsonPreset(const std::string& content, const std::string& name, std::string setname = std::string());
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
+		std::function<void(const std::string&, const std::string&)> mPresetLoadedCallback = nullptr;
+
 		std::mutex mConfigChangedMutex;
 		bool mConfigChanged = false;
 
@@ -234,6 +239,10 @@ class Instance {
 		std::mutex mPresetMutex;
 		std::string mPresetLatest; //the most recently loaded preset
 		std::string mPresetInitial; //the user indicated initial preset
+
+		std::string mPresetNameLatest; //the most recently loaded preset name
+		std::string mPresetSetNameLatest; //the most recently loaded set name for a preset
+
 		ossia::net::parameter_base* mPresetInitialParam = nullptr;
 		ossia::net::parameter_base* mPresetLoadedParam = nullptr;
 		ossia::net::parameter_base* mPresetProgramChangeChannelParam;

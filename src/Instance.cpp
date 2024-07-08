@@ -805,6 +805,10 @@ void Instance::registerConfigChangeCallback(std::function<void()> cb) {
 	mConfigChangeCallback = cb;
 }
 
+void Instance::registerPresetLoadedCallback(std::function<void(const std::string& presetName, const std::string& setName)> cb) {
+	mPresetLoadedCallback = cb;
+}
+
 void Instance::processDataRefCommands() {
 	while (mDataRefProcessCommands.load()) {
 		auto cmdOpt = mDataRefCommandQueue.popTimeout(command_wait_timeout);
@@ -987,7 +991,7 @@ void Instance::savePreset(std::string name, std::string set_name) {
 	});
 }
 
-void Instance::loadPreset(std::string name, std::string set_name) {
+bool Instance::loadPreset(std::string name, std::string set_name) {
 	boost::optional<std::string> preset;
 	if (set_name.size()) {
 		preset = mDB->setPreset(mName, name, set_name, mIndex);
@@ -1010,7 +1014,7 @@ void Instance::loadPreset(std::string name, std::string set_name) {
 	}
 
 	if (preset) {
-		loadJsonPreset(*preset, name, set_name);
+		return loadJsonPreset(*preset, name, set_name);
 	} else {
 		if (set_name.size() == 0 || name != "initial") {
 			std::cerr << "couldn't find preset with name or index: " << name;
@@ -1019,6 +1023,7 @@ void Instance::loadPreset(std::string name, std::string set_name) {
 			}
 			std::cerr << std::endl;
 		}
+		return false;
 	}
 }
 
@@ -1042,6 +1047,8 @@ bool Instance::loadJsonPreset(const std::string& preset, const std::string& name
 		std::lock_guard<std::mutex> guard(mPresetMutex);
 		last = mPresetLatest;
 		mPresetLatest = presetName(name, setname);
+		mPresetNameLatest = name;
+		mPresetSetNameLatest = setname;
 	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
@@ -1082,6 +1089,8 @@ bool Instance::loadJsonPreset(const std::string& preset, const std::string& name
 			std::lock_guard<std::mutex> guard(mPresetMutex);
 			//revert if preset fails
 			mPresetLatest = last;
+			mPresetNameLatest.clear();
+			mPresetSetNameLatest.clear();
 		}
 		return false;
 	}
@@ -1390,6 +1399,11 @@ void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
 	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
 		std::lock_guard<std::mutex> guard(mPresetMutex);
 		mPresetLoadedParam->push_value(mPresetLatest);
+
+		if (mPresetLoadedCallback) {
+			mPresetLoadedCallback(mPresetNameLatest, mPresetSetNameLatest);
+		}
+
 	}
 }
 

@@ -1147,6 +1147,9 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			instance->registerConfigChangeCallback([this] {
 					queueSave();
 			});
+			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setName) {
+					handleInstancePresetLoad(instanceIndex, setName, presetName);
+			});
 			instance->activate();
 			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
 		}
@@ -1273,9 +1276,17 @@ void Controller::doLoadSet(std::string setname) {
 		//load presets and start instances
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
+			std::lock_guard<std::mutex> iguard(mInstanceMutex);
+
+			mInstancePendingPresetName = "initial";
+			mInstancePendingSetName = setname;
+			mInstancesPendingPresetLoad.clear();
+
 			for (auto inst: instances) {
 				if (loadInitial) {
-					inst->loadPreset("initial", setname);
+					if (inst->loadPreset(mInstancePendingPresetName, setname)) {
+						mInstancesPendingPresetLoad.insert(inst->index());
+					}
 				}
 				inst->start(mInstFadeInMs);
 			}
@@ -1286,7 +1297,6 @@ void Controller::doLoadSet(std::string setname) {
 		}
 
 		mSetCurrentNameParam->push_value(setname == LAST_SET_NAME ? "" : setname);
-		mSetPresetLoadedParam->push_value(loadInitial ? "initial" : "");
 		config::set(setname, config::key::SetLastName);
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
@@ -1577,11 +1587,30 @@ void Controller::saveSetPreset(const std::string& setName, std::string presetNam
 }
 
 void Controller::loadSetPreset(const std::string& setName, std::string presetName) {
+	//load the preset and if it exists for an instance make note so we can watch callback and report once they're all loaded
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+	mInstancePendingPresetName = presetName;
+	mInstancePendingSetName = setName;
+	mInstancesPendingPresetLoad.clear();
 	for (auto& i: mInstances) {
-		std::get<0>(i)->loadPreset(presetName, setName);
+		auto inst = std::get<0>(i);
+		if (inst->loadPreset(presetName, setName)) {
+			mInstancesPendingPresetLoad.insert(inst->index());
+		}
 	}
-	mSetPresetLoadedParam->push_value(presetName);
+}
+
+void Controller::handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName) {
+	std::lock_guard<std::mutex> iguard(mInstanceMutex);
+	if (setName != mInstancePendingSetName || presetName != mInstancePendingPresetName || mInstancesPendingPresetLoad.count(index) == 0) {
+		return;
+	}
+
+	//we got the final instance preset loaded, report it
+	mInstancesPendingPresetLoad.erase(index);
+	if (mInstancesPendingPresetLoad.size() == 0) {
+		mSetPresetLoadedParam->push_value(presetName);
+	}
 }
 
 unsigned int Controller::nextInstanceIndex() {
