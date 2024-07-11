@@ -1603,7 +1603,8 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		} else if (meta["osc"].is_boolean()) {
 			if (!meta["osc"].get<bool>())
 				oscAddr = "";
-			oscAddr = name;
+			else
+				oscAddr = name;
 		} else if (meta["osc"].is_object()) {
 			auto& osc = meta["osc"];
 			if (osc["addr"].is_string()) {
