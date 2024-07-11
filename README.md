@@ -731,6 +731,7 @@ By default parameter OSC values map to/from unnormalized values but if you add `
 
 * Inport and Outports default to mapping to/from OSC addresses if you prefix their name with a `/`, for instance `[inport /synth/freq]`
   * You can toggle this behavior with the `Instance: Port To OSC` setting in the [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide) settings.
+  * You an disable OSC mapping for an inport or outport by setting its meta `{"osc": false}`
 
 #### MIDI
 
