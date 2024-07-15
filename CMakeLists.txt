@@ -129,28 +129,30 @@ conan_cmake_install(
 	PROFILE_BUILD default
 )
 
-# linking on apple is failing without mpeg..
-set(WITH_MPEG False)
-if (APPLE)
-	set(WITH_MPEG True)
+# on linux, use system libsndfile
+# sudo apt-get install libsndfile1-dev
+if (LINUX)
+	find_library(SndFile_LIBRARIES "sndfile")
+else()
+	conan_cmake_configure(
+		REQUIRES libsndfile/1.2.2
+		GENERATORS cmake_find_package
+		OPTIONS
+			libsndfile:shared=False
+			libsndfile:programs=False
+			libsndfile:with_mpeg=True
+			libsndfile:with_external_libs=True
+	)
+	conan_cmake_install(
+		PATH_OR_REFERENCE .
+		BUILD missing
+		SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+		SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+		PROFILE_HOST ${CONAN_PROFILE}
+		PROFILE_BUILD default
+	)
+	find_package(SndFile REQUIRED)
 endif()
-conan_cmake_configure(
-	REQUIRES libsndfile/1.2.2
-	GENERATORS cmake_find_package
-	OPTIONS
-		libsndfile:shared=False
-		libsndfile:programs=False
-		libsndfile:with_mpeg=${WITH_MPEG}
-		libsndfile:with_external_libs=False #XXX TMP cannot get libflac to x-compile
-)
-conan_cmake_install(
-	PATH_OR_REFERENCE .
-	BUILD missing
-	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
-	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
-	PROFILE_HOST ${CONAN_PROFILE}
-	PROFILE_BUILD default
-)
 
 conan_cmake_configure(
 	REQUIRES sqlitecpp/3.3.1
@@ -243,7 +245,6 @@ endif()
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
-find_package(SndFile REQUIRED)
 find_package(SQLiteCpp REQUIRED)
 
 include_directories(

@@ -35,7 +35,7 @@ This currently builds and runs on Linux and Mac. Windows is TBD.
 on debian based systems, here is a 1 liner for setting up dependencies
 
 ```
-sudo apt-get -y install cmake build-essential libavahi-compat-libdnssd-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev python3-pip ruby
+sudo apt-get -y install cmake build-essential libavahi-compat-libdnssd-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev python3-pip ruby libsndfile1-dev
 ```
 
 on linux at least, the conan profile entry for `libcxx` is important
