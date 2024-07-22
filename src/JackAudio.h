@@ -7,6 +7,7 @@
 #include <thread>
 #include <set>
 #include <ossia-cpp/ossia-cpp98.hpp>
+#include <unordered_map>
 
 #include <jack/types.h>
 #include <jack/jack.h>
@@ -42,8 +43,8 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void processEvents() override;
 		void process(jack_nframes_t frames);
 
-		virtual bool connect(const RNBO::Json& config) override;
-		virtual RNBO::Json connections() override;
+		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) override;
+		virtual std::vector<SetConnectionInfo> connections() override;
 
 		virtual void handleTransportState(bool running) override;
 		virtual void handleTransportTempo(double bpm) override;
@@ -54,6 +55,7 @@ class ProcessAudioJack : public ProcessAudio {
 		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
 		void jackPortRegistration(jack_port_id_t id, int reg);
 		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
+		void xrun();
 
 		static void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change, void *arg);
 	protected:
@@ -75,6 +77,7 @@ class ProcessAudioJack : public ProcessAudio {
 
 		ossia::net::node_base * mInfoNode = nullptr;
 		ossia::net::node_base * mPortInfoNode = nullptr;
+		ossia::net::parameter_base * mAudioActiveParam = nullptr;
 
 		ossia::net::node_base * mPortAudioSourceConnectionsNode = nullptr;
 		ossia::net::node_base * mPortMIDISourceConnectionsNode = nullptr;
@@ -87,6 +90,12 @@ class ProcessAudioJack : public ProcessAudio {
 
 		ossia::net::parameter_base * mIsRealTimeParam = nullptr;
 		ossia::net::parameter_base * mIsOwnedParam = nullptr;
+		std::atomic<int> mXRunCount = 0;
+		int mXRunCountLast = 0;
+
+		ossia::net::parameter_base * mCPULoadParam = nullptr;
+		ossia::net::parameter_base * mXRunCountParam = nullptr;
+		std::chrono::time_point<std::chrono::steady_clock> mStatsPollNext;
 
 		bool mHasCreatedClient = false;
 		bool mHasCreatedServer = false;
@@ -107,6 +116,9 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mSampleRateParam = nullptr;
 		int mPeriodFrames = 256;
 		ossia::net::parameter_base * mPeriodFramesParam = nullptr;
+
+		std::string mExtraArgs = "";
+		ossia::net::parameter_base * mExtraArgsParam = nullptr;
 
 		//only used on systems with alsa
 		int mNumPeriods = 2;
@@ -151,7 +163,9 @@ class InstanceAudioJack : public InstanceAudio {
 				RNBO::Json conf,
 				std::string name,
 				NodeBuilder builder,
-				std::function<void(ProgramChange)> progChangeCallback
+				std::function<void(ProgramChange)> progChangeCallback,
+				std::mutex& midiMapMutex,
+				std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& midiMap
 				);
 		virtual ~InstanceAudioJack();
 
@@ -161,6 +175,8 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void connect() override;
 		virtual void start(float fadems=0.0f) override;
 		virtual void stop(float fadems=0.0f) override;
+
+		virtual uint16_t lastMIDIKey() override;
 
 		virtual void processEvents() override;
 
@@ -175,6 +191,7 @@ class InstanceAudioJack : public InstanceAudio {
 		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;
+		std::atomic<uint16_t> mLastMIDIKey = 0;
 
 		void connectToMidiIf(jack_port_t * port);
 		std::shared_ptr<RNBO::CoreObject> mCore;
@@ -215,6 +232,9 @@ class InstanceAudioJack : public InstanceAudio {
 		jack_transport_state_t mTransportStateLast = jack_transport_state_t::JackTransportStopped;
 
 		std::function<void(ProgramChange)> mProgramChangeCallback;
+
+		std::mutex& mMIDIMapMutex;
+		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& mMIDIMap;
 
 		std::unordered_map<jack_port_t *, ossia::net::parameter_base *> mPortParamMap;
 		std::function<void()> mConfigChangeCallback = nullptr;

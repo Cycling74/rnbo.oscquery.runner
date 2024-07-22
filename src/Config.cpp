@@ -71,8 +71,10 @@ namespace {
 		{config::key::InstanceAudioFadeOut, 20.0},
 		{config::key::InstancePortToOSC, true},
 		{config::key::ControlAutoConnectMIDI, true},
-		{config::key::PresetMIDIProgramChangeChannel, "omni"},
+		{config::key::PresetMIDIProgramChangeChannel, "none"},
 		{config::key::PatcherMIDIProgramChangeChannel, "none"},
+		{config::key::SetMIDIProgramChangeChannel, "none"},
+		{config::key::SetPresetMIDIProgramChangeChannel, "none"},
 	};
 
 	RNBO::Json config_json = config_default;

@@ -29,6 +29,20 @@ This currently builds and runs on Linux and Mac. Windows is TBD.
 * `ruby` 2.0+ to run the compile script
   * macOS: modern macOS comes with `ruby`
   * debian: `sudo apt-get install ruby`
+* `sdbus` lib or configure with `-DWITH_DBUS=Off
+  * debian: `sudo apt-get install libsdbus-c++-dev`
+
+on debian based systems, here is a 1 liner for setting up dependencies
+
+```
+sudo apt-get -y install cmake build-essential libavahi-compat-libdnssd-dev libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev python3-pip ruby libsndfile1-dev
+```
+
+on linux at least, the conan profile entry for `libcxx` is important
+
+```
+compiler.libcxx=libstdc++11
+```
 
 ### Building
 
@@ -685,6 +699,66 @@ If the runner is running on the same machine as you want to listen on, you can u
 ```
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "foo", "params": {"ip": "localhost", "port": 9999}}'
 ```
+
+### Metadata
+
+If you have your own uses for the `meta` entry, you can add anything you'd like but it has to be a `JSON` key-value map at the top level.
+
+The runner supports the following `meta` entries directly.
+
+#### OSC
+
+Inports, Outports, and Parameters can take metadata that extend their mapping to/from OSC messages.
+
+*Format*
+
+The simplest of forms, `{"osc": "/foo/bar"}` maps the item to/from the OSC message `/foo/bar`.
+You can also use a more verbose format `{"osc": {"addr": "/your/addr", "out": true}}`
+
+*Direction*
+
+* Inports can only listen to OSC messages
+* Outports can only send OSC messages
+* Parameters only listen by default but can be made to send with a more verbose OSC meta entry: `{"osc":{"addr": "/foo/bar/", "out": true}}`
+  * **NOTE**: a parameter with the above meta will only send on `/foo/bar`, it will not also listen.
+  If you want to do both you need to add, `"in": true` eg `{"osc":{"addr": "/foo/bar/", "out": true, "in": true}}`
+
+*Normalized*
+
+By default parameter OSC values map to/from unnormalized values but if you add `"norm": true` to your meta you map to/from normalized values.
+
+*Misc notes*
+
+* Inport and Outports default to mapping to/from OSC addresses if you prefix their name with a `/`, for instance `[inport /synth/freq]`
+  * You can toggle this behavior with the `Instance: Port To OSC` setting in the [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide) settings.
+  * You an disable OSC mapping for an inport or outport by setting its meta `{"osc": false}`
+
+#### MIDI
+
+Parameters support MIDI mapping via a `midi` entry in their metadata. The [Web Interface](https://rnbo.cycling74.com/learn/raspberry-pi-web-interface-guide)
+now helps automate setting this value but you can set it explicitly if you prefer.
+
+*Misc notes*
+
+* As of this writing the MIDI value is scaled to `0..1` and applied, without any additional augmentation, to the normalized value for a parameter.
+* Notes simply map to `0` for note off and `1` for note on indendent of velocity.
+* When you map a MIDI message, it is filtered out and not sent along your patcher beyond setting the parameter value(s) it is associated with.
+* The `chan` entry is `1` based, so valid values are `1-16`.
+* The `chan` entry is optional and defaults to `1` if it isn't present.
+
+*midi JSON format*
+
+* multiple per channel mappings
+  * note: `{"note": 2, "chan": 10}`
+  * controller change: `{"ctrl": 5, "chan": 10}`
+  * key pressure: `{"keypress": 1, "chan": 1}`
+* one per channel mappings
+  * pitch bend: `{"bend": 1}`
+  * program change: `{"prgchg": 10}`
+  * channel pressure: `{"chanpress": 1}`
+
+As an example, a parameter might have meta with: `{"midi": {"ctrl": 4, "chan": 16}}`.
+This would map controller change 4 on channel 16's value, scaled to 0..1 to the parameter's normalized value.
 
 ### Testing out discovery
 

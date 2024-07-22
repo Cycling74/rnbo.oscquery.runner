@@ -37,7 +37,7 @@ class Controller {
 
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
-		void loadSet(boost::filesystem::path filename = boost::filesystem::path());
+		void loadSet(std::string name);
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
 #endif
@@ -45,7 +45,8 @@ class Controller {
 		//returns true until we should quit
 		bool processEvents();
 	private:
-		void doLoadSet(boost::filesystem::path filename);
+
+		void doLoadSet(std::string name);
 
 		bool tryActivateAudio();
 		void reportActive();
@@ -59,15 +60,15 @@ class Controller {
 		void reportCommandStatus(std::string id, RNBO::Json obj);
 
 		void handleActive(bool active);
-		void updateDiskSpace();
+		void updateDiskStats();
+		void updateDatafileStats();
 		void updateListenersList();
 		void restoreListeners();
 		void listenersAddProtocol(const std::string& ip, uint16_t port);
 
 		std::unordered_map<std::string, std::function<void(const std::string& method, const std::string& id, const RNBO::Json& params)>> mCommandHandlers;
 
-		//save set, return the path of the save
-		boost::optional<boost::filesystem::path> saveSet(std::string name, std::string meta, bool abort_empty);
+		SetInfo setInfo();
 
 		void patcherStore(
 				const std::string& name,
@@ -87,10 +88,22 @@ class Controller {
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();
+		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
+		void updateSetPresetNames(std::string toadd = std::string());
+		void saveSetPreset(const std::string& setName, std::string presetName);
+		void loadSetPreset(const std::string& setName, std::string presetName);
+		void handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName);
+
+		//guard by mInstanceMutex
+		std::string mInstancePendingPresetName;
+		std::string mInstancePendingSetName;
+		std::set<unsigned int> mInstancesPendingPresetLoad;
 
 		unsigned int nextInstanceIndex();
 
 		void handleProgramChange(ProgramChange);
+		std::string getCurrentSetName();
+		std::string getCurrentSetPresetName();
 
 		std::shared_ptr<DB> mDB;
 		std::unique_ptr<ossia::net::generic_device> mServer;
@@ -104,7 +117,10 @@ class Controller {
 		ossia::net::node_base * mPatchersNode;
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
-		ossia::net::parameter_base * mSetLoadParam = nullptr;
+		ossia::net::node_base * mSetPresetLoadNode = nullptr;
+		ossia::net::parameter_base * mSetPresetLoadedParam = nullptr;
+
+		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
 
@@ -112,8 +128,12 @@ class Controller {
 		bool mSetNamesUpdated = false;
 		std::vector<ossia::value> mSetNames;
 
+		std::mutex mSetPresetNamesMutex;
+		bool mSetPresetNamesUpdated = false;
+		std::vector<ossia::value> mSetPresetNames;
+
 		std::mutex mSetLoadPendingMutex;
-		boost::filesystem::path mSetLoadPendingPath;
+		boost::optional<std::string> mSetLoadPending;
 
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
@@ -121,9 +141,15 @@ class Controller {
 		std::vector<std::shared_ptr<Instance>> mStoppingInstances;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
+		ossia::net::parameter_base * mDataFileDirMTimeParam = nullptr;
 		std::uintmax_t mDiskSpaceLast = 0;
+		std::string mDataFileDirMTimeLast;
+
 		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
 		std::chrono::time_point<std::chrono::steady_clock> mDiskSpacePollNext;
+
+		std::chrono::duration<int> mDatafilePollPeriod = std::chrono::seconds(1);
+		std::chrono::time_point<std::chrono::steady_clock> mDatafilePollNext;
 
 		std::shared_ptr<ProcessAudio> mProcessAudio;
 		ossia::net::parameter_base * mAudioActive;
@@ -147,10 +173,14 @@ class Controller {
 		float mInstFadeInMs = 20.0f;
 		float mInstFadeOutMs = 20.0f;
 
-		int mPatcherProgramChangeChannel = 17; //omni, 17 == none
+		int mPatcherProgramChangeChannel = 17; //0 == omni, 17 == none
+		int mSetProgramChangeChannel = 17; //0 == omni, 17 == none
+		int mSetPresetProgramChangeChannel = 17; //0 == omni, 17 == none
 
 		boost::filesystem::path mSourceCache;
 		boost::filesystem::path mCompileCache;
+
+		bool mFirstSetLoad = true;
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;

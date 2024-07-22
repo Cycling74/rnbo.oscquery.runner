@@ -95,8 +95,8 @@ Do all the normal use stuff then:
 * make directories for local builds and config
   ```shell
   sudo -s
-  apt-get -y install libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev
-  apt-get -y install cmake
+  apt-get update && apt-get upgrade
+  apt-get -y install libavahi-compat-libdnssd-dev build-essential libssl-dev libjack-jackd2-dev libdbus-1-dev libxml2-dev libgmock-dev google-mock libsdbus-c++-dev libsndfile1-dev cmake
   apt-get -y --no-install-recommends install ruby python3-pip
   update-alternatives --install /usr/bin/python python /usr/bin/python2.7 1
   update-alternatives --install /usr/bin/python python /usr/bin/python3.7 2
@@ -148,25 +148,6 @@ Do all the normal use stuff then:
   systemctl enable rnbooscquery.service
   reboot
   ```
-
-### Building jack2 for debian
-
-The jack2 that debian provides at the time of this writing doesn't include the
-metadata API, which we use for transport BPM control. So we build a custom package.
-
-*Note*: gbp splats stuff all over the parent dir, so create a dir and git clone into that dir.
-
-```shell
-mkdir jackd2
-cd jackd2
-git clone https://salsa.debian.org/multimedia-team/jackd2.git
-cd jackd2
-git checkout debian/1.9.21_dfsg-1
-sudo apt install git-buildpackage cdbs libsamplerate-dev libreadline-dev libraw1394-dev libffado-dev libopus-dev libsystemd-dev dh-exec dh-sequence-python3 libasound2-dev libdb-dev libsndfile1-dev libzita-alsa-pcmi-dev libzita-resampler-dev
-gbp buildpackage --git-ignore-branch --git-no-sign-tags
-```
-
-Fails to sign but debs end up in containing directory and seem to work fine.
 
 ## Troubleshooting
 
