@@ -1481,7 +1481,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 				{
 					name = update.messageTag;
 					oscAccessMode = ossia::access_mode::SET;
-					oscAddr = portToOSC ? name : "";
+					oscAddr = portToOSC && name.starts_with('/') ? name : "";
 					cleanupKey = "Inport" + name;
 
 					//push new value but let fall through to unmap meta
@@ -1506,7 +1506,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 				{
 					name = update.messageTag;
 					oscAccessMode = ossia::access_mode::GET;
-					oscAddr = portToOSC ? name : "";
+					oscAddr = portToOSC && name.starts_with('/') ? name : "";
 					cleanupKey = "Outport" + name;
 
 					bool isCustom = !setDefault;
