@@ -504,8 +504,15 @@ bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections
 			if (info.sink_name == CONTROL_CLIENT_NAME && !withControlConnections) {
 				continue;
 			}
-			std::string source = info.source_name + ":" + info.source_port_name;
-			std::string sink = info.sink_name + ":" + info.sink_port_name;
+			std::string source = info.source_name; 
+			if (info.source_port_name.size()) {
+				source += (std::string(":") + info.source_port_name);
+			}
+			std::string sink = info.sink_name; 
+			if (info.sink_port_name.size()) {
+				sink += (std::string(":") + info.sink_port_name);
+			}
+
 			jack_connect(mJackClient, source.c_str(), sink.c_str());
 		}
 		return true;
@@ -541,11 +548,19 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 		return name;
 	};
 
-	auto cleanup_name_info = [](std::vector<std::string>& info) {
-		//if there are more than 2 entries, build them back into 2
-		for (auto j = 2; j < info.size(); j++) {
-			info[1] += ":" + info[j];
+	auto cleanup_name_info = [](const std::string& name) -> std::vector<std::string> {
+		std::vector<std::string> info;
+		boost::algorithm::split(info, name, boost::is_any_of(":"));
+		//add an empty entry if there is only 1 entry
+		if (info.size() == 1) {
+			info.push_back("");
+		} else {
+			//if there are more than 2 entries, build them back into 2
+			for (auto j = 2; j < info.size(); j++) {
+				info[1] += ":" + info[j];
+			}
 		}
+		return info;
 	};
 
 	if ((sources = jack_get_ports(mJackClient, nullptr, nullptr, JackPortIsOutput)) != nullptr) {
@@ -554,28 +569,12 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 		 	jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
 			name = use_midi_port_alias(name);
 
-			std::vector<std::string> src_info;
-			boost::algorithm::split(src_info, name, boost::is_any_of(":"));
-
-			if (src_info.size() < 2) {
-				std::cerr << "don't know how to separate client and port name for source " << name << " skipping " << std::endl;
-				continue;
-			}
-
-			cleanup_name_info(src_info);
-
+			std::vector<std::string> src_info = cleanup_name_info(name);
 			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias, &cleanup_name_info](std::string sinkname) {
 					sinkname = use_midi_port_alias(sinkname);
 
-					std::vector<std::string> sink_info;
-					boost::algorithm::split(sink_info, sinkname, boost::is_any_of(":"));
-
-					if (sink_info.size() < 2) {
-						std::cerr << "don't know how to separate client and port name for sink " << sinkname << " skipping " << std::endl;
-					} else {
-						cleanup_name_info(sink_info);
-						conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
-					}
+					std::vector<std::string> sink_info = cleanup_name_info(sinkname);
+					conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
 			});
 		}
 		jack_free(sources);
