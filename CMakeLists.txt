@@ -401,7 +401,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_VERSION_PATCH "${RNBO_VERSION_PATCH}")
 
 		#rnbo version might have a 'prerelease' or 'channel' version in it
-		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
+		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}-2") #add package release version, rnbo library version doesn't change
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
 		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
