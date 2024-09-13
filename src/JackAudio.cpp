@@ -75,6 +75,7 @@ namespace {
 	template boost::optional<std::string> jextraconfig_get(const std::string& key);
 
 	const static std::regex alsa_card_regex(R"X(\s*(\d+)\s*\[([^\[]+?)\s*\]:\s*([^;]+?)\s*;\s*([^;]+?)\s*;)X");
+	const static std::regex raw_midi_regex(R"X(^(in|out)-hw-\d+-\d+-\d+-(.*)$)X");
 
 	std::atomic<bool> sync_transport = true;
 
@@ -498,20 +499,77 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 	}
 }
 
+/*
+ * example raw midi aliases
+ *  system:midi_capture_4
+ *	  in-hw-1-0-0-Faderfox-DJ3-MIDI-1
+ *	system:midi_playback_4
+ *		 out-hw-1-0-0-Faderfox-DJ3-MIDI-1
+ *	system:midi_capture_2
+ *		 in-hw-2-0-0-Scarlett-2i4-USB-MIDI-1
+ *	system:midi_playback_2
+ *		 out-hw-2-0-0-Scarlett-2i4-USB-MIDI-1
+ *	system:midi_capture_5
+ *		 in-hw-5-0-0-QUNEO-MIDI-1
+ *	system:midi_playback_5
+ *		 out-hw-5-0-0-QUNEO-MIDI-1
+ */
+
 bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) {
 	if (mJackClient) {
+		auto replace_raw = [this](std::string& portname) {
+			std::array<std::vector<char>, 2> aliasStrings = {
+				std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0'),
+				std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0')
+			};
+			std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[0].data() };
+
+			//work around moving raw_midi aliases
+			std::smatch match;
+			if (std::regex_match(portname, match, raw_midi_regex)) {
+				const std::string prefix = match[1].str();
+				const std::string suffix = match[2].str();
+
+
+				//find alias match
+				//search all the ports
+				//TODO could filter by type??
+				bool found = false;
+				auto ports = jack_get_ports(mJackClient, nullptr, nullptr, 0);
+				if (ports) {
+					for (size_t i = 0; ports[i] != nullptr && !found; i++) {
+						std::string name(ports[i]);
+						const jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+						//search aliases, look for a match
+						auto cnt = jack_port_get_aliases(port, aliases.data());
+						for (auto j = 0; j < cnt && !found; j++) {
+							std::string alias(aliases[j]);
+							if (std::regex_match(alias, match, raw_midi_regex) && match[1].str() == prefix && match[2].str() == suffix) {
+								portname = name;
+								found = true;
+							}
+						}
+					}
+					jack_free(ports);
+				}
+			}
+		};
+
 		for (auto& info: connections) {
 			if (info.sink_name == CONTROL_CLIENT_NAME && !withControlConnections) {
 				continue;
 			}
-			std::string source = info.source_name; 
+			std::string source = info.source_name;
 			if (info.source_port_name.size()) {
 				source += (std::string(":") + info.source_port_name);
 			}
-			std::string sink = info.sink_name; 
+			std::string sink = info.sink_name;
 			if (info.sink_port_name.size()) {
 				sink += (std::string(":") + info.sink_port_name);
 			}
+
+			replace_raw(source);
+			replace_raw(sink);
 
 			jack_connect(mJackClient, source.c_str(), sink.c_str());
 		}
