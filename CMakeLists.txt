@@ -43,6 +43,15 @@ mark_as_advanced(BUILTIN_PATCHER_CONF_PATH)
 
 set(SUPPORT_COMPILE On CACHE BOOL "should this host allow for source file to be sent, compiled and loaded?")
 
+set(SNDFILECONAN_DEFAULT On)
+set(MPEG_DEFAULT On)
+if (LINUX)
+	set(SNDFILECONAN_DEFAULT Off) #use system by default
+	set(MPEG_DEFAULT Off) #doesn't build cross compiled
+endif()
+set(USE_SNDFILE_CONAN ${SNDFILECONAN_DEFAULT} CACHE BOOL "should we use libsndfile built from conan or try for system installed libsndfile")
+set(USE_MPEG_CONAN ${MPEG_DEFAULT} CACHE BOOL "should we build sndfile with libmpeg when building with conan? Fails in cross compiles")
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 include("${RNBO_DIR}/version.cmake")
@@ -129,18 +138,22 @@ conan_cmake_install(
 	PROFILE_BUILD default
 )
 
-# on linux, use system libsndfile
+# use system libsndfile
 # sudo apt-get install libsndfile1-dev
-if (LINUX)
+if (NOT USE_SNDFILE_CONAN)
 	find_library(SndFile_LIBRARIES "sndfile")
 else()
+	set(SNDFILE_MPEG False)
+	if (USE_MPEG_CONAN)
+		set(SNDFILE_MPEG True)
+	endif()
 	conan_cmake_configure(
 		REQUIRES libsndfile/1.2.2
 		GENERATORS cmake_find_package
 		OPTIONS
 			libsndfile:shared=False
 			libsndfile:programs=False
-			libsndfile:with_mpeg=True
+			libsndfile:with_mpeg=${SNDFILE_MPEG}
 			libsndfile:with_external_libs=True
 	)
 	conan_cmake_install(
