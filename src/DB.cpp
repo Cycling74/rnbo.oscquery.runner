@@ -1152,15 +1152,25 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 			}
 		}
 		if (json.contains("connections") && json["connections"].is_object()) {
+			auto cleanup_name_info = [](const std::string& name) -> std::vector<std::string> {
+				std::vector<std::string> info;
+				boost::algorithm::split(info, name, boost::is_any_of(":"));
+				//add an empty entry if there is only 1 entry
+				if (info.size() == 1) {
+					info.push_back("");
+				} else {
+					//if there are more than 2 entries, build them back into 2
+					for (auto j = 2; j < info.size(); j++) {
+						info[1] += ":" + info[j];
+					}
+				}
+				return info;
+			};
+
 			for (auto& kv: json["connections"].items()) {
 				std::string name = kv.key();
 
-				std::vector<std::string> src_info;
-				boost::algorithm::split(src_info, name, boost::is_any_of(":"));
-				if (src_info.size() != 2) {
-					std::cerr << "don't know how to split source into client and port name for source named: " << name << " skipping" << std::endl;
-					continue;
-				}
+				std::vector<std::string> src_info = cleanup_name_info(name);
 				std::string source_name = src_info[0], source_port_name = src_info[1];
 
 				int source_instance_index = -1;
@@ -1177,25 +1187,20 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 						for (auto c: entry["connections"]) {
 							if (c.is_string()) {
 								name = c.get<std::string>();
-								std::vector<std::string> sink_info;
-								boost::algorithm::split(sink_info, name, boost::is_any_of(":"));
-								if (sink_info.size() == 2) {
-									std::string sink_name = sink_info[0], sink_port_name = sink_info[1];
-									int sink_instance_index = -1;
-									{
-										auto it = instanceNameToIndex.find(sink_name);
-										if (it != instanceNameToIndex.end()) {
-											sink_instance_index = it->second;
-										}
+								std::vector<std::string> sink_info = cleanup_name_info(name);
+								std::string sink_name = sink_info[0], sink_port_name = sink_info[1];
+								int sink_instance_index = -1;
+								{
+									auto it = instanceNameToIndex.find(sink_name);
+									if (it != instanceNameToIndex.end()) {
+										sink_instance_index = it->second;
 									}
-
-									SetConnectionInfo conn(source_name, source_port_name, sink_name, sink_port_name);
-									conn.source_instance_index = source_instance_index;
-									conn.sink_instance_index = sink_instance_index;
-									info.connections.push_back(conn);
-								} else {
-									std::cerr << "don't know how to split sink into client and port name for sink named: " << name << " skipping" << std::endl;
 								}
+
+								SetConnectionInfo conn(source_name, source_port_name, sink_name, sink_port_name);
+								conn.source_instance_index = source_instance_index;
+								conn.sink_instance_index = sink_instance_index;
+								info.connections.push_back(conn);
 							}
 						}
 					}

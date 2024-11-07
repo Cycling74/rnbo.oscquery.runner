@@ -2884,29 +2884,31 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 }
 
 void Controller::updateDiskStats() {
-		//could also look at sample dir?
-		fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir).get()));
-		auto available = compileCacheSpace.available;
-		if (mDiskSpaceLast != available) {
-			mDiskSpaceLast = available;
-			if (mDiskSpaceParam)
-				mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
-		}
-		mDiskSpacePollNext = steady_clock::now() + mDiskSpacePollPeriod;
+	//could also look at sample dir?
+	fs::space_info compileCacheSpace = fs::space(fs::absolute(config::get<fs::path>(config::key::CompileCacheDir).get()));
+	auto available = compileCacheSpace.available;
+	if (mDiskSpaceLast != available) {
+		mDiskSpaceLast = available;
+		if (mDiskSpaceParam)
+			mDiskSpaceParam->push_value(std::to_string(mDiskSpaceLast));
+	}
+	mDiskSpacePollNext = steady_clock::now() + mDiskSpacePollPeriod;
 }
 
 void Controller::updateDatafileStats() {
 	auto dir = fs::absolute(config::get<fs::path>(config::key::DataFileDir).get());
-	auto time = fs::last_write_time(dir);
+	if (fs::exists(dir)) {
+		auto time = fs::last_write_time(dir);
 
-	char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
-	std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
+		char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
+		std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
 
-	std::string s(timeString);
+		std::string s(timeString);
 
-	if (s != mDataFileDirMTimeLast) {
-		mDataFileDirMTimeParam->push_value(s);
-		mDataFileDirMTimeLast = s;
+		if (s != mDataFileDirMTimeLast) {
+			mDataFileDirMTimeParam->push_value(s);
+			mDataFileDirMTimeLast = s;
+		}
 	}
 
 	mDatafilePollNext = steady_clock::now() + mDatafilePollPeriod;

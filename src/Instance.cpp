@@ -1652,8 +1652,21 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		oscAddr = "/" + oscAddr;
 	}
 
-	//XXX should we disallow a /rnbo/ prefix??
 	if (oscAddr.starts_with('/')) {
+		//disallow /rnbo/prefix
+		if (oscAddr.starts_with("/rnbo/")) {
+			std::cerr << "OSC address with /rnbo/ prefix isn't allowed, setting osc: false" << std::endl;
+
+			//cleanup meta
+			if (!meta.is_object()) {
+				meta = RNBO::Json::object();
+			}
+			meta["osc"] = false;
+			update.param->push_value(meta.dump());
+
+			return;
+		}
+
 		bool exists = ossia::net::find_node(*mOSCRoot, oscAddr) != nullptr;
 		auto& pn = ossia::net::find_or_create_node(*mOSCRoot, oscAddr);
 		auto pp = pn.get_parameter();

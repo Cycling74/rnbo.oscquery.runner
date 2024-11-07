@@ -34,15 +34,14 @@ keep the user name `pi`.
   ssh pi@c74rpi.local
   sudo -s
   ```
-  Remove some stuff that causes problems, add the c74 apt repo, install/setup.
+  add the c74 apt repo, install/setup.
 
   ```shell
   rm -f /etc/xdg/autostart/piwiz.desktop
   mv apt-cycling74-pubkey.asc /usr/share/keyrings/
   mv cycling74.list /etc/apt/sources.list.d/
-  apt -y remove pulseaudio libpulse0 pulseaudio-utils libpulsedsp
   apt update
-  apt -y install jackd2 ccache cpufrequtils
+  apt install --no-install-recommends jackd2 ccache cpufrequtils
   echo "GOVERNOR=\"performance\"" > /etc/default/cpufrequtils
   echo "RemoveIPC=no" >> /etc/systemd/logind.conf
   apt -y upgrade
@@ -64,7 +63,7 @@ keep the user name `pi`.
   with. You can see all the versions available with `apt-cache madison rnbooscquery`
 
   ```shell
-  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.3.0-dev.75
+  apt-get install -y --allow-change-held-packages --allow-downgrades rnbooscquery=1.3.2
   apt-get install -y jack_transport_link rnbo-runner-panel
   apt-mark hold rnbooscquery
   ```
