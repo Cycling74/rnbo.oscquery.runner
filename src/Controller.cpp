@@ -1111,7 +1111,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 		}
 
 		//activate if we need to
-		if (!tryActivateAudio()) {
+		if (!tryActivateAudio(true)) {
 			cerr << "audio is not active, cannot create instance(s)" << endl;
 			if (cmdId.size()) {
 				reportCommandError(cmdId, static_cast<unsigned int>(CompileLoadError::AudioNotActive), "cannot activate audio");
@@ -1176,7 +1176,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 //actually just queue it
 void Controller::loadSet(std::string name) {
 	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
-	if (!tryActivateAudio()) {
+	if (!tryActivateAudio(true)) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
 		return;
 	}
@@ -1314,7 +1314,7 @@ bool Controller::loadBuiltIn() {
 		RNBO::Json config;
 		std::ifstream i(confFilePath.string());
 		i >> config;
-		if (!tryActivateAudio()) {
+		if (!tryActivateAudio(true)) {
 			reportActive();
 			cerr << "audio is not active, cannot create builtin instance" << endl;
 			return false;
@@ -1775,9 +1775,9 @@ void Controller::handleActive(bool active) {
 	}
 }
 
-bool Controller::tryActivateAudio() {
+bool Controller::tryActivateAudio(bool startServer) {
 	if (!mProcessAudio->isActive())
-		mProcessAudio->setActive(true);
+		mProcessAudio->setActive(true, startServer);
 	return mProcessAudio->isActive();
 }
 

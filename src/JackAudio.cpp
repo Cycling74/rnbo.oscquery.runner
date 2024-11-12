@@ -646,10 +646,10 @@ bool ProcessAudioJack::isActive() {
 	return mJackClient != nullptr;
 }
 
-bool ProcessAudioJack::setActive(bool active) {
+bool ProcessAudioJack::setActive(bool active, bool withServer) {
 	if (active) {
 		//only force a server if we have done it before or we've never created a client
-		auto createServer = (mHasCreatedServer || !mHasCreatedClient);
+		auto createServer = withServer && (mHasCreatedServer || !mHasCreatedClient);
 		return createClient(createServer);
 	} else {
 		mBuilder([this](ossia::net::node_base * root) {

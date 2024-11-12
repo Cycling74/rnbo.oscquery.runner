@@ -44,11 +44,13 @@ class Controller {
 
 		//returns true until we should quit
 		bool processEvents();
+
+		bool tryActivateAudio(bool startServer = true);
+
 	private:
 
 		void doLoadSet(std::string name);
 
-		bool tryActivateAudio();
 		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&, float fadeTime);
 		void unloadInstance(std::lock_guard<std::mutex>&, unsigned int index);

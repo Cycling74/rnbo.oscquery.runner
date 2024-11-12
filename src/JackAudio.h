@@ -39,7 +39,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual ~ProcessAudioJack();
 
 		virtual bool isActive() override;
-		virtual bool setActive(bool active) override;
+		virtual bool setActive(bool active, bool withServer = true) override;
 		virtual void processEvents() override;
 		void process(jack_nframes_t frames);
 

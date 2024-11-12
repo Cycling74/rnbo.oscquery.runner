@@ -45,6 +45,11 @@ int main(int argc, const char * argv[]) {
 		.dest("write_config")
 		.set_default("0")
 		.help("write the default configuration to the config file");
+	parser.add_option("-W", "--wait-for-audio")
+		.action("store_true")
+		.dest("wait_for_audio")
+		.set_default("0")
+		.help("wait for audio (jack server) to be active before trying to start");
 	parser.add_option("-q", "--quiet")
 		.action("store_false")
 		.dest("verbose")
@@ -54,7 +59,8 @@ int main(int argc, const char * argv[]) {
 	optparse::Values options = parser.parse_args(argc, argv);
 	std::vector<std::string> args = parser.args();
 
-	if (options.get("verbose")) {
+	bool verbose = options.get("verbose");
+	if (verbose) {
 		cout << options["filename"] << endl;
 	}
 
@@ -75,6 +81,7 @@ int main(int argc, const char * argv[]) {
 		return 0;
 	}
 
+
 	//get the host name (or override)
 	auto host = config::get<std::string>(config::key::HostNameOverride);
 	std::string hostName;
@@ -92,6 +99,13 @@ int main(int argc, const char * argv[]) {
 	}
 	{
 		Controller c("rnbo:" + hostName);
+
+		if (options.get("wait_for_audio")) {
+			//loop and wait for audio
+			while (!c.tryActivateAudio(false)) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			}
+		}
 
 #ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
 		if (options["filename"].size()) {
