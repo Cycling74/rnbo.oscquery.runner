@@ -151,8 +151,9 @@ class ProcessAudioJack : public ProcessAudio {
 		//should we poll ports, connections?
 		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortPoll;
 		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortConnectionPoll;
-		//which ports got updates?
-		std::set<jack_port_id_t> mPortConnectionUpdates;
+
+		//which ports got updates (names)?
+		std::set<std::string> mPortConnectionUpdates;
 };
 
 //Processing and handling for a specific rnbo instance.

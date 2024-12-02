@@ -734,8 +734,13 @@ void ProcessAudioJack::processEvents() {
 				}
 
 				if (entry.second == JackPortChange::Connection) {
-					mPortConnectionUpdates.insert(entry.first);
-					mPortConnectionPoll = now + port_poll_timeout;
+					auto port = jack_port_by_id(mJackClient, entry.first);
+					if (port != nullptr) {
+						std::string name(jack_port_name(port));
+
+						mPortConnectionUpdates.insert(name);
+						mPortConnectionPoll = now + port_poll_timeout;
+					}
 				} else {
 					mPortPoll = now + port_poll_timeout;
 				}
@@ -858,13 +863,12 @@ void ProcessAudioJack::processEvents() {
 			if (mPortConnectionPoll && mPortConnectionPoll.get() < now) {
 				mPortConnectionPoll.reset();
 				//find ports that have connection updates, query jack and update param if needed
-				for (auto id: mPortConnectionUpdates) {
-					auto port = jack_port_by_id(mJackClient, id);
+				for (auto name: mPortConnectionUpdates) {
+					auto port = jack_port_by_name(mJackClient, name.c_str());
 					if (port == nullptr) {
 						continue;
 					}
 
-					std::string name(jack_port_name(port));
 					if (port == mJackMidiIn) {
 						updateParamFromJack(name, port, false, mMidiInParam);
 					} else {
@@ -1166,9 +1170,6 @@ bool ProcessAudioJack::createClient(bool startServer) {
 				}
 			}
 
-			//poll ports
-			auto now = steady_clock::now();
-			mPortConnectionPoll = now + port_poll_timeout;
 		}
 	}
 	bool active = mJackClient != nullptr;
@@ -1270,8 +1271,9 @@ void ProcessAudioJack::updatePorts() {
 							cur.erase(name);
 						} else {
 							auto n = parent->create_child(name);
-							auto p = n->create_parameter(ossia::val_type::LIST);
-							p->add_callback([this, name, isAudio](const ossia::value& val) {
+							auto param = n->create_parameter(ossia::val_type::LIST);
+
+							param->add_callback([this, name, isAudio](const ossia::value& val) {
 									if (isAudio) {
 										mSourceAudioPortConnectionUpdates.insert(name);
 									} else {
@@ -1279,11 +1281,8 @@ void ProcessAudioJack::updatePorts() {
 									}
 							});
 
-							if (isAudio) {
-								mSourceAudioPortConnectionUpdates.insert(name);
-							} else {
-								mSourceMIDIPortConnectionUpdates.insert(name);
-							}
+							//check out the jack connections
+							mPortConnectionUpdates.insert(name);
 						}
 					}
 
@@ -1310,6 +1309,8 @@ void ProcessAudioJack::updatePorts() {
 			}
 			jack_free(ports);
 		}
+
+		mPortConnectionPoll = steady_clock::now() + port_poll_timeout;
 
 		p->push_value(names);
 	}
