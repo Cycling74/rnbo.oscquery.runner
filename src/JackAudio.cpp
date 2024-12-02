@@ -747,6 +747,8 @@ void ProcessAudioJack::processEvents() {
 			std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
 			std::set<std::string> toConnect;
 			auto val = param->value();
+
+			bool updateParam = false;
 			if (val.get_type() == ossia::val_type::LIST) {
 				auto l = val.get<std::vector<ossia::value>>();
 				for (auto it: l) {
@@ -754,6 +756,8 @@ void ProcessAudioJack::processEvents() {
 						toConnect.insert(it.get<std::string>());
 					}
 				}
+			} else {
+				updateParam = true;
 			}
 
 			//check existing connections, disconnect anything that is connected but not in the list
@@ -768,7 +772,6 @@ void ProcessAudioJack::processEvents() {
 					}
 			});
 
-			bool updateParam = false;
 			for (auto& n: toConnect) {
 				if (!jack_port_connected_to(port, n.c_str())) {
 					int r;
@@ -821,6 +824,7 @@ void ProcessAudioJack::processEvents() {
 				//get the current param values
 				std::set<std::string> notInJack;
 				auto val = param->value();
+				bool update = false;
 				if (val.get_type() == ossia::val_type::LIST) {
 					auto l = val.get<std::vector<ossia::value>>();
 					for (auto it: l) {
@@ -828,6 +832,8 @@ void ProcessAudioJack::processEvents() {
 							notInJack.insert(it.get<std::string>());
 						}
 					}
+				} else {
+					update = true;
 				}
 
 				bool inJackNotParam = false;
@@ -840,7 +846,7 @@ void ProcessAudioJack::processEvents() {
 				//if there are any remaining names in the set that we didn't see via jack
 				//or there are any params that jack sees but aren't in the param list
 				//push an update
-				if (!notInJack.empty() || inJackNotParam) {
+				if (update || !notInJack.empty() || inJackNotParam) {
 					param->push_value(values);
 				}
 			};
@@ -851,7 +857,7 @@ void ProcessAudioJack::processEvents() {
 			}
 			if (mPortConnectionPoll && mPortConnectionPoll.get() < now) {
 				mPortConnectionPoll.reset();
-				//find ports that have connection updates, query jakc and update param if needed
+				//find ports that have connection updates, query jack and update param if needed
 				for (auto id: mPortConnectionUpdates) {
 					auto port = jack_port_by_id(mJackClient, id);
 					if (port == nullptr) {
@@ -1160,6 +1166,9 @@ bool ProcessAudioJack::createClient(bool startServer) {
 				}
 			}
 
+			//poll ports
+			auto now = steady_clock::now();
+			mPortConnectionPoll = now + port_poll_timeout;
 		}
 	}
 	bool active = mJackClient != nullptr;
@@ -1269,6 +1278,12 @@ void ProcessAudioJack::updatePorts() {
 										mSourceMIDIPortConnectionUpdates.insert(name);
 									}
 							});
+
+							if (isAudio) {
+								mSourceAudioPortConnectionUpdates.insert(name);
+							} else {
+								mSourceMIDIPortConnectionUpdates.insert(name);
+							}
 						}
 					}
 
