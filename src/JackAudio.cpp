@@ -1599,10 +1599,21 @@ InstanceAudioJack::InstanceAudioJack(
 	mJackPortAliases[0] = new char[jack_port_name_size()];
 	mJackPortAliases[1] = new char[jack_port_name_size()];
 
+	RNBO::Json inletsInfo = RNBO::Json::array();
+	RNBO::Json outletsInfo = RNBO::Json::array();
+
+	if (conf.contains("inlets") && conf["inlets"].is_array()) {
+		inletsInfo = conf["inlets"];
+	}
+
+	if (conf.contains("outlets") && conf["outlets"].is_array()) {
+		outletsInfo = conf["outlets"];
+	}
+
 	//zero out transport position
 	std::memset(&mTransportPosLast, 0, sizeof(jack_position_t));
 
-	builder([this](ossia::net::node_base * root) {
+	builder([this, &inletsInfo, &outletsInfo](ossia::net::node_base * root) {
 		//setup jack
 		auto jack = root->create_child("jack");
 		auto conn = jack->create_child("connections");
@@ -1711,6 +1722,7 @@ InstanceAudioJack::InstanceAudioJack(
 						0
 				);
 
+
 				std::string name(jack_port_name(port));
 				names.push_back(name);
 
@@ -1718,6 +1730,18 @@ InstanceAudioJack::InstanceAudioJack(
 				mJackAudioPortIn.push_back(port);
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sinks, name, true)});
+
+				//aliases from comment
+				if (inletsInfo.size() > i) {
+					auto info = inletsInfo[i];
+					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
+						auto comment = info["comment"].get<std::string>();
+						if (comment.size() > 0) {
+							jack_port_set_alias(port, comment.c_str());
+						}
+					}
+					//TODO meta?
+				}
 			}
 
 			{
@@ -1744,6 +1768,18 @@ InstanceAudioJack::InstanceAudioJack(
 				mJackAudioPortOut.push_back(port);
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sources, name, false)});
+
+				//aliases from comment
+				if (outletsInfo.size() > i) {
+					auto info = outletsInfo[i];
+					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
+						auto comment = info["comment"].get<std::string>();
+						if (comment.size() > 0) {
+							jack_port_set_alias(port, comment.c_str());
+						}
+					}
+					//TODO meta?
+				}
 			}
 			{
 				auto n = jack->create_child("audio_outs");
