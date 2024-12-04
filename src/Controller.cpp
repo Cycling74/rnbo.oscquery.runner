@@ -825,6 +825,18 @@ Controller::Controller(std::string server_name) {
 			});
 		}
 		{
+			auto key = config::key::InstanceAutoConnectPortGroup;
+			auto n = conf->create_child("auto_connect_port_group");
+			n->set(ossia::net::description_attribute{}, "Automatically connect newly activated instances to midi/audio via the rnbo-graph-user-io port group property");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
+		{
 			auto key = config::key::InstanceAutoStartLast;
 			auto n = conf->create_child("auto_start_last");
 			n->set(ossia::net::description_attribute{}, "Automatically start the last instance configuration on runner startup");
