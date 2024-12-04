@@ -36,6 +36,9 @@ namespace {
 
 	const std::string CONTROL_CLIENT_NAME("rnbo-control");
 
+	const std::string PORTGROUPKEY(JACK_METADATA_PORT_GROUP);
+	const std::string RNBO_GRAPH_PORTGROUP("rnbo-graph-user-io");
+
 
 #ifdef __APPLE__
 	const static std::string jack_driver_name = "coreaudio";
@@ -164,6 +167,27 @@ namespace {
 		transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 		return lower.find("through") != std::string::npos || lower.find("virtual") != std::string::npos;
 	};
+
+	std::set<std::string> mRNBOGraphPortGroupNames;
+	std::mutex mRNBOGraphPortGroupNamesMutex;
+
+	std::vector<std::string> port_names(const char ** ports, bool filter = false) {
+		std::vector<std::string> names;
+		if (ports != NULL) {
+			std::lock_guard<std::mutex> guard(mRNBOGraphPortGroupNamesMutex);
+			for (auto ptr = ports; *ptr != nullptr; ptr++) {
+				std::string name(*ptr);
+				if (!filter || mRNBOGraphPortGroupNames.count(name) != 0) {
+					names.push_back(name);
+				}
+			}
+			jack_free(ports);
+		}
+
+		//TODO sort?
+
+		return names;
+	}
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(ProgramChange)> progChangeCallback) :
@@ -1015,6 +1039,7 @@ void ProcessAudioJack::updateCardNodes() {
 
 void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 	std::string name(jack_port_name(port));
+	bool inPortGroup = false;
 
 	//jack property subjects are often URIs which wouldn't work as names in the OSCQuery name space so we encode the entire
 	//blob as JSON and make it a string
@@ -1035,6 +1060,9 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 			std::string data(prop.data);
 			if (prop.type == nullptr || strcmp(prop.type, "https://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "text/plain") == 0) {
 				properties[key] = data;
+				if (PORTGROUPKEY.compare(key) == 0 && RNBO_GRAPH_PORTGROUP.compare(data) == 0) {
+					inPortGroup = true;
+				}
 			}
 			else if (strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#int") == 0) {
 				size_t end = 0;
@@ -1059,6 +1087,11 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 	auto flags = jack_port_flags(port);
 	if (flags & JackPortIsPhysical) {
 		properties["physical"] = true;
+		//automatically add physical io to the RNBO_GRAPH_PORTGROUP port group if there is no other port group indicated
+		if (!properties.contains(PORTGROUPKEY)) {
+			properties[PORTGROUPKEY] = RNBO_GRAPH_PORTGROUP;
+			inPortGroup = true;
+		}
 	}
 	if (flags & JackPortIsTerminal) {
 		properties["terminal"] = true;
@@ -1076,6 +1109,15 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 		n->get_parameter()->push_value(j);
 	} else if (n != nullptr) {
 		mPortProps->remove_child(name);
+	}
+
+	{
+		std::lock_guard<std::mutex> guard(mRNBOGraphPortGroupNamesMutex);
+		if (inPortGroup) {
+			mRNBOGraphPortGroupNames.insert(name);
+		} else {
+			mRNBOGraphPortGroupNames.erase(name);
+		}
 	}
 
 }
@@ -2080,7 +2122,6 @@ void InstanceAudioJack::processEvents() {
 
 void InstanceAudioJack::connect() {
 	mConnect = true;
-	const char ** ports;
 
 	RNBO::Json outlets;
 	if (mInstanceConf.contains("outlets") && mInstanceConf["outlets"].is_array()) {
@@ -2093,6 +2134,7 @@ void InstanceAudioJack::connect() {
 
 	bool autoConnect = false;
 	bool indexed = false;
+	bool portgroup = config::get<bool>(config::key::InstanceAutoConnectPortGroup).value_or(false);
 	{
 		auto v = config::get<bool>(config::key::InstanceAutoConnectAudio);
 		if (v) {
@@ -2103,17 +2145,12 @@ void InstanceAudioJack::connect() {
 			indexed = *v;
 		}
 	}
-	if (autoConnect || indexed) {
-		//get the port count, is there a better way?
-		auto getPortCount = [](const char ** ptr) -> size_t {
-			size_t portCount = 0;
-			while (*ptr != nullptr) {
-				portCount++;
-				ptr++;
-			}
-			return portCount;
-		};
 
+
+	//if we use port group for identifying connections, we don't care if it is physical
+	const unsigned long portflags = portgroup ? 0 : JackPortIsPhysical;
+
+	if (autoConnect || indexed || portgroup) {
 		auto remap = [indexed](RNBO::Json ioletConf, size_t i) -> int {
 			int index = static_cast<int>(i);
 			if (indexed && ioletConf.is_array()) {
@@ -2131,37 +2168,34 @@ void InstanceAudioJack::connect() {
 			return index;
 		};
 
-		//connect hardware audio outputs to our inputs
-		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_AUDIO_TYPE, JackPortIsPhysical|JackPortIsOutput)) != NULL) {
-			size_t portCount = getPortCount(ports);
+		//connect hardware/port group audio outputs to our inputs
+		{
+			auto ports = port_names(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_AUDIO_TYPE, portflags|JackPortIsOutput), portgroup);
 			for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
 				int index = remap(inlets, i);
-				if (index >= 0 && index < portCount) {
-					jack_connect(mJackClient, ports[static_cast<size_t>(index)], jack_port_name(mJackAudioPortIn.at(i)));
+				if (index >= 0 && index < ports.size()) {
+					jack_connect(mJackClient, ports[static_cast<size_t>(index)].c_str(), jack_port_name(mJackAudioPortIn.at(i)));
 				}
 			}
-			jack_free(ports);
 		}
 
-		//connect hardware audio inputs to our outputs
-		if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_AUDIO_TYPE, JackPortIsPhysical|JackPortIsInput)) != NULL) {
-			size_t portCount = getPortCount(ports);
+		//connect hardware/port group audio inputs to our outputs
+		{
+			auto ports = port_names(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_AUDIO_TYPE, portflags|JackPortIsInput), portgroup);
 			for (size_t i = 0; i < mJackAudioPortOut.size(); i++) {
 				int index = remap(outlets, i);
-				if (index >= 0 && index < portCount) {
-					jack_connect(mJackClient, jack_port_name(mJackAudioPortOut.at(i)), ports[static_cast<size_t>(index)]);
+				if (index >= 0 && index < ports.size()) {
+					jack_connect(mJackClient, jack_port_name(mJackAudioPortOut.at(i)), ports[static_cast<size_t>(index)].c_str());
 				}
 			}
-
-			jack_free(ports);
 		}
 	}
 
-	if ((ports = jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, JackPortIsPhysical)) != NULL) {
-		for (auto ptr = ports; *ptr != nullptr; ptr++) {
-			connectToMidiIf(jack_port_by_name(mJackClient, *ptr));
+	{
+		auto ports = port_names(jack_get_ports(mJackClient, NULL, JACK_DEFAULT_MIDI_TYPE, portflags), portgroup);
+		for (auto port: ports) {
+			connectToMidiIf(jack_port_by_name(mJackClient, port.c_str()));
 		}
-		jack_free(ports);
 	}
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
@@ -2171,16 +2205,24 @@ void InstanceAudioJack::connectToMidiIf(jack_port_t * port) {
 		return;
 	}
 
+	auto name = jack_port_name(port);
 	bool all = config::get<bool>(config::key::InstanceAutoConnectMIDI).value_or(false);
+
+	//check if we care about port group, then check port group itself
+	bool portgroup = config::get<bool>(config::key::InstanceAutoConnectPortGroup).value_or(false);
+	if (portgroup) {
+		std::lock_guard<std::mutex> guard(mRNBOGraphPortGroupNamesMutex);
+		portgroup = mRNBOGraphPortGroupNames.count(name) != 0;
+	}
+
 	bool hardware = config::get<bool>(config::key::InstanceAutoConnectMIDIHardware).value_or(false);
 	auto flags = jack_port_flags(port);
 
-	if (all || (hardware && JackPortIsPhysical & flags)) {
+	if (all || portgroup || (hardware && JackPortIsPhysical & flags)) {
 		std::lock_guard<std::mutex> guard(mPortMutex);
 		//if we can get the port, it isn't ours and it is a midi port
 		if (port && !jack_port_is_mine(mJackClient, port) && std::string(jack_port_type(port)) == std::string(JACK_DEFAULT_MIDI_TYPE)) {
 			//ignore through and virtual
-			auto name = jack_port_name(port);
 			std::string name_s(name);
 
 			//ditch if the port is a through, if is already connected or if it is the control port
