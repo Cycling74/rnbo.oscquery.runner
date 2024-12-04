@@ -268,6 +268,9 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 
 				mPortAliases = mPortInfoNode->create_child("aliases");
 				mPortAliases->set(ossia::net::description_attribute{}, "Ports and a list of their aliases");
+
+				mPortProps = mPortInfoNode->create_child("properties");
+				mPortProps->set(ossia::net::description_attribute{}, "Ports and a list of their properties");
 			}
 
 			auto conf = root->create_child("config");
@@ -665,6 +668,7 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 			mPortMidiSinksParam->push_value(empty);
 			mPortMidiSourcesParam->push_value(empty);
 			mPortAliases->clear_children();
+			mPortProps->clear_children();
 			mPortAudioSourceConnectionsNode->clear_children();
 			mPortMIDISourceConnectionsNode->clear_children();
 		});
@@ -861,9 +865,12 @@ void ProcessAudioJack::processEvents() {
 				updatePorts();
 			}
 			if (mPortConnectionPoll && mPortConnectionPoll.get() < now) {
+				std::set<std::string> names;
+				std::swap(mPortConnectionUpdates, names);
 				mPortConnectionPoll.reset();
+
 				//find ports that have connection updates, query jack and update param if needed
-				for (auto name: mPortConnectionUpdates) {
+				for (auto name: names) {
 					auto port = jack_port_by_name(mJackClient, name.c_str());
 					if (port == nullptr) {
 						continue;
@@ -895,7 +902,20 @@ void ProcessAudioJack::processEvents() {
 						}
 					}
 				}
-				mPortConnectionUpdates.clear();
+			}
+		}
+
+		if (mPortPropertyPoll && mPortPropertyPoll.get() < now) {
+			mPortPropertyPoll.reset();
+
+			std::set<std::string> names;
+			std::swap(mPortPropertyUpdates, names);
+
+			for (auto name: names) {
+				jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+				if (port != nullptr) {
+					updatePortProperties(port);
+				}
 			}
 		}
 
@@ -991,6 +1011,73 @@ void ProcessAudioJack::updateCardNodes() {
 	ossia::set_values(dom, accepted);
 	mCardNode->set(ossia::net::domain_attribute{}, dom);
 	mCardNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+}
+
+void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
+	std::string name(jack_port_name(port));
+
+	//jack property subjects are often URIs which wouldn't work as names in the OSCQuery name space so we encode the entire
+	//blob as JSON and make it a string
+	RNBO::Json properties = RNBO::Json::object();
+
+	jack_uuid_t uuid = jack_port_uuid(port);
+	if (!jack_uuid_empty(uuid)) {
+		jack_description_t description;
+		auto cnt = jack_get_properties(uuid, &description);
+		for (auto i = 0; i < cnt; i++) {
+			char* pEnd = nullptr;
+			auto prop = description.properties[i];
+			if (prop.key == nullptr || prop.data == nullptr) {
+				continue;
+			}
+
+			std::string key(prop.key);
+			std::string data(prop.data);
+			if (prop.type == nullptr || strcmp(prop.type, "https://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "text/plain") == 0) {
+				properties[key] = data;
+			}
+			else if (strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#int") == 0) {
+				size_t end = 0;
+				int value = std::stoi(data, &end);
+				if (end == data.size()) {
+					properties[key] = value;
+				}
+			}
+			else if (
+					strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#double") == 0||
+					strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#float") == 0) {
+				double value = std::strtod(prop.data, &pEnd);
+				if (*pEnd == 0) {
+					properties[key] = value;
+				}
+			}
+
+		}
+		jack_free_description(&description, 0);
+	}
+
+	auto flags = jack_port_flags(port);
+	if (flags & JackPortIsPhysical) {
+		properties["physical"] = true;
+	}
+	if (flags & JackPortIsTerminal) {
+		properties["terminal"] = true;
+	}
+
+	auto n = mPortProps->find_child(name);
+	if (properties.size() > 0) {
+		if (n == nullptr) {
+			n = mPortProps->create_child(name);
+			n->set(ossia::net::description_attribute{}, "JSON key/value object indicating Jack properties for this port");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			n->create_parameter(ossia::val_type::STRING);
+		}
+		std::string j(properties.dump());
+		n->get_parameter()->push_value(j);
+	} else if (n != nullptr) {
+		mPortProps->remove_child(name);
+	}
+
 }
 
 bool ProcessAudioJack::createClient(bool startServer) {
@@ -1186,6 +1273,18 @@ void ProcessAudioJack::xrun() {
 }
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
+
+	//is it a port?
+	{
+		std::lock_guard<std::mutex> guard(mPortUUIDToNameMutex);
+		auto it = mPortUUIDToName.find(subject);
+		if (it != mPortUUIDToName.end()) {
+			mPortPropertyUpdates.insert(it->second);
+			mPortPropertyPoll = steady_clock::now() + port_poll_timeout;
+			return;
+		}
+	}
+
 	bool key_match = bpm_property_key.compare(key) == 0;
 	jack_uuid_t bpmClient = mBPMClientUUID.load();
 	//update the client uuid in case we don't already have it
@@ -1219,6 +1318,7 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 			}
 		}
 	}
+
 }
 
 //expects to be holding the build mutex
@@ -1241,8 +1341,16 @@ void ProcessAudioJack::updatePorts() {
 	std::set<std::string> curAudioSources(achildren.begin(), achildren.end());
 	auto mchildren = mPortMIDISourceConnectionsNode->children_names();
 	std::set<std::string> curMIDISources(mchildren.begin(), mchildren.end());
+
 	auto aliaschildren = mPortAliases->children_names();
 	std::set<std::string> removePortAliases(aliaschildren.begin(), aliaschildren.end());
+	auto propchildren = mPortProps->children_names();
+	std::set<std::string> removePortProps(propchildren.begin(), propchildren.end());
+
+	{
+		std::lock_guard<std::mutex> guard(mPortUUIDToNameMutex);
+		mPortUUIDToName.clear();
+	}
 
 	for (auto info: portTypes) {
 		auto p = std::get<0>(info);
@@ -1259,6 +1367,13 @@ void ProcessAudioJack::updatePorts() {
 					std::string name(ports[i]);
 					names.push_back(name);
 					removePortAliases.erase(name);
+					removePortProps.erase(name);
+
+					auto uuid = jack_port_uuid(port);
+					if (!jack_uuid_empty(uuid)) {
+						std::lock_guard<std::mutex> guard(mPortUUIDToNameMutex);
+						mPortUUIDToName.insert({uuid, name});
+					}
 
 					//see if we have a connection node for this
 					if (portDirection == JackPortIsOutput) {
@@ -1286,9 +1401,8 @@ void ProcessAudioJack::updatePorts() {
 						}
 					}
 
-					auto cnt = jack_port_get_aliases(port, aliases);
-
 					//update aliases
+					auto cnt = jack_port_get_aliases(port, aliases);
 					if (cnt != 0) {
 						auto n = mPortAliases->find_child(name);
 						if (n == nullptr) {
@@ -1305,6 +1419,8 @@ void ProcessAudioJack::updatePorts() {
 					} else {
 						auto n = mPortAliases->remove_child(name);
 					}
+
+					updatePortProperties(port);
 				}
 			}
 			jack_free(ports);
@@ -1324,6 +1440,9 @@ void ProcessAudioJack::updatePorts() {
 	}
 	for (auto& n : removePortAliases) {
 		mPortAliases->remove_child(n);
+	}
+	for (auto& n : removePortProps) {
+		mPortProps->remove_child(n);
 	}
 
 	delete [] aliases[0];

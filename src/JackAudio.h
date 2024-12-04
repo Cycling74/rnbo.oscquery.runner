@@ -64,6 +64,8 @@ class ProcessAudioJack : public ProcessAudio {
 		bool updateCards();
 		void updateCardNodes();
 
+		void updatePortProperties(jack_port_t* port);
+
 		bool createClient(bool startServer);
 		bool createServer();
 
@@ -83,6 +85,7 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mPortMIDISourceConnectionsNode = nullptr;
 
 		ossia::net::node_base * mPortAliases = nullptr;
+		ossia::net::node_base * mPortProps = nullptr;
 		ossia::net::parameter_base * mPortAudioSinksParam = nullptr;
 		ossia::net::parameter_base * mPortAudioSourcesParam = nullptr;
 		ossia::net::parameter_base * mPortMidiSinksParam = nullptr;
@@ -151,9 +154,15 @@ class ProcessAudioJack : public ProcessAudio {
 		//should we poll ports, connections?
 		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortPoll;
 		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortConnectionPoll;
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mPortPropertyPoll;
 
 		//which ports got updates (names)?
 		std::set<std::string> mPortConnectionUpdates;
+
+
+		std::unordered_map<jack_uuid_t, std::string> mPortUUIDToName;
+		std::mutex mPortUUIDToNameMutex;
+		std::set<std::string> mPortPropertyUpdates;
 };
 
 //Processing and handling for a specific rnbo instance.
