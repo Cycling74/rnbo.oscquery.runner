@@ -1892,13 +1892,14 @@ InstanceAudioJack::InstanceAudioJack(
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sinks, name, true)});
 
-				//aliases from comment
+				//pretty names from comment
 				if (inletsInfo.size() > i) {
 					auto info = inletsInfo[i];
 					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
 						auto comment = info["comment"].get<std::string>();
-						if (comment.size() > 0) {
-							jack_port_set_alias(port, comment.c_str());
+						jack_uuid_t uuid = jack_port_uuid(port);
+						if (comment.size() > 0 && !jack_uuid_empty(uuid)) {
+							jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
 						}
 					}
 					//TODO meta?
@@ -1930,13 +1931,14 @@ InstanceAudioJack::InstanceAudioJack(
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sources, name, false)});
 
-				//aliases from comment
+				//pretty names from comment
 				if (outletsInfo.size() > i) {
 					auto info = outletsInfo[i];
 					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
 						auto comment = info["comment"].get<std::string>();
-						if (comment.size() > 0) {
-							jack_port_set_alias(port, comment.c_str());
+						jack_uuid_t uuid = jack_port_uuid(port);
+						if (comment.size() > 0 && !jack_uuid_empty(uuid)) {
+							jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
 						}
 					}
 					//TODO meta?
