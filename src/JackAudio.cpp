@@ -1081,7 +1081,9 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 			}
 
 		}
-		jack_free_description(&description, 0);
+		if (cnt > 0) {
+			jack_free_description(&description, 0);
+		}
 	}
 
 	auto flags = jack_port_flags(port);
