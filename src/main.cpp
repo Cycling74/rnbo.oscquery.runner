@@ -112,7 +112,7 @@ int main(int argc, const char * argv[]) {
 			c.loadLibrary(options["filename"]);
 		} else if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true)){
 			std::string set = config::get<std::string>(config::key::SetLastName).value_or(LAST_SET_NAME);
-			c.loadSet(set);
+			c.loadInitialSet(set);
 		}
 #else
 			c.loadBuiltIn();
