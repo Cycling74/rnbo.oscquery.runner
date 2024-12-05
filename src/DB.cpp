@@ -228,6 +228,10 @@ CREATE TABLE sets_connections
 
 	});
 
+	do_migration(13, [](SQLite::Database& db) {
+		db.exec("ALTER TABLE sets ADD COLUMN initial INTEGER DEFAULT 0");
+		db.exec("UPDATE sets SET initial=0");
+	});
 
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
@@ -941,6 +945,20 @@ bool DB::setDestroy(const std::string& name)
 	}
 }
 
+bool DB::setInitial(const std::string& name)
+{
+	//TODO can we do this in a single statement?
+	{
+		SQLite::Statement query(mDB, "UPDATE sets SET initial = CASE WHEN name == ?1 THEN 1 ELSE 0 END WHERE runner_rnbo_version=?2");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		query.exec();
+	}
+	if (name.size() > 0)
+		return setNameInitial(cur_rnbo_version).has_value();
+	return true;
+}
+
 bool DB::setRename(const std::string& oldName, const std::string& newName)
 {
 	std::lock_guard<std::mutex> guard(mMutex);
@@ -953,6 +971,22 @@ bool DB::setRename(const std::string& oldName, const std::string& newName)
 		return query.exec() > 0;
 	}
 }
+
+boost::optional<std::string> DB::setNameInitial(std::string rnbo_version)
+{
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE runner_rnbo_version = ?1 AND initial = 1 ORDER BY name ASC LIMIT 1");
+	query.bind(1, rnbo_version);
+
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+		return { std::string(s) };
+	}
+	return boost::none;
+}
+
 
 boost::optional<std::string> DB::setNameByIndex(
 		unsigned int index,
@@ -973,7 +1007,7 @@ boost::optional<std::string> DB::setNameByIndex(
 	return boost::none;
 }
 
-void DB::sets(std::function<void(const std::string& name, const std::string& created)> func, std::string rnbo_version)
+void DB::sets(std::function<void(const std::string& name, const std::string& created, bool initial)> func, std::string rnbo_version)
 {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
@@ -981,7 +1015,7 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT name, datetime(created_at) FROM sets
+		SELECT name, datetime(created_at), initial FROM sets
 		WHERE id IN (SELECT MAX(id) FROM sets WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
 	)");
 	query.bind(1, rnbo_version);
@@ -992,7 +1026,9 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 		s = query.getColumn(1);
 		std::string created_at(s);
 
-		func(name, created_at);
+		int initial = query.getColumn(2);
+
+		func(name, created_at, initial != 0);
 	}
 }
 

@@ -179,7 +179,12 @@ class DB {
 		);
 
 		bool setDestroy(const std::string& name);
+		bool setInitial(const std::string& name);
 		bool setRename(const std::string& oldName, const std::string& newName);
+
+		boost::optional<std::string> setNameInitial(
+				std::string rnbo_version = std::string()
+		);
 
 		//alphabetical
 		boost::optional<std::string> setNameByIndex(
@@ -187,8 +192,9 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+
 		void sets(
-				std::function<void(const std::string& name, const std::string& created)> func,
+				std::function<void(const std::string& name, const std::string& created, bool initial)> func,
 				std::string rnbo_version = std::string()
 		);
 
