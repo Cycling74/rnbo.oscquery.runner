@@ -681,6 +681,20 @@ Controller::Controller(std::string server_name) {
 			}
 
 			{
+				auto n = sets->create_child("initial");
+				auto p = mSetInitialNameParam = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Give the name of the set (or none) that should load when the runner first starts");
+
+				p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::STRING) {
+							auto name = v.get<std::string>();
+							mCommandQueue.push(cmdBuilder("instance_set_initial", name));
+						}
+				});
+			}
+
+			{
 				auto presets = sets->create_child("presets");
 				{
 					auto n = presets->create_child("save");
@@ -1185,6 +1199,10 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 	return nullptr;
 }
 
+void Controller::loadInitialSet(std::string lastSetName) {
+	loadSet(mDB->setNameInitial().value_or(lastSetName));
+}
+
 //actually just queue it
 void Controller::loadSet(std::string name) {
 	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
@@ -1561,12 +1579,27 @@ void Controller::destroyPatcher(const std::string& name) {
 void Controller::updateSetNames() {
 	std::lock_guard<std::mutex> guard(mSetNamesMutex);
 	mSetNames.clear();
-	mDB->sets([this](const std::string& name, const std::string& /*created*/) {
+	std::string initialName;
+	mDB->sets([this, &initialName](const std::string& name, const std::string& /*created*/, bool initial) {
 			if (name != LAST_SET_NAME) {
 				mSetNames.push_back(name);
+				if (initial) {
+					initialName = name;
+				}
 			}
 	});
+
+	updateSetInitialName(initialName);
 	mSetNamesUpdated = true;
+}
+
+void Controller::updateSetInitialName(std::string name) {
+	//if we don't have the param or the param is a string and matches, do nothing
+	if (!mSetInitialNameParam || (mSetInitialNameParam->get_value_type() == ossia::val_type::STRING && mSetInitialNameParam->value().get<std::string>() == name)) {
+		return;
+	}
+	//update param
+	mSetInitialNameParam->push_value(name);
 }
 
 void Controller::updateSetPresetNames(std::string toadd) {
@@ -1996,6 +2029,24 @@ void Controller::registerCommands() {
 	});
 
 	mCommandHandlers.insert({
+			"instance_set_initial",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				//if the name wasn't correctly set, clear out name
+				if (!mDB->setInitial(name)) {
+					reportCommandError(id, 1, "failed");
+					updateSetInitialName("");
+				} else {
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "initial"},
+						{"progress", 100}
+					});
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
 			"instance_set_delete",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
@@ -2386,7 +2437,7 @@ void Controller::registerCommands() {
 					readContent = content.dump();
 				} else if (filetype == "sets") {
 					std::vector<std::string> names;
-					mDB->sets([&names](const std::string& n, const std::string&) { names.push_back(n); }, rnboVersion);
+					mDB->sets([&names](const std::string& n, const std::string&, bool initial) { names.push_back(n); }, rnboVersion);
 
 					RNBO::Json content = RNBO::Json::object();
 					for (auto name: names) {

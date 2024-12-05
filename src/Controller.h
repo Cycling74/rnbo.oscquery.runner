@@ -37,6 +37,8 @@ class Controller {
 
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
+		//load set marked as initial, or.. if that doesn't exist, load lastSetName
+		void loadInitialSet(std::string lastSetName);
 		void loadSet(std::string name);
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
@@ -90,6 +92,8 @@ class Controller {
 
 		//only to be called during setup or in the command thread
 		void updateSetNames();
+		void updateSetInitialName(std::string name);
+
 		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
 		void updateSetPresetNames(std::string toadd = std::string());
 		void saveSetPreset(const std::string& setName, std::string presetName);
@@ -123,6 +127,7 @@ class Controller {
 		ossia::net::parameter_base * mSetPresetLoadedParam = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
+		ossia::net::parameter_base * mSetInitialNameParam = nullptr;
 
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
 
