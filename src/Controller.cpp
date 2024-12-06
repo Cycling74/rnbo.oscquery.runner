@@ -1033,6 +1033,18 @@ Controller::Controller(std::string server_name) {
 				}
 			});
 		}
+		{
+			auto key = config::key::SetPresetDefaultInstanceScoped;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Default set presets store latest preset loaded in instance instead of all of its parameter values");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
 	}
 
 
