@@ -81,7 +81,7 @@ class Instance {
 	private:
 		bool mPresetsDirty = false;
 
-		bool loadJsonPreset(const std::string& content, const std::string& name, std::string setname = std::string());
+		bool loadJsonPreset(const std::string& content, std::string name, std::string setPresetName = std::string());
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::function<void(const std::string&, const std::string&)> mPresetLoadedCallback = nullptr;
@@ -237,11 +237,10 @@ class Instance {
 		//presets
 		ossia::net::parameter_base * mPresetEntries;
 		std::mutex mPresetMutex;
-		std::string mPresetLatest; //the most recently loaded preset
-		std::string mPresetInitial; //the user indicated initial preset
 
+		std::string mPresetInitial; //the user indicated initial preset
 		std::string mPresetNameLatest; //the most recently loaded preset name
-		std::string mPresetSetNameLatest; //the most recently loaded set name for a preset
+		std::string mSetPresetNameLatest; //the most recently loaded set preset name
 
 		ossia::net::parameter_base* mPresetInitialParam = nullptr;
 		ossia::net::parameter_base* mPresetLoadedParam = nullptr;
@@ -259,4 +258,6 @@ class Instance {
 
 		std::string mName;
 		std::shared_ptr<DB> mDB;
+
+		bool mSetPresetInstanceScoped = false;
 };

@@ -101,8 +101,7 @@ class Controller {
 		void handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName);
 
 		//guard by mInstanceMutex
-		std::string mInstancePendingPresetName;
-		std::string mInstancePendingSetName;
+		std::string mPendingSetPresetName;
 		std::set<unsigned int> mInstancesPendingPresetLoad;
 
 		unsigned int nextInstanceIndex();
