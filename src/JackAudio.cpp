@@ -544,42 +544,42 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 
 bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) {
 	if (mJackClient) {
-		auto replace_raw = [this](std::string& portname) {
+		//allow for multiple connections as we might have multiple of the same device
+		auto replace_raw = [this](std::string& portname) -> std::vector<std::string> {
 			std::array<std::vector<char>, 2> aliasStrings = {
 				std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0'),
 				std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0')
 			};
 			std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[0].data() };
 
+			std::vector<std::string> matches;
 			//work around moving raw_midi aliases
 			std::smatch match;
 			if (std::regex_match(portname, match, raw_midi_regex)) {
 				const std::string prefix = match[1].str();
 				const std::string suffix = match[2].str();
 
-
 				//find alias match
 				//search all the ports
 				//TODO could filter by type??
-				bool found = false;
-				auto ports = jack_get_ports(mJackClient, nullptr, nullptr, 0);
-				if (ports) {
-					for (size_t i = 0; ports[i] != nullptr && !found; i++) {
-						std::string name(ports[i]);
-						const jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
-						//search aliases, look for a match
-						auto cnt = jack_port_get_aliases(port, aliases.data());
-						for (auto j = 0; j < cnt && !found; j++) {
-							std::string alias(aliases[j]);
-							if (std::regex_match(alias, match, raw_midi_regex) && match[1].str() == prefix && match[2].str() == suffix) {
-								portname = name;
-								found = true;
-							}
+				auto ports = port_names(jack_get_ports(mJackClient, nullptr, nullptr, 0), false);
+				for (auto name: ports) {
+					const jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+					//search aliases, look for a match
+					auto cnt = jack_port_get_aliases(port, aliases.data());
+					for (auto j = 0; j < cnt; j++) {
+						std::string alias(aliases[j]);
+						if (std::regex_match(alias, match, raw_midi_regex) && match[1].str() == prefix && match[2].str() == suffix) {
+							matches.push_back(name);
 						}
 					}
-					jack_free(ports);
 				}
 			}
+
+			if (matches.size() == 0) {
+				matches.push_back(portname);
+			}
+			return matches;
 		};
 
 		for (auto& info: connections) {
@@ -595,10 +595,14 @@ bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections
 				sink += (std::string(":") + info.sink_port_name);
 			}
 
-			replace_raw(source);
-			replace_raw(sink);
+			auto sources = replace_raw(source);
+			auto sinks = replace_raw(sink);
 
-			jack_connect(mJackClient, source.c_str(), sink.c_str());
+			for (auto input: sources) {
+				for (auto output: sinks) {
+					jack_connect(mJackClient, input.c_str(), output.c_str());
+				}
+			}
 		}
 		return true;
 	}
