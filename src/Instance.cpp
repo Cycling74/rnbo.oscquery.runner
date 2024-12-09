@@ -162,7 +162,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	mSetPresetPatcherNamed = config::get<bool>(config::key::SetPresetDefaultPatcherNamed).value_or(false);
 	if (conf.contains("setpreset") && conf["setpreset"].is_string()) {
 		std::string setpreset = conf["setpreset"];
-		mSetPresetPatcherNamed = setpreset == "patchernamed";
+		mSetPresetPatcherNamed = (setpreset == "patchernamed");
 	}
 
 	//setup initial preset channel mapping
@@ -1158,8 +1158,7 @@ RNBO::Json Instance::currentConfig() {
 			datarefs[kv.first] = kv.second;
 	}
 	config["datarefs"] = datarefs;
-	if (mSetPresetPatcherNamed)
-		config["setpreset"] = "patchernamed";
+	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
 
 	//mAudio->addConfig(config);
 

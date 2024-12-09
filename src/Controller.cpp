@@ -1282,6 +1282,9 @@ void Controller::doLoadSet(std::string setname) {
 				if (instConfig["metaoverride"].is_object()) {
 					config["metaoverride"] = instConfig["metaoverride"];
 				}
+				if (instConfig.contains("setpreset")) {
+					config["setpreset"] = instConfig["setpreset"];
+				}
 			}
 
 			//load library but don't save config
