@@ -259,5 +259,6 @@ class Instance {
 		std::string mName;
 		std::shared_ptr<DB> mDB;
 
-		bool mSetPresetInstanceScoped = false;
+		//do we use a preset name instead of preset content when saving set presets
+		bool mSetPresetPatcherNamed = false;
 };

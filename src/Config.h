@@ -42,7 +42,7 @@ namespace config {
 		const static std::string SetPresetMIDIProgramChangeChannel = "set_preset_midi_program_change_channel"; //string, "omni" for omni 1..16 for specific, "none" or null for none
 		const static std::string UUIDPath = "uuid_path"; //path where we store the unique identifier for the runner
 
-		const static std::string SetPresetDefaultInstanceScoped = "set_preset_default_instance_scoped"; //by default, when adding an instance to a set, make it so set presets for that instance save the latest preset, by id, associated with that instance
+		const static std::string SetPresetDefaultPatcherNamed = "set_preset_default_patcher_named"; //by default, when adding an instance to a set, make it so set presets for that instance save the latest preset, associated with that instance
 	}
 
 	//initialize the configuration system

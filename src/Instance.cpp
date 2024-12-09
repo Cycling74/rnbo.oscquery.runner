@@ -158,11 +158,11 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		}
 	}
 
-	//instance scoped means that the set preset uses preset names for this instance instead of storing all the values itself
-	mSetPresetInstanceScoped = config::get<bool>(config::key::SetPresetDefaultInstanceScoped).value_or(false);
+	//means that the set preset uses preset names for this instance instead of storing all the values itself
+	mSetPresetPatcherNamed = config::get<bool>(config::key::SetPresetDefaultPatcherNamed).value_or(false);
 	if (conf.contains("setpreset") && conf["setpreset"].is_string()) {
 		std::string setpreset = conf["setpreset"];
-		mSetPresetInstanceScoped = setpreset == "instancescoped";
+		mSetPresetPatcherNamed = setpreset == "patchernamed";
 	}
 
 	//setup initial preset channel mapping
@@ -251,13 +251,13 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		{
 			auto config = root->create_child("config");
 
-			auto n = config->create_child("set_preset_instance_scoped");
+			auto n = config->create_child("set_preset_patcher_named");
 			n->set(ossia::net::description_attribute{}, "Should set presets saved simply store the name of the last patcher instance preset loaded/saved");
 			auto p = n->create_parameter(ossia::val_type::BOOL);
-			p->push_value(mSetPresetInstanceScoped);
+			p->push_value(mSetPresetPatcherNamed);
 			p->add_callback([this](const ossia::value& v) {
 				if (v.get_type() == ossia::val_type::BOOL) {
-					mSetPresetInstanceScoped = v.get<bool>();
+					mSetPresetPatcherNamed = v.get<bool>();
 				}
 			});
 
@@ -883,7 +883,7 @@ void Instance::processEvents() {
 
 			if (set_name.size()) {
 				std::string patcherPresetName;
-				if (mSetPresetInstanceScoped) {
+				if (mSetPresetPatcherNamed) {
 					std::lock_guard<std::mutex> guard(mPresetMutex);
 					patcherPresetName = mPresetNameLatest.size() ? mPresetNameLatest : mPresetInitial;
 					data = nullptr;
@@ -1158,7 +1158,8 @@ RNBO::Json Instance::currentConfig() {
 			datarefs[kv.first] = kv.second;
 	}
 	config["datarefs"] = datarefs;
-	config["setpreset"] = mSetPresetInstanceScoped ? "instancescoped" : "setscoped";
+	if (mSetPresetPatcherNamed)
+		config["setpreset"] = "patchernamed";
 
 	//mAudio->addConfig(config);
 

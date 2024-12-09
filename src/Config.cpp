@@ -73,7 +73,7 @@ namespace {
 		{config::key::InstancePortToOSC, true},
 		{config::key::ControlAutoConnectMIDI, true},
 
-		{config::key::SetPresetDefaultInstanceScoped, false},
+		{config::key::SetPresetDefaultPatcherNamed, false},
 
 		{config::key::PresetMIDIProgramChangeChannel, "none"},
 		{config::key::PatcherMIDIProgramChangeChannel, "none"},
