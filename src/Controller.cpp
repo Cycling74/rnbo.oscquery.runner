@@ -1033,6 +1033,18 @@ Controller::Controller(std::string server_name) {
 				}
 			});
 		}
+		{
+			auto key = config::key::SetPresetDefaultPatcherNamed;
+			auto n = conf->create_child(key);
+			n->set(ossia::net::description_attribute{}, "Default set presets store latest preset loaded in instance instead of all of its parameter values");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
 	}
 
 
@@ -1173,8 +1185,8 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			instance->registerConfigChangeCallback([this] {
 					queueSave();
 			});
-			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setName) {
-					handleInstancePresetLoad(instanceIndex, setName, presetName);
+			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
+					handleInstancePresetLoad(instanceIndex, setPresetName, presetName);
 			});
 			instance->activate();
 			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
@@ -1308,13 +1320,12 @@ void Controller::doLoadSet(std::string setname) {
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			std::lock_guard<std::mutex> iguard(mInstanceMutex);
 
-			mInstancePendingPresetName = "initial";
-			mInstancePendingSetName = setname;
+			mPendingSetPresetName = "initial";
 			mInstancesPendingPresetLoad.clear();
 
 			for (auto inst: instances) {
 				if (loadInitial) {
-					if (inst->loadPreset(mInstancePendingPresetName, setname)) {
+					if (inst->loadPreset(mPendingSetPresetName, setname)) {
 						mInstancesPendingPresetLoad.insert(inst->index());
 					}
 				}
@@ -1634,8 +1645,7 @@ void Controller::saveSetPreset(const std::string& setName, std::string presetNam
 void Controller::loadSetPreset(const std::string& setName, std::string presetName) {
 	//load the preset and if it exists for an instance make note so we can watch callback and report once they're all loaded
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
-	mInstancePendingPresetName = presetName;
-	mInstancePendingSetName = setName;
+	mPendingSetPresetName = presetName;
 	mInstancesPendingPresetLoad.clear();
 	for (auto& i: mInstances) {
 		auto inst = std::get<0>(i);
@@ -1645,16 +1655,16 @@ void Controller::loadSetPreset(const std::string& setName, std::string presetNam
 	}
 }
 
-void Controller::handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName) {
+void Controller::handleInstancePresetLoad(unsigned int index, const std::string& setPresetName, const std::string& /*presetName*/) {
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
-	if (setName != mInstancePendingSetName || presetName != mInstancePendingPresetName || mInstancesPendingPresetLoad.count(index) == 0) {
+	if (setPresetName != mPendingSetPresetName || mInstancesPendingPresetLoad.count(index) == 0) {
 		return;
 	}
 
 	//we got the final instance preset loaded, report it
 	mInstancesPendingPresetLoad.erase(index);
 	if (mInstancesPendingPresetLoad.size() == 0) {
-		mSetPresetLoadedParam->push_value(presetName);
+		mSetPresetLoadedParam->push_value(setPresetName);
 	}
 }
 
@@ -2355,11 +2365,17 @@ void Controller::registerCommands() {
 						if (kv.value().is_array()) {
 							auto& presets = kv.value();
 							for (const auto& entry: presets) {
-								if (entry["patchername"].is_string() && entry["instanceindex"].is_number() && entry["content"].is_object()) {
+								if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
 									std::string patchername = entry["patchername"];
+									std::string patcherPresetName;
 									unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
-									const RNBO::Json& content = entry["content"];
-									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump());
+									RNBO::Json content = RNBO::Json::object();
+									if (entry.contains("content") && entry["content"].is_object())
+										content = entry["content"];
+									if (entry.contains("presetname") && entry["presetname"]) {
+										patcherPresetName = entry["presetname"];
+									}
+									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
 								} else {
 									std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
 								}
@@ -2457,11 +2473,15 @@ void Controller::registerCommands() {
 
 								mDB->setPresets(
 										name, presetName,
-										[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content) {
+										[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName) {
 											RNBO::Json entry;
 											entry["patchername"] = patcherName;
 											entry["instanceindex"] = static_cast<int>(instanceIndex);
-											entry["content"] = RNBO::Json::parse(content);
+											if (patcherPresetName.size()) {
+												entry["presetname"] = patcherPresetName;
+											} else {
+												entry["content"] = RNBO::Json::parse(content);
+											}
 											preset.push_back(entry);
 										});
 

@@ -72,6 +72,9 @@ namespace {
 		{config::key::InstanceAudioFadeOut, 20.0},
 		{config::key::InstancePortToOSC, true},
 		{config::key::ControlAutoConnectMIDI, true},
+
+		{config::key::SetPresetDefaultPatcherNamed, false},
+
 		{config::key::PresetMIDIProgramChangeChannel, "none"},
 		{config::key::PatcherMIDIProgramChangeChannel, "none"},
 		{config::key::SetMIDIProgramChangeChannel, "none"},

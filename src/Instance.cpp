@@ -30,14 +30,6 @@ namespace {
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
 
-	//construct preset name, add in set name if it exists
-	std::string presetName(std::string name, std::string setname) {
-		if (setname.size()) {
-			return setname + "/" + name;
-		}
-		return name;
-	}
-
 	//referece count nodes created via metadata as they might be shared, this lets us cleanup
 	std::unordered_map<std::string, unsigned int> node_reference_count;
 	std::mutex node_reference_count_mutex;
@@ -156,7 +148,6 @@ namespace {
 }
 
 Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db) {
-
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
@@ -165,6 +156,13 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
 			dataRefMap[it.key()] = it.value();
 		}
+	}
+
+	//means that the set preset uses preset names for this instance instead of storing all the values itself
+	mSetPresetPatcherNamed = config::get<bool>(config::key::SetPresetDefaultPatcherNamed).value_or(false);
+	if (conf.contains("setpreset") && conf["setpreset"].is_string()) {
+		std::string setpreset = conf["setpreset"];
+		mSetPresetPatcherNamed = setpreset == "patchernamed";
 	}
 
 	//setup initial preset channel mapping
@@ -247,6 +245,22 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			n->set(ossia::net::description_attribute{}, "The name of the loaded patcher");
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			p->push_value(conf["name"].get<std::string>());
+		}
+
+		//oscquery based configuration
+		{
+			auto config = root->create_child("config");
+
+			auto n = config->create_child("set_preset_patcher_named");
+			n->set(ossia::net::description_attribute{}, "Should set presets saved simply store the name of the last patcher instance preset loaded/saved");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(mSetPresetPatcherNamed);
+			p->add_callback([this](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					mSetPresetPatcherNamed = v.get<bool>();
+				}
+			});
+
 		}
 
 		//get overrides
@@ -805,7 +819,7 @@ void Instance::registerConfigChangeCallback(std::function<void()> cb) {
 	mConfigChangeCallback = cb;
 }
 
-void Instance::registerPresetLoadedCallback(std::function<void(const std::string& presetName, const std::string& setName)> cb) {
+void Instance::registerPresetLoadedCallback(std::function<void(const std::string& presetName, const std::string& setPresetName)> cb) {
 	mPresetLoadedCallback = cb;
 }
 
@@ -868,7 +882,13 @@ void Instance::processEvents() {
 			data["datarefs"] = datarefs;
 
 			if (set_name.size()) {
-				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump());
+				std::string patcherPresetName;
+				if (mSetPresetPatcherNamed) {
+					std::lock_guard<std::mutex> guard(mPresetMutex);
+					patcherPresetName = mPresetNameLatest.size() ? mPresetNameLatest : mPresetInitial;
+					data = nullptr;
+				}
+				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump(), patcherPresetName);
 			} else {
 				mDB->presetSave(mName, name, data.dump());
 			}
@@ -876,7 +896,11 @@ void Instance::processEvents() {
 			mPresetsDirty = true;
 			{
 				std::lock_guard<std::mutex> guard(mPresetMutex);
-				mPresetLatest = presetName(name, set_name);
+				if (set_name.size()) {
+					mSetPresetNameLatest = name;
+				} else {
+					mPresetNameLatest = name;
+				}
 			}
 			updatePresetEntries();
 		}
@@ -945,9 +969,9 @@ void Instance::processEvents() {
 							mPresetInitial.clear();
 							mPresetInitialParam->push_value(mPresetInitial);
 						}
-						if (mPresetLatest == cmd.preset) {
-							mPresetLatest.clear();
-							mPresetLoadedParam->push_value(mPresetLatest);
+						if (mPresetNameLatest == cmd.preset) {
+							mPresetNameLatest.clear();
+							mPresetLoadedParam->push_value(mPresetNameLatest);
 						}
 						updated = true;
 					}
@@ -962,10 +986,11 @@ void Instance::processEvents() {
 							mPresetInitial = cmd.newname;
 							mPresetInitialParam->push_value(mPresetInitial);
 						}
-						if (mPresetLatest == cmd.preset) {
-							mPresetLatest = cmd.newname;
-							mPresetLoadedParam->push_value(mPresetLatest);
+						if (mPresetNameLatest == cmd.preset) {
+							mPresetNameLatest = cmd.newname;
+							mPresetLoadedParam->push_value(mPresetNameLatest);
 						}
+
 						updated = true;
 					}
 					break;
@@ -993,8 +1018,18 @@ void Instance::savePreset(std::string name, std::string set_name) {
 
 bool Instance::loadPreset(std::string name, std::string set_name) {
 	boost::optional<std::string> preset;
+	std::string setpresetname;
 	if (set_name.size()) {
-		preset = mDB->setPreset(mName, name, set_name, mIndex);
+		setpresetname = name;
+		auto content = mDB->setPreset(mName, name, set_name, mIndex);
+
+		if (content.has_value()) {
+			preset = content->first;
+			//if this set preset actually just names a patcher preset
+			if (content->second.size() > 0) {
+				name = content->second;
+			}
+		}
 	} else {
 		auto p = mDB->preset(mName, name);
 		if (!p) {
@@ -1014,7 +1049,7 @@ bool Instance::loadPreset(std::string name, std::string set_name) {
 	}
 
 	if (preset) {
-		return loadJsonPreset(*preset, name, set_name);
+		return loadJsonPreset(*preset, name, setpresetname);
 	} else {
 		if (set_name.size() == 0 || name != "initial") {
 			std::cerr << "couldn't find preset with name or index: " << name;
@@ -1040,15 +1075,16 @@ void Instance::loadPreset(RNBO::UniquePresetPtr preset) {
 	mCore->setPreset(std::move(preset));
 }
 
-bool Instance::loadJsonPreset(const std::string& preset, const std::string& name, std::string setname) {
+bool Instance::loadJsonPreset(const std::string& preset, std::string name, std::string setPresetName) {
 	//set preset latest so we can correctly send loaded param
 	std::string last;
+	std::string lastsetpreset;
 	{
 		std::lock_guard<std::mutex> guard(mPresetMutex);
-		last = mPresetLatest;
-		mPresetLatest = presetName(name, setname);
+		last = mPresetNameLatest;
+		lastsetpreset = mSetPresetNameLatest;
 		mPresetNameLatest = name;
-		mPresetSetNameLatest = setname;
+		mSetPresetNameLatest = setPresetName;
 	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
@@ -1056,41 +1092,41 @@ bool Instance::loadJsonPreset(const std::string& preset, const std::string& name
 		//added data to the preset JSON to support datarefs
 		//using a special key "runner_preset" to specify this format
 		//"runner_preset" contains the actual rnbo formatted JSON preset
-		bool trydatarefs = false;
-		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
-		if (j["runner_preset"].is_object()) {
-			trydatarefs = true;
-			convertJSONObjToPreset(j["runner_preset"], *unique);
-		} else {
-			convertJSONObjToPreset(j, *unique);
-		}
-		mCore->setPreset(std::move(unique));
+		if (j.is_object()) {
+			bool trydatarefs = false;
+			RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
+			if (j["runner_preset"].is_object()) {
+				trydatarefs = true;
+				convertJSONObjToPreset(j["runner_preset"], *unique);
+			} else {
+				convertJSONObjToPreset(j, *unique);
+			}
+			mCore->setPreset(std::move(unique));
 
-		if (trydatarefs && j["datarefs"].is_object()) {
-			auto datarefs = j["datarefs"];
-			//push directly to the nodes so that we queue up changes
-			for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
-				if (!it.value().is_string()) {
-					std::cerr << "dataref value for key " << it.key() << " is not a string" << std::endl;
-					continue;
-				}
+			if (trydatarefs && j["datarefs"].is_object()) {
+				auto datarefs = j["datarefs"];
+				//push directly to the nodes so that we queue up changes
+				for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+					if (!it.value().is_string()) {
+						std::cerr << "dataref value for key " << it.key() << " is not a string" << std::endl;
+						continue;
+					}
 
-				auto nodeit = mDataRefNodes.find(it.key());
-				if (nodeit != mDataRefNodes.end()) {
-					nodeit->second->push_value(it.value().get<std::string>());
+					auto nodeit = mDataRefNodes.find(it.key());
+					if (nodeit != mDataRefNodes.end()) {
+						nodeit->second->push_value(it.value().get<std::string>());
+					}
 				}
 			}
 		}
-
 		return true;
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;
 		{
 			std::lock_guard<std::mutex> guard(mPresetMutex);
 			//revert if preset fails
-			mPresetLatest = last;
-			mPresetNameLatest.clear();
-			mPresetSetNameLatest.clear();
+			mPresetNameLatest = last;
+			mSetPresetNameLatest = lastsetpreset;
 		}
 		return false;
 	}
@@ -1111,8 +1147,8 @@ RNBO::Json Instance::currentConfig() {
 	//store last preset
 	{
 		std::lock_guard<std::mutex> pguard(mPresetMutex);
-		if (!mPresetLatest.empty() && mDB->preset(mName, mPresetLatest)) {
-			config[last_preset_key] = mPresetLatest;
+		if (!mPresetNameLatest.empty() && mDB->preset(mName, mPresetNameLatest)) {
+			config[last_preset_key] = mPresetNameLatest;
 		}
 	}
 	//copy datarefs
@@ -1122,6 +1158,8 @@ RNBO::Json Instance::currentConfig() {
 			datarefs[kv.first] = kv.second;
 	}
 	config["datarefs"] = datarefs;
+	if (mSetPresetPatcherNamed)
+		config["setpreset"] = "patchernamed";
 
 	//mAudio->addConfig(config);
 
@@ -1398,10 +1436,10 @@ void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValu
 void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
 	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
 		std::lock_guard<std::mutex> guard(mPresetMutex);
-		mPresetLoadedParam->push_value(mPresetLatest);
+		mPresetLoadedParam->push_value(mPresetNameLatest);
 
 		if (mPresetLoadedCallback) {
-			mPresetLoadedCallback(mPresetNameLatest, mPresetSetNameLatest);
+			mPresetLoadedCallback(mPresetNameLatest, mSetPresetNameLatest);
 		}
 
 	}
