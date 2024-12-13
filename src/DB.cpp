@@ -7,6 +7,8 @@
 #include <boost/none.hpp>
 #include <boost/algorithm/string.hpp>
 
+#include <SQLiteCpp/Backup.h>
+
 //https://srombauts.github.io/SQLiteCpp/
 
 namespace fs = boost::filesystem;
@@ -48,17 +50,37 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 	}
 
 	int lastmigration = 1;
-	auto do_migration = [curversion, &lastmigration, this](int version, std::function<void(SQLite::Database&)> func) {
+	bool backupdone = curversion <= 1; //don't need to backup the initial version
+	auto do_migration = [curversion, &lastmigration, &backupdone, this](int version, std::function<void(SQLite::Database&)> func) {
 		//verify that our migrations are increasing by 1 each time
 		assert(version == lastmigration + 1);
 		lastmigration = version;
 
 		if (curversion < version) {
+
+			//do backup
+			if (!backupdone) {
+				auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / ("oscqueryrunner-dbversion-" + std::to_string(curversion) + ".sqlite");
+
+				SQLite::Database backupDB(backuppath.string(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+				SQLite::Backup backup(backupDB, mDB);
+				try {
+					backup.executeStep();
+				} catch (...) {
+					std::cerr << "failed to backup db to: " << backuppath.string() << std::endl;
+				}
+
+				backupdone = true;
+			}
+
 			func(mDB);
-			SQLite::Statement query(mDB, "INSERT INTO migrations (id, rnbo_version) VALUES (?, ?)");
-			query.bind(1, version);
-			query.bind(2, cur_rnbo_version);
-			query.exec();
+
+			{
+				SQLite::Statement query(mDB, "INSERT INTO migrations (id, rnbo_version) VALUES (?, ?)");
+				query.bind(1, version);
+				query.bind(2, cur_rnbo_version);
+				query.exec();
+			}
 		}
 	};
 
