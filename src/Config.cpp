@@ -30,6 +30,7 @@ namespace {
 	static fs::path default_so_cache = config::make_path("~/Documents/rnbo/cache/so");
 	static fs::path default_src_cache = config::make_path("~/Documents/rnbo/cache/src");
 	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
+	static fs::path default_backup_dir = config::make_path("~/Documents/rnbo/backup/");
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
 	static fs::path default_db_path = config::make_path("~/Documents/rnbo/oscqueryrunner.sqlite");
 
@@ -59,6 +60,7 @@ namespace {
 		{config::key::CompileCacheDir, default_so_cache.string()},
 		{config::key::SourceCacheDir, default_src_cache.string()},
 		{config::key::SaveDir, default_save_dir.string()},
+		{config::key::BackupDir, default_backup_dir.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
 		{config::key::DBPath, default_db_path.string()},
 		{config::key::UUIDPath, default_runner_uuid_path.string()},
