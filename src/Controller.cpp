@@ -790,6 +790,12 @@ Controller::Controller(std::string server_name) {
 					p->add_callback([this](const ossia::value& v) {
 						RNBO::Json params = RNBO::Json::array();
 						if (v.get_type() == ossia::val_type::LIST) {
+							auto l = v.get<std::vector<ossia::value>>();
+							for (auto n: l) {
+								if (n.get_type() == ossia::val_type::STRING) {
+									params.push_back(n.get<std::string>());
+								}
+							}
 						}
 						RNBO::Json cmd = {
 							{"method", "instance_set_view_create"},
@@ -832,7 +838,6 @@ Controller::Controller(std::string server_name) {
 			}
 
 			updateSetNames();
-			updateSetViews();
 		}
 	}
 
@@ -1403,7 +1408,7 @@ void Controller::doLoadSet(std::string setname) {
 	}
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
-		updateSetViews();
+		updateSetViews(setname);
 	}
 }
 
@@ -1664,8 +1669,84 @@ void Controller::updateSetNames() {
 	mSetNamesUpdated = true;
 }
 
-void Controller::updateSetViews() {
+void Controller::updateSetViews(const std::string& setname) {
 	//we have the build mutex
+	mSetViewsListNode->clear_children();
+
+	if (setname.size()) {
+		auto indexes = mDB->setViewIndexes(setname);
+		for (auto i: indexes) {
+			addSetView(setname, i);
+		}
+	}
+}
+
+void Controller::addSetView(std::string setname, int index) {
+	auto data = mDB->setViewGet(setname, index);
+	if (!data) {
+		return;
+	}
+
+	std::string name = std::get<0>(data.get());
+	std::vector<std::string> params = std::get<1>(data.get());
+	int sortOrder = std::get<2>(data.get());
+
+	auto view = mSetViewsListNode->create_child(std::to_string(index));
+	{
+		auto n = view->create_child("name");
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "Optional name for this set view");
+		if (name.size()) {
+			p->push_value(name);
+		}
+		p->add_callback([this, setname, index](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::STRING) {
+				std::string name = val.get<std::string>();
+				mDB->setViewUpdateName(setname, index, name);
+			}
+		});
+	}
+	{
+		auto n = view->create_child("params");
+		auto p = n->create_parameter(ossia::val_type::LIST);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "list of parameters in format instance_index:parameter_index");
+		std::vector<ossia::value> l;
+		for (auto param: params) {
+			l.push_back(param);
+		}
+		p->push_value(l);
+		p->add_callback([this, setname, index](const ossia::value& val) {
+			std::vector<std::string> params;
+			if (val.get_type() == ossia::val_type::LIST) {
+				auto l = val.get<std::vector<ossia::value>>();
+				for (auto item: l) {
+					if (item.get_type() == ossia::val_type::STRING) {
+						params.push_back(item.get<std::string>());
+					}
+				}
+			}
+			mDB->setViewUpdateParams(setname, index, params);
+		});
+	}
+	{
+		auto n = view->create_child("sort_order");
+		auto p = n->create_parameter(ossia::val_type::INT);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "sort order for this set view");
+		p->push_value(sortOrder);
+		p->add_callback([this, setname, index](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::INT) {
+				int sortOrder = val.get<int>();
+				mDB->setViewUpdateSortOrder(setname, index, sortOrder);
+			}
+		});
+	}
+}
+
+void Controller::removeSetView(int index) {
+	mSetViewsListNode->remove_child(std::to_string(index));
 }
 
 void Controller::updateSetInitialName(std::string name) {
@@ -2051,7 +2132,11 @@ void Controller::registerCommands() {
 					mSetPresetLoadedParam->push_value(empty);
 					updateSetPresetNames();
 					config::set(empty, config::key::SetLastName);
-					updateSetViews();
+
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						updateSetViews(empty);
+					}
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
@@ -2082,7 +2167,10 @@ void Controller::registerCommands() {
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
 					updateSetPresetNames(presetName);
-					updateSetViews();
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						updateSetViews(name);
+					}
 					mSetPresetLoadedParam->push_value(presetName);
 					config::set(name, config::key::SetLastName);
 				} else {
@@ -2138,8 +2226,10 @@ void Controller::registerCommands() {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
 					mSetCurrentNameParam->push_value("");
-
-					updateSetViews();
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						updateSetViews(empty);
+					}
 				}
 			}
 	});
@@ -2264,6 +2354,17 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string setname = getCurrentSetName();
 				if (setname.size()) {
+					std::vector<std::string> viewParams;
+
+					for (auto p: params["params"]) {
+						viewParams.push_back(p.get<std::string>());
+					}
+
+					int index = mDB->setViewCreate(setname, viewParams);
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						addSetView(setname, index);
+					}
 
 					reportCommandResult(id, {
 						{"code", 0},
@@ -2283,7 +2384,12 @@ void Controller::registerCommands() {
 				std::string setname = getCurrentSetName();
 				if (setname.size()) {
 					int index = params["index"].get<int>();
-					//TODO
+					mDB->setViewDestroy(setname, index);
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						removeSetView(index);
+					}
+
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "destroyed"},
