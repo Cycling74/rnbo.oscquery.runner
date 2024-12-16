@@ -779,7 +779,60 @@ Controller::Controller(std::string server_name) {
 				}
 			}
 
+			{
+				auto views = sets->create_child("views");
+				{
+					auto n = views->create_child("create");
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "create a new set view, sending an initial list of parameters along");
+
+					p->add_callback([this](const ossia::value& v) {
+						RNBO::Json params = RNBO::Json::array();
+						if (v.get_type() == ossia::val_type::LIST) {
+						}
+						RNBO::Json cmd = {
+							{"method", "instance_set_view_create"},
+							{"id", "internal"},
+							{"params",
+								{
+									{"params", params},
+								}
+							}
+						};
+						mCommandQueue.push(cmd.dump());
+					});
+				}
+				{
+					auto n = views->create_child("destroy");
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "destroy a view via its index");
+
+					p->add_callback([this](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::INT) {
+							int index = v.get<int>();
+							RNBO::Json cmd = {
+								{"method", "instance_set_view_destroy"},
+								{"id", "internal"},
+								{"params",
+									{
+										{"index", index},
+									}
+								}
+							};
+							mCommandQueue.push(cmd.dump());
+						}
+					});
+				}
+
+				{
+					auto n = mSetViewsListNode = views->create_child("list");
+				}
+			}
+
 			updateSetNames();
+			updateSetViews();
 		}
 	}
 
@@ -1348,6 +1401,10 @@ void Controller::doLoadSet(std::string setname) {
 	} catch (...) {
 		cerr << "unknown exception trying to load last setup" << endl;
 	}
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		updateSetViews();
+	}
 }
 
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
@@ -1605,6 +1662,10 @@ void Controller::updateSetNames() {
 
 	updateSetInitialName(initialName);
 	mSetNamesUpdated = true;
+}
+
+void Controller::updateSetViews() {
+	//we have the build mutex
 }
 
 void Controller::updateSetInitialName(std::string name) {
@@ -1990,6 +2051,7 @@ void Controller::registerCommands() {
 					mSetPresetLoadedParam->push_value(empty);
 					updateSetPresetNames();
 					config::set(empty, config::key::SetLastName);
+					updateSetViews();
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
@@ -2020,6 +2082,7 @@ void Controller::registerCommands() {
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
 					updateSetPresetNames(presetName);
+					updateSetViews();
 					mSetPresetLoadedParam->push_value(presetName);
 					config::set(name, config::key::SetLastName);
 				} else {
@@ -2075,6 +2138,8 @@ void Controller::registerCommands() {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
 					mSetCurrentNameParam->push_value("");
+
+					updateSetViews();
 				}
 			}
 	});
@@ -2189,6 +2254,43 @@ void Controller::registerCommands() {
 					updateSetPresetNames();
 				} else {
 					std::cerr << "no current set name, cannot rename associated preset" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_view_create",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "created"},
+						{"progress", 100}
+					});
+				} else {
+					std::cerr << "no current set name, cannot create associated view" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_view_destroy",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					int index = params["index"].get<int>();
+					//TODO
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "destroyed"},
+						{"progress", 100}
+					});
+				} else {
+					std::cerr << "no current set name, cannot destroy associated view" << std::endl;
 					reportCommandError(id, 1, "failed");
 				}
 			}
