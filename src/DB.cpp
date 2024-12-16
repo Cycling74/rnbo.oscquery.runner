@@ -1299,6 +1299,40 @@ void DB::setViewUpdateSortOrder(
 	query.exec();
 }
 
+void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetName) {
+	auto getid = [this](const std::string& name) -> int {
+		SQLite::Statement query(mDB, "SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		if (query.executeStep()) {
+			return query.getColumn(0);
+		}
+		return 0;
+	};
+
+	int srcid = getid(srcSetName);
+	int dstid = getid(dstSetName);
+	if (srcid > 0 && dstid > 0) {
+		//delete existing views
+		{
+			SQLite::Statement query(mDB, "DELETE FROM sets_views WHERE set_id = ?1");
+			query.bind(1, dstid);
+			query.exec();
+		}
+		{
+			SQLite::Statement query(mDB, R"(
+				INSERT INTO sets_views 
+					(set_id, view_index, name, sort_order, params)
+					SELECT ?2, view_index, name, sort_order, params FROM sets_views WHERE set_id = ?1
+				)"
+			);
+			query.bind(1, srcid);
+			query.bind(2, dstid);
+			query.exec();
+		}
+	}
+}
+
 bool DB::listenersAdd(const std::string& ip, uint16_t port)
 {
 	std::lock_guard<std::mutex> guard(mMutex);

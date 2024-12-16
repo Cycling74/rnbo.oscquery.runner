@@ -2156,6 +2156,9 @@ void Controller::registerCommands() {
 				//XXX
 				auto info = setInfo();
 				if (info.instances.size()) {
+					std::string loaded = getCurrentSetName();
+
+
 					mDB->setSave(name, info);
 					const std::string presetName = "initial";
 					saveSetPreset(name, presetName);
@@ -2167,7 +2170,13 @@ void Controller::registerCommands() {
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
 					updateSetPresetNames(presetName);
+
+					//set views
 					{
+						//copy views
+						if (loaded.size() > 0 && loaded != name) {
+							mDB->setViewsCopy(loaded, name);
+						}
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						updateSetViews(name);
 					}
@@ -2228,7 +2237,7 @@ void Controller::registerCommands() {
 					mSetCurrentNameParam->push_value("");
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
-						updateSetViews(empty);
+						mSetViewsListNode->clear_children();
 					}
 				}
 			}

@@ -236,6 +236,10 @@ class DB {
 				int sortOrder
 		);
 
+		void setViewsCopy(
+				const std::string& srcSetName,
+				const std::string& dstSetName);
+
 		//returns true if anything happened
 		bool listenersAdd(const std::string& ip, uint16_t port);
 		bool listenersDel(const std::string& ip, uint16_t port);
