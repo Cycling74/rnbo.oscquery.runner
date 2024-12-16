@@ -2582,7 +2582,7 @@ void Controller::registerCommands() {
 				updateSetNames();
 
 				//handle presets
-				if (setData["presets"].is_object()) {
+				if (setData.contains("presets") && setData["presets"].is_object()) {
 					//TODO delete all existing presets?
 					for (const auto& kv: setData["presets"].items()) {
 						std::string presetName = kv.key();
@@ -2597,7 +2597,7 @@ void Controller::registerCommands() {
 									RNBO::Json content = RNBO::Json::object();
 									if (entry.contains("content") && entry["content"].is_object())
 										content = entry["content"];
-									if (entry.contains("presetname") && entry["presetname"]) {
+									if (entry.contains("presetname") && entry["presetname"].is_string()) {
 										patcherPresetName = entry["presetname"];
 									}
 									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
@@ -2605,6 +2605,21 @@ void Controller::registerCommands() {
 									std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
 								}
 							}
+						}
+					}
+				}
+				if (setData.contains("views") && setData["views"].is_array()) {
+					for (auto entry: setData["views"]) {
+						if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
+							auto index = entry["index"].get<int>();
+							auto name = entry["name"].get<std::string>();
+							auto params = entry["params"];
+							auto sort_order = entry["sort_order"].get<int>();
+							mDB->setViewCreate(fileName, params, index);
+							if (name.size()) {
+								mDB->setViewUpdateName(fileName, index, name);
+							}
+							mDB->setViewUpdateSortOrder(fileName, index, sort_order);
 						}
 					}
 				}
@@ -2713,6 +2728,24 @@ void Controller::registerCommands() {
 								presets[presetName] = preset;
 							}
 							s["presets"] = presets;
+
+							RNBO::Json views = RNBO::Json::array();
+							auto indexes = mDB->setViewIndexes(name);
+							for (auto index: indexes) {
+								auto data = mDB->setViewGet(name, index);
+								if (!data)
+									continue;
+								RNBO::Json entry;
+
+								entry["index"] = index;
+								entry["name"] = std::get<0>(data.get());
+								entry["params"] = std::get<1>(data.get());
+								entry["sort_order"] = std::get<2>(data.get());
+
+								views.push_back(entry);
+							}
+
+							s["views"] = views;
 
 							content[name] = s;
 						}
