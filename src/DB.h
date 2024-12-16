@@ -209,7 +209,8 @@ class DB {
 
 		int setViewCreate(
 				const std::string& setname,
-				const std::vector<std::string> params
+				const std::vector<std::string> params,
+				int index = -1 //less than zero means find next index
 		);
 
 		//negative to destroy all

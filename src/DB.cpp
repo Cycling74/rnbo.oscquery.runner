@@ -1172,11 +1172,10 @@ boost::optional<std::tuple<
 
 int DB::setViewCreate(
 		const std::string& setname,
-		const std::vector<std::string> params
+		const std::vector<std::string> params,
+		int viewIndex
 ) {
-	//TODO optimize into 1 query?
-	int viewIndex = 0;
-	{
+	if (viewIndex < 0) {
 		SQLite::Statement query(mDB, R"(
 			SELECT MAX(view_index) + 1 FROM sets_views
 			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
@@ -1188,6 +1187,8 @@ int DB::setViewCreate(
 		if (query.executeStep()) {
 			viewIndex = query.getColumn(0);
 		}
+	} else {
+		setViewDestroy(setname, viewIndex);
 	}
 
 	{
