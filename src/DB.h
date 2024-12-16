@@ -212,6 +212,7 @@ class DB {
 				const std::vector<std::string> params
 		);
 
+		//negative to destroy all
 		void setViewDestroy(
 				const std::string& setname,
 				int viewIndex

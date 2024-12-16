@@ -813,7 +813,7 @@ Controller::Controller(std::string server_name) {
 					auto n = views->create_child("destroy");
 					auto p = n->create_parameter(ossia::val_type::INT);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-					n->set(ossia::net::description_attribute{}, "destroy a view via its index");
+					n->set(ossia::net::description_attribute{}, "destroy a view via its index, use a negative value to destroy all views");
 
 					p->add_callback([this](const ossia::value& v) {
 						if (v.get_type() == ossia::val_type::INT) {
@@ -2385,9 +2385,14 @@ void Controller::registerCommands() {
 				if (setname.size()) {
 					int index = params["index"].get<int>();
 					mDB->setViewDestroy(setname, index);
+
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
-						removeSetView(index);
+						if (index < 0) {
+							mSetViewsListNode->clear_children();
+						} else {
+							removeSetView(index);
+						}
 					}
 
 					reportCommandResult(id, {

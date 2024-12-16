@@ -1214,16 +1214,27 @@ void DB::setViewDestroy(
 		const std::string& setname,
 		int viewIndex
 ) {
-	SQLite::Statement query(mDB, R"(
-		DELETE FROM sets_views 
-		WHERE view_index = ?3 
-		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		)"
-	);
-	query.bind(1, setname);
-	query.bind(2, cur_rnbo_version);
-	query.bind(3, viewIndex);
-	query.exec();
+	if (viewIndex < 0) {
+		SQLite::Statement query(mDB, R"(
+			DELETE FROM sets_views 
+			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			)"
+		);
+		query.bind(1, setname);
+		query.bind(2, cur_rnbo_version);
+		query.exec();
+	} else {
+		SQLite::Statement query(mDB, R"(
+			DELETE FROM sets_views 
+			WHERE view_index = ?3 
+			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			)"
+		);
+		query.bind(1, setname);
+		query.bind(2, cur_rnbo_version);
+		query.bind(3, viewIndex);
+		query.exec();
+	}
 }
 
 void DB::setViewUpdateParams(
