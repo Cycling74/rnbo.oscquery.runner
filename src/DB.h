@@ -200,6 +200,41 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+		std::vector<int> setViewIndexes(const std::string& setName);
+		boost::optional<std::tuple<
+			std::string,
+			std::vector<std::string>,
+			int
+		>> setViewGet(const std::string& setname, int viewIndex);
+
+		int setViewCreate(
+				const std::string& setname,
+				const std::vector<std::string> params
+		);
+
+		void setViewDestroy(
+				const std::string& setname,
+				int viewIndex
+		);
+
+		void setViewUpdateParams(
+				const std::string& setname,
+				int viewIndex,
+				const std::vector<std::string> params
+		);
+
+		void setViewUpdateName(
+				const std::string& setname,
+				int viewIndex,
+				const std::string& name
+		);
+
+		void setViewUpdateSortOrder(
+				const std::string& setname,
+				int viewIndex,
+				int sortOrder
+		);
+
 		//returns true if anything happened
 		bool listenersAdd(const std::string& ip, uint16_t port);
 		bool listenersDel(const std::string& ip, uint16_t port);

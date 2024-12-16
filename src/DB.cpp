@@ -259,6 +259,26 @@ CREATE TABLE sets_connections
 		db.exec("ALTER TABLE sets_presets ADD COLUMN preset_name TEXT DEFAULT NULL");
 	});
 
+	do_migration(15, [](SQLite::Database& db) {
+			db.exec(R"(
+CREATE TABLE sets_views
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+	params TEXT NOT NULL,
+	name TEXT NOT NULL,
+
+	set_id INTEGER NOT NULL,
+	view_index INTEGER NOT NULL,
+
+	sort_order INTEGER NOT NULL DEFAULT 100,
+
+	FOREIGN KEY (set_id) REFERENCES sets(id) ON DELETE CASCADE,
+	UNIQUE (set_id, view_index)
+)
+			)");
+	});
+
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
 }
@@ -1096,6 +1116,176 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 
 		func(name, created_at, initial != 0);
 	}
+}
+
+std::vector<int> DB::setViewIndexes(const std::string& setName) {
+	std::vector<int> indexes;
+
+	SQLite::Statement query(mDB, R"(
+		SELECT view_index FROM sets_views 
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		)"
+	);
+	query.bind(1, setName);
+	query.bind(2, cur_rnbo_version);
+	while (query.executeStep()) {
+		indexes.push_back(query.getColumn(0));
+	}
+
+	return indexes;
+}
+
+boost::optional<std::tuple<
+	std::string,
+	std::vector<std::string>,
+	int
+>> DB::setViewGet(const std::string& setname, int viewIndex) {
+	boost::optional<std::tuple<std::string, std::vector<std::string>, int>> item;
+
+		SQLite::Statement query(mDB, R"(
+			SELECT name, params, sort_order FROM sets_views 
+			WHERE view_index = ?3 
+			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			)"
+		);
+		query.bind(1, setname);
+		query.bind(2, cur_rnbo_version);
+		query.bind(3, viewIndex);
+	if (query.executeStep()) {
+		const char * s = query.getColumn(0);
+
+		std::string name(s);
+
+		s = query.getColumn(1);
+		std::string paramsString(s);
+
+		int sortOrder = query.getColumn(2);
+
+		std::vector<std::string> params;
+		boost::algorithm::split(params, paramsString, boost::is_any_of(","));
+
+		item = {{ name, params, sortOrder }};
+	}
+
+	return item;
+}
+
+int DB::setViewCreate(
+		const std::string& setname,
+		const std::vector<std::string> params
+) {
+	//TODO optimize into 1 query?
+	int viewIndex = 0;
+	{
+		SQLite::Statement query(mDB, R"(
+			SELECT MAX(view_index) + 1 FROM sets_views
+			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			)"
+		);
+		query.bind(1, setname);
+		query.bind(2, cur_rnbo_version);
+
+		if (query.executeStep()) {
+			viewIndex = query.getColumn(0);
+		}
+	}
+
+	{
+		std::string paramString = boost::algorithm::join(params, ",");
+
+		SQLite::Statement query(mDB, R"(
+			INSERT INTO sets_views (set_id, name, view_index, params)
+			SELECT MAX(sets.id), "", ?3, ?4
+			FROM sets WHERE sets.name = ?1 AND sets.runner_rnbo_version = ?2 GROUP BY sets.name
+			)"
+		);
+
+		query.bind(1, setname);
+		query.bind(2, cur_rnbo_version);
+		query.bind(3, viewIndex);
+		query.bind(4, paramString);
+		query.exec();
+	}
+
+	return viewIndex;
+}
+
+void DB::setViewDestroy(
+		const std::string& setname,
+		int viewIndex
+) {
+	SQLite::Statement query(mDB, R"(
+		DELETE FROM sets_views 
+		WHERE view_index = ?3 
+		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		)"
+	);
+	query.bind(1, setname);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, viewIndex);
+	query.exec();
+}
+
+void DB::setViewUpdateParams(
+		const std::string& setname,
+		int viewIndex,
+		const std::vector<std::string> params
+) {
+	std::string paramString = boost::algorithm::join(params, ",");
+
+	SQLite::Statement query(mDB, R"(
+		UPDATE sets_views 
+		SET params = ?4
+		WHERE view_index = ?3 
+		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		)"
+	);
+	query.bind(1, setname);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, viewIndex);
+	query.bind(4, paramString);
+
+	query.exec();
+}
+
+void DB::setViewUpdateName(
+		const std::string& setname,
+		int viewIndex,
+		const std::string& name
+) {
+	SQLite::Statement query(mDB, R"(
+		UPDATE sets_views 
+		SET name = ?4
+		WHERE view_index = ?3 
+		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		)"
+	);
+	query.bind(1, setname);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, viewIndex);
+	query.bind(4, name);
+
+	query.exec();
+}
+
+void DB::setViewUpdateSortOrder(
+		const std::string& setname,
+		int viewIndex,
+		int sortOrder
+) {
+	SQLite::Statement query(mDB, R"(
+		UPDATE sets_views 
+		SET sort_order = ?4
+		WHERE view_index = ?3 
+		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		)"
+	);
+	query.bind(1, setname);
+	query.bind(2, cur_rnbo_version);
+	query.bind(3, viewIndex);
+	query.bind(4, sortOrder);
+
+	query.exec();
 }
 
 bool DB::listenersAdd(const std::string& ip, uint16_t port)
