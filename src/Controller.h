@@ -93,6 +93,10 @@ class Controller {
 		//only to be called during setup or in the command thread
 		void updateSetNames();
 		void updateSetInitialName(std::string name);
+		void updateSetViews(const std::string& setname);
+		//need to lock build mutex around these
+		void addSetView(std::string setname, int index);
+		void removeSetView(int index);
 
 		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
 		void updateSetPresetNames(std::string toadd = std::string());
@@ -129,6 +133,8 @@ class Controller {
 		ossia::net::parameter_base * mSetInitialNameParam = nullptr;
 
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
+
+		ossia::net::node_base * mSetViewsListNode = nullptr;
 
 		std::mutex mSetNamesMutex;
 		bool mSetNamesUpdated = false;

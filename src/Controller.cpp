@@ -779,6 +779,64 @@ Controller::Controller(std::string server_name) {
 				}
 			}
 
+			{
+				auto views = sets->create_child("views");
+				{
+					auto n = views->create_child("create");
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "create a new set view, sending an initial list of parameters along");
+
+					p->add_callback([this](const ossia::value& v) {
+						RNBO::Json params = RNBO::Json::array();
+						if (v.get_type() == ossia::val_type::LIST) {
+							auto l = v.get<std::vector<ossia::value>>();
+							for (auto n: l) {
+								if (n.get_type() == ossia::val_type::STRING) {
+									params.push_back(n.get<std::string>());
+								}
+							}
+						}
+						RNBO::Json cmd = {
+							{"method", "instance_set_view_create"},
+							{"id", "internal"},
+							{"params",
+								{
+									{"params", params},
+								}
+							}
+						};
+						mCommandQueue.push(cmd.dump());
+					});
+				}
+				{
+					auto n = views->create_child("destroy");
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "destroy a view via its index, use a negative value to destroy all views");
+
+					p->add_callback([this](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::INT) {
+							int index = v.get<int>();
+							RNBO::Json cmd = {
+								{"method", "instance_set_view_destroy"},
+								{"id", "internal"},
+								{"params",
+									{
+										{"index", index},
+									}
+								}
+							};
+							mCommandQueue.push(cmd.dump());
+						}
+					});
+				}
+
+				{
+					auto n = mSetViewsListNode = views->create_child("list");
+				}
+			}
+
 			updateSetNames();
 		}
 	}
@@ -1348,6 +1406,10 @@ void Controller::doLoadSet(std::string setname) {
 	} catch (...) {
 		cerr << "unknown exception trying to load last setup" << endl;
 	}
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		updateSetViews(setname);
+	}
 }
 
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
@@ -1605,6 +1667,86 @@ void Controller::updateSetNames() {
 
 	updateSetInitialName(initialName);
 	mSetNamesUpdated = true;
+}
+
+void Controller::updateSetViews(const std::string& setname) {
+	//we have the build mutex
+	mSetViewsListNode->clear_children();
+
+	if (setname.size()) {
+		auto indexes = mDB->setViewIndexes(setname);
+		for (auto i: indexes) {
+			addSetView(setname, i);
+		}
+	}
+}
+
+void Controller::addSetView(std::string setname, int index) {
+	auto data = mDB->setViewGet(setname, index);
+	if (!data) {
+		return;
+	}
+
+	std::string name = std::get<0>(data.get());
+	std::vector<std::string> params = std::get<1>(data.get());
+	int sortOrder = std::get<2>(data.get());
+
+	auto view = mSetViewsListNode->create_child(std::to_string(index));
+	{
+		auto n = view->create_child("name");
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "Optional name for this set view");
+		if (name.size()) {
+			p->push_value(name);
+		}
+		p->add_callback([this, setname, index](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::STRING) {
+				std::string name = val.get<std::string>();
+				mDB->setViewUpdateName(setname, index, name);
+			}
+		});
+	}
+	{
+		auto n = view->create_child("params");
+		auto p = n->create_parameter(ossia::val_type::LIST);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "list of parameters in format instance_index:parameter_index");
+		std::vector<ossia::value> l;
+		for (auto param: params) {
+			l.push_back(param);
+		}
+		p->push_value(l);
+		p->add_callback([this, setname, index](const ossia::value& val) {
+			std::vector<std::string> params;
+			if (val.get_type() == ossia::val_type::LIST) {
+				auto l = val.get<std::vector<ossia::value>>();
+				for (auto item: l) {
+					if (item.get_type() == ossia::val_type::STRING) {
+						params.push_back(item.get<std::string>());
+					}
+				}
+			}
+			mDB->setViewUpdateParams(setname, index, params);
+		});
+	}
+	{
+		auto n = view->create_child("sort_order");
+		auto p = n->create_parameter(ossia::val_type::INT);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "sort order for this set view");
+		p->push_value(sortOrder);
+		p->add_callback([this, setname, index](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::INT) {
+				int sortOrder = val.get<int>();
+				mDB->setViewUpdateSortOrder(setname, index, sortOrder);
+			}
+		});
+	}
+}
+
+void Controller::removeSetView(int index) {
+	mSetViewsListNode->remove_child(std::to_string(index));
 }
 
 void Controller::updateSetInitialName(std::string name) {
@@ -1990,6 +2132,11 @@ void Controller::registerCommands() {
 					mSetPresetLoadedParam->push_value(empty);
 					updateSetPresetNames();
 					config::set(empty, config::key::SetLastName);
+
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						updateSetViews(empty);
+					}
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
@@ -2009,6 +2156,9 @@ void Controller::registerCommands() {
 				//XXX
 				auto info = setInfo();
 				if (info.instances.size()) {
+					std::string loaded = getCurrentSetName();
+
+
 					mDB->setSave(name, info);
 					const std::string presetName = "initial";
 					saveSetPreset(name, presetName);
@@ -2020,6 +2170,16 @@ void Controller::registerCommands() {
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
 					updateSetPresetNames(presetName);
+
+					//set views
+					{
+						//copy views
+						if (loaded.size() > 0 && loaded != name) {
+							mDB->setViewsCopy(loaded, name);
+						}
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						updateSetViews(name);
+					}
 					mSetPresetLoadedParam->push_value(presetName);
 					config::set(name, config::key::SetLastName);
 				} else {
@@ -2075,6 +2235,10 @@ void Controller::registerCommands() {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
 					mSetCurrentNameParam->push_value("");
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						mSetViewsListNode->clear_children();
+					}
 				}
 			}
 	});
@@ -2189,6 +2353,64 @@ void Controller::registerCommands() {
 					updateSetPresetNames();
 				} else {
 					std::cerr << "no current set name, cannot rename associated preset" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_view_create",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					std::vector<std::string> viewParams;
+
+					for (auto p: params["params"]) {
+						viewParams.push_back(p.get<std::string>());
+					}
+
+					int index = mDB->setViewCreate(setname, viewParams);
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						addSetView(setname, index);
+					}
+
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "created"},
+						{"progress", 100}
+					});
+				} else {
+					std::cerr << "no current set name, cannot create associated view" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_view_destroy",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					int index = params["index"].get<int>();
+					mDB->setViewDestroy(setname, index);
+
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						if (index < 0) {
+							mSetViewsListNode->clear_children();
+						} else {
+							removeSetView(index);
+						}
+					}
+
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "destroyed"},
+						{"progress", 100}
+					});
+				} else {
+					std::cerr << "no current set name, cannot destroy associated view" << std::endl;
 					reportCommandError(id, 1, "failed");
 				}
 			}
@@ -2360,7 +2582,7 @@ void Controller::registerCommands() {
 				updateSetNames();
 
 				//handle presets
-				if (setData["presets"].is_object()) {
+				if (setData.contains("presets") && setData["presets"].is_object()) {
 					//TODO delete all existing presets?
 					for (const auto& kv: setData["presets"].items()) {
 						std::string presetName = kv.key();
@@ -2375,7 +2597,7 @@ void Controller::registerCommands() {
 									RNBO::Json content = RNBO::Json::object();
 									if (entry.contains("content") && entry["content"].is_object())
 										content = entry["content"];
-									if (entry.contains("presetname") && entry["presetname"]) {
+									if (entry.contains("presetname") && entry["presetname"].is_string()) {
 										patcherPresetName = entry["presetname"];
 									}
 									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
@@ -2383,6 +2605,21 @@ void Controller::registerCommands() {
 									std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
 								}
 							}
+						}
+					}
+				}
+				if (setData.contains("views") && setData["views"].is_array()) {
+					for (auto entry: setData["views"]) {
+						if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
+							auto index = entry["index"].get<int>();
+							auto name = entry["name"].get<std::string>();
+							auto params = entry["params"];
+							auto sort_order = entry["sort_order"].get<int>();
+							mDB->setViewCreate(fileName, params, index);
+							if (name.size()) {
+								mDB->setViewUpdateName(fileName, index, name);
+							}
+							mDB->setViewUpdateSortOrder(fileName, index, sort_order);
 						}
 					}
 				}
@@ -2491,6 +2728,24 @@ void Controller::registerCommands() {
 								presets[presetName] = preset;
 							}
 							s["presets"] = presets;
+
+							RNBO::Json views = RNBO::Json::array();
+							auto indexes = mDB->setViewIndexes(name);
+							for (auto index: indexes) {
+								auto data = mDB->setViewGet(name, index);
+								if (!data)
+									continue;
+								RNBO::Json entry;
+
+								entry["index"] = index;
+								entry["name"] = std::get<0>(data.get());
+								entry["params"] = std::get<1>(data.get());
+								entry["sort_order"] = std::get<2>(data.get());
+
+								views.push_back(entry);
+							}
+
+							s["views"] = views;
 
 							content[name] = s;
 						}
