@@ -209,6 +209,7 @@ class DB {
 
 		int setViewCreate(
 				const std::string& setname,
+				const std::string& viewname,
 				const std::vector<std::string> params,
 				int index = -1 //less than zero means find next index
 		);

@@ -785,28 +785,36 @@ Controller::Controller(std::string server_name) {
 					auto n = views->create_child("create");
 					auto p = n->create_parameter(ossia::val_type::LIST);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-					n->set(ossia::net::description_attribute{}, "create a new set view, sending an initial list of parameters along");
+					n->set(ossia::net::description_attribute{}, "create a new set view, first parameter is the name, the rest compose the initial view parameter list");
 
 					p->add_callback([this](const ossia::value& v) {
 						RNBO::Json params = RNBO::Json::array();
 						if (v.get_type() == ossia::val_type::LIST) {
+							std::string name;
 							auto l = v.get<std::vector<ossia::value>>();
 							for (auto n: l) {
 								if (n.get_type() == ossia::val_type::STRING) {
-									params.push_back(n.get<std::string>());
+									if (name.size() == 0) {
+										name = n.get<std::string>();
+									} else {
+										params.push_back(n.get<std::string>());
+									}
 								}
+							}
+							if (name.size() > 0) {
+								RNBO::Json cmd = {
+									{"method", "instance_set_view_create"},
+									{"id", "internal"},
+									{"params",
+										{
+											{"name", name},
+											{"params", params},
+										}
+									}
+								};
+								mCommandQueue.push(cmd.dump());
 							}
 						}
-						RNBO::Json cmd = {
-							{"method", "instance_set_view_create"},
-							{"id", "internal"},
-							{"params",
-								{
-									{"params", params},
-								}
-							}
-						};
-						mCommandQueue.push(cmd.dump());
 					});
 				}
 				{
@@ -2363,13 +2371,14 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string setname = getCurrentSetName();
 				if (setname.size()) {
+					std::string viewname = params["name"];
 					std::vector<std::string> viewParams;
 
 					for (auto p: params["params"]) {
 						viewParams.push_back(p.get<std::string>());
 					}
 
-					int index = mDB->setViewCreate(setname, viewParams);
+					int index = mDB->setViewCreate(setname, viewname, viewParams);
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						addSetView(setname, index);
@@ -2615,10 +2624,7 @@ void Controller::registerCommands() {
 							auto name = entry["name"].get<std::string>();
 							auto params = entry["params"];
 							auto sort_order = entry["sort_order"].get<int>();
-							mDB->setViewCreate(fileName, params, index);
-							if (name.size()) {
-								mDB->setViewUpdateName(fileName, index, name);
-							}
+							mDB->setViewCreate(fileName, name, params, index);
 							mDB->setViewUpdateSortOrder(fileName, index, sort_order);
 						}
 					}

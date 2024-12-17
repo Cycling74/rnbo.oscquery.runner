@@ -1122,7 +1122,7 @@ std::vector<int> DB::setViewIndexes(const std::string& setName) {
 	std::vector<int> indexes;
 
 	SQLite::Statement query(mDB, R"(
-		SELECT view_index FROM sets_views 
+		SELECT view_index FROM sets_views
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		)"
 	);
@@ -1143,8 +1143,8 @@ boost::optional<std::tuple<
 	boost::optional<std::tuple<std::string, std::vector<std::string>, int>> item;
 
 		SQLite::Statement query(mDB, R"(
-			SELECT name, params, sort_order FROM sets_views 
-			WHERE view_index = ?3 
+			SELECT name, params, sort_order FROM sets_views
+			WHERE view_index = ?3
 			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 			)"
 		);
@@ -1172,6 +1172,7 @@ boost::optional<std::tuple<
 
 int DB::setViewCreate(
 		const std::string& setname,
+		const std::string& viewname,
 		const std::vector<std::string> params,
 		int viewIndex
 ) {
@@ -1195,8 +1196,8 @@ int DB::setViewCreate(
 		std::string paramString = boost::algorithm::join(params, ",");
 
 		SQLite::Statement query(mDB, R"(
-			INSERT INTO sets_views (set_id, name, view_index, params)
-			SELECT MAX(sets.id), "", ?3, ?4
+			INSERT INTO sets_views (set_id, view_index, params, name)
+			SELECT MAX(sets.id), ?3, ?4, ?5
 			FROM sets WHERE sets.name = ?1 AND sets.runner_rnbo_version = ?2 GROUP BY sets.name
 			)"
 		);
@@ -1205,6 +1206,7 @@ int DB::setViewCreate(
 		query.bind(2, cur_rnbo_version);
 		query.bind(3, viewIndex);
 		query.bind(4, paramString);
+		query.bind(5, viewname);
 		query.exec();
 	}
 
@@ -1217,7 +1219,7 @@ void DB::setViewDestroy(
 ) {
 	if (viewIndex < 0) {
 		SQLite::Statement query(mDB, R"(
-			DELETE FROM sets_views 
+			DELETE FROM sets_views
 			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 			)"
 		);
@@ -1226,8 +1228,8 @@ void DB::setViewDestroy(
 		query.exec();
 	} else {
 		SQLite::Statement query(mDB, R"(
-			DELETE FROM sets_views 
-			WHERE view_index = ?3 
+			DELETE FROM sets_views
+			WHERE view_index = ?3
 			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 			)"
 		);
@@ -1246,9 +1248,9 @@ void DB::setViewUpdateParams(
 	std::string paramString = boost::algorithm::join(params, ",");
 
 	SQLite::Statement query(mDB, R"(
-		UPDATE sets_views 
+		UPDATE sets_views
 		SET params = ?4
-		WHERE view_index = ?3 
+		WHERE view_index = ?3
 		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		)"
 	);
@@ -1266,9 +1268,9 @@ void DB::setViewUpdateName(
 		const std::string& name
 ) {
 	SQLite::Statement query(mDB, R"(
-		UPDATE sets_views 
+		UPDATE sets_views
 		SET name = ?4
-		WHERE view_index = ?3 
+		WHERE view_index = ?3
 		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		)"
 	);
@@ -1286,9 +1288,9 @@ void DB::setViewUpdateSortOrder(
 		int sortOrder
 ) {
 	SQLite::Statement query(mDB, R"(
-		UPDATE sets_views 
+		UPDATE sets_views
 		SET sort_order = ?4
-		WHERE view_index = ?3 
+		WHERE view_index = ?3
 		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		)"
 	);
@@ -1322,7 +1324,7 @@ void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetNa
 		}
 		{
 			SQLite::Statement query(mDB, R"(
-				INSERT INTO sets_views 
+				INSERT INTO sets_views
 					(set_id, view_index, name, sort_order, params)
 					SELECT ?2, view_index, name, sort_order, params FROM sets_views WHERE set_id = ?1
 				)"
