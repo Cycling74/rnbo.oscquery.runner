@@ -2784,7 +2784,7 @@ void Controller::registerCommands() {
 							//get presets
 							//XXX could this become too large??
 							RNBO::Json presets;
-							std::vector<std::string> presetNames = mDB->setPresets(name);
+							std::vector<std::string> presetNames = mDB->setPresets(name, rnboVersion);
 							for (auto presetName: presetNames) {
 								RNBO::Json preset;
 
@@ -2800,16 +2800,16 @@ void Controller::registerCommands() {
 												entry["content"] = RNBO::Json::parse(content);
 											}
 											preset.push_back(entry);
-										});
+										}, rnboVersion);
 
 								presets[presetName] = preset;
 							}
 							s["presets"] = presets;
 
 							RNBO::Json views = RNBO::Json::array();
-							auto indexes = mDB->setViewIndexes(name);
+							auto indexes = mDB->setViewIndexes(name, rnboVersion);
 							for (auto index: indexes) {
-								auto data = mDB->setViewGet(name, index);
+								auto data = mDB->setViewGet(name, index, rnboVersion);
 								if (!data)
 									continue;
 								RNBO::Json entry;
