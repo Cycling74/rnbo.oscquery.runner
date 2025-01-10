@@ -170,6 +170,11 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+		void setPresetDestroyAll(
+				const std::string& setName,
+				std::string rnbo_version = std::string()
+		);
+
 		void setSave(
 				const std::string& name,
 				const SetInfo& info

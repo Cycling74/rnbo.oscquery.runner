@@ -849,6 +849,26 @@ void DB::setPresetDestroy(
 
 }
 
+void DB::setPresetDestroyAll(
+		const std::string& setName,
+		std::string rnbo_version
+) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	SQLite::Statement query(mDB, R"(
+		DELETE FROM sets_presets
+		WHERE 
+		set_id IN (
+			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name
+		)
+	)");
+	query.bind(1, setName);
+	query.bind(2, rnbo_version);
+	query.exec();
+}
+
 void DB::setSave(
 		const std::string& name,
 		const SetInfo& info
