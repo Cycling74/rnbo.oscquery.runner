@@ -2163,15 +2163,23 @@ void Controller::registerCommands() {
 					}
 				}
 				if (index < 0) {
-					std::string empty;
+					//clear out all set views and presets from LAST_SET_NAME
+					const std::string loaded(LAST_SET_NAME);
+					mDB->setPresetDestroyAll(loaded);
+					mDB->setViewDestroy(loaded, -1);
+
+					//TODO do we just want to report LAST_SET_NAME ?
+					const std::string empty;
 					mSetCurrentNameParam->push_value(empty);
 					mSetPresetLoadedParam->push_value(empty);
+
 					updateSetPresetNames();
 					config::set(empty, config::key::SetLastName);
 
 					{
+
 						std::lock_guard<std::mutex> guard(mBuildMutex);
-						updateSetViews(empty);
+						updateSetViews(loaded);
 					}
 				}
 				mProcessAudio->updatePorts();
