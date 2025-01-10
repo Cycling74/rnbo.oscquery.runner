@@ -97,6 +97,7 @@ class Controller {
 		//need to lock build mutex around these
 		void addSetView(std::string setname, int index);
 		void removeSetView(int index);
+		void reportSetViewOrder(const std::string& setname);
 
 		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
 		void updateSetPresetNames(std::string toadd = std::string());

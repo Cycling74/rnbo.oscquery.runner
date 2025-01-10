@@ -1774,6 +1774,17 @@ void Controller::removeSetView(int index) {
 	mSetViewsListNode->remove_child(std::to_string(index));
 }
 
+void Controller::reportSetViewOrder(const std::string& setname) {
+	std::vector<ossia::value> order;
+	if (setname.size()) {
+		auto indexes = mDB->setViewIndexes(setname);
+		for (auto i: indexes) {
+			order.push_back(i);
+		}
+	}
+	mSetViewsOrderParam->push_value_quiet(order);
+}
+
 void Controller::updateSetInitialName(std::string name) {
 	//if we don't have the param or the param is a string and matches, do nothing
 	if (!mSetInitialNameParam || (mSetInitialNameParam->get_value_type() == ossia::val_type::STRING && mSetInitialNameParam->value().get<std::string>() == name)) {
@@ -2401,6 +2412,7 @@ void Controller::registerCommands() {
 						addSetView(setname, index);
 					}
 
+
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "created"},
@@ -2410,6 +2422,7 @@ void Controller::registerCommands() {
 					std::cerr << "no current set name, cannot create associated view" << std::endl;
 					reportCommandError(id, 1, "failed");
 				}
+				reportSetViewOrder(setname);
 			}
 	});
 
@@ -2439,6 +2452,7 @@ void Controller::registerCommands() {
 					std::cerr << "no current set name, cannot destroy associated view" << std::endl;
 					reportCommandError(id, 1, "failed");
 				}
+				reportSetViewOrder(setname);
 			}
 	});
 
