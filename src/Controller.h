@@ -135,6 +135,7 @@ class Controller {
 		ossia::net::parameter_base * mSetMetaParam = nullptr;
 
 		ossia::net::node_base * mSetViewsListNode = nullptr;
+		ossia::net::parameter_base * mSetViewsOrderParam = nullptr;
 
 		std::mutex mSetNamesMutex;
 		bool mSetNamesUpdated = false;

@@ -821,7 +821,7 @@ Controller::Controller(std::string server_name) {
 					auto n = views->create_child("destroy");
 					auto p = n->create_parameter(ossia::val_type::INT);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-					n->set(ossia::net::description_attribute{}, "destroy a view via its index, use a negative value to destroy all views");
+					n->set(ossia::net::description_attribute{}, "destroy a view via its id, use a negative value to destroy all views");
 
 					p->add_callback([this](const ossia::value& v) {
 						if (v.get_type() == ossia::val_type::INT) {
@@ -842,6 +842,33 @@ Controller::Controller(std::string server_name) {
 
 				{
 					auto n = mSetViewsListNode = views->create_child("list");
+				}
+				{
+					auto n = views->create_child("order");
+					auto p = mSetViewsOrderParam = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+					n->set(ossia::net::description_attribute{}, "set a sort order for the set views, using their ids");
+					p->add_callback([this](const ossia::value& val) {
+						RNBO::Json indexes = RNBO::Json::array();
+						if (val.get_type() == ossia::val_type::LIST) {
+							auto l = val.get<std::vector<ossia::value>>();
+							for (auto item: l) {
+								if (item.get_type() == ossia::val_type::INT) {
+									indexes.push_back(item.get<int>());
+								}
+							}
+						}
+						RNBO::Json cmd = {
+							{"method", "instance_set_view_order"},
+							{"id", "internal"},
+							{"params",
+								{
+									{"order", indexes},
+								}
+							}
+						};
+						mCommandQueue.push(cmd.dump());
+					});
 				}
 			}
 
@@ -1680,13 +1707,16 @@ void Controller::updateSetNames() {
 void Controller::updateSetViews(const std::string& setname) {
 	//we have the build mutex
 	mSetViewsListNode->clear_children();
+	std::vector<ossia::value> order;
 
 	if (setname.size()) {
 		auto indexes = mDB->setViewIndexes(setname);
 		for (auto i: indexes) {
 			addSetView(setname, i);
+			order.push_back(i);
 		}
 	}
+	mSetViewsOrderParam->push_value_quiet(order);
 }
 
 void Controller::addSetView(std::string setname, int index) {
@@ -1697,7 +1727,7 @@ void Controller::addSetView(std::string setname, int index) {
 
 	std::string name = std::get<0>(data.get());
 	std::vector<std::string> params = std::get<1>(data.get());
-	int sortOrder = std::get<2>(data.get());
+	//int sortOrder = std::get<2>(data.get());
 
 	auto view = mSetViewsListNode->create_child(std::to_string(index));
 	{
@@ -1736,19 +1766,6 @@ void Controller::addSetView(std::string setname, int index) {
 				}
 			}
 			mDB->setViewUpdateParams(setname, index, params);
-		});
-	}
-	{
-		auto n = view->create_child("sort_order");
-		auto p = n->create_parameter(ossia::val_type::INT);
-		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-		n->set(ossia::net::description_attribute{}, "sort order for this set view");
-		p->push_value(sortOrder);
-		p->add_callback([this, setname, index](const ossia::value& val) {
-			if (val.get_type() == ossia::val_type::INT) {
-				int sortOrder = val.get<int>();
-				mDB->setViewUpdateSortOrder(setname, index, sortOrder);
-			}
 		});
 	}
 }
@@ -2426,6 +2443,37 @@ void Controller::registerCommands() {
 	});
 
 	mCommandHandlers.insert({
+			"instance_set_view_order",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string setname = getCurrentSetName();
+				if (setname.size()) {
+					std::vector<int> indexes;
+					const RNBO::Json& order = params["order"];
+					for (auto item: order) {
+						indexes.push_back(item.get<int>());
+					}
+
+					if (mDB->setViewsUpdateSortOrder(setname, indexes)) {
+						std::vector<ossia::value> values;
+						for (auto index: indexes) {
+							values.push_back(index);
+						}
+						mSetViewsOrderParam->push_value_quiet(values);
+					}
+
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "sorted"},
+						{"progress", 100}
+					});
+				} else {
+					std::cerr << "no current set name, cannot sort associated views" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
 			"patcherstore",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
@@ -2618,16 +2666,18 @@ void Controller::registerCommands() {
 					}
 				}
 				if (setData.contains("views") && setData["views"].is_array()) {
+					std::vector<int> sort_order;
+					//sorted
 					for (auto entry: setData["views"]) {
 						if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
 							auto index = entry["index"].get<int>();
 							auto name = entry["name"].get<std::string>();
 							auto params = entry["params"];
-							auto sort_order = entry["sort_order"].get<int>();
+							sort_order.push_back(index);
 							mDB->setViewCreate(fileName, name, params, index);
-							mDB->setViewUpdateSortOrder(fileName, index, sort_order);
 						}
 					}
+					mDB->setViewsUpdateSortOrder(fileName, sort_order);
 				}
 			}
 		}

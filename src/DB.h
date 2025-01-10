@@ -200,6 +200,7 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+		//order by sort_order
 		std::vector<int> setViewIndexes(const std::string& setName);
 		boost::optional<std::tuple<
 			std::string,
@@ -232,10 +233,10 @@ class DB {
 				const std::string& name
 		);
 
-		void setViewUpdateSortOrder(
+		//returns true if indexes list was altered
+		bool setViewsUpdateSortOrder(
 				const std::string& setname,
-				int viewIndex,
-				int sortOrder
+				std::vector<int>& indexes
 		);
 
 		void setViewsCopy(

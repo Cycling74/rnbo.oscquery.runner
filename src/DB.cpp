@@ -20,6 +20,16 @@ namespace {
 		const char * s = query.getColumn(col);
 		return std::string(s);
 	}
+
+	int getsetid(SQLite::Database& db, const std::string& name)  {
+		SQLite::Statement query(db, "SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name");
+		query.bind(1, name);
+		query.bind(2, cur_rnbo_version);
+		if (query.executeStep()) {
+			return query.getColumn(0);
+		}
+		return 0;
+	};
 }
 
 DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE) {
@@ -1124,6 +1134,7 @@ std::vector<int> DB::setViewIndexes(const std::string& setName) {
 	SQLite::Statement query(mDB, R"(
 		SELECT view_index FROM sets_views
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY sort_order ASC
 		)"
 	);
 	query.bind(1, setName);
@@ -1282,39 +1293,74 @@ void DB::setViewUpdateName(
 	query.exec();
 }
 
-void DB::setViewUpdateSortOrder(
+bool DB::setViewsUpdateSortOrder(
 		const std::string& setname,
-		int viewIndex,
-		int sortOrder
+		std::vector<int>& indexes
 ) {
-	SQLite::Statement query(mDB, R"(
-		UPDATE sets_views
-		SET sort_order = ?4
-		WHERE view_index = ?3
-		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		)"
-	);
-	query.bind(1, setname);
-	query.bind(2, cur_rnbo_version);
-	query.bind(3, viewIndex);
-	query.bind(4, sortOrder);
+	int setid = getsetid(mDB, setname);
+	if (setid > 0) {
+		std::vector<std::string> orderings;
+		for (auto i: indexes) {
+			orderings.push_back("view_index=" + std::to_string(i) + " DESC");
+		}
 
-	query.exec();
+		std::string s = 
+		R"(
+			UPDATE sets_views
+			SET sort_order = q.sort_order
+			FROM
+				(
+					SELECT
+						ROW_NUMBER() OVER (REPL) AS sort_order,
+						id
+					FROM
+						sets_views
+					WHERE
+						set_id = ?1
+				) AS q
+			WHERE
+				sets_views.id = q.id
+			)";
+
+		std::string ordering;
+		if (orderings.size()) {
+			ordering = "ORDER BY " + boost::algorithm::join(orderings, ",");
+		}
+
+		auto pos = s.find("REPL");
+		s.replace(pos, 4, ordering);
+
+		{
+			SQLite::Statement query(mDB, s);
+			query.bind(1, setid);
+			query.exec();
+		}
+
+		//test to see if we got the sort order we expected
+		{
+			SQLite::Statement query(mDB, "SELECT view_index FROM sets_views WHERE set_id = ?1 ORDER BY sort_order");
+			query.bind(1, setid);
+			std::vector<int> result;
+			while (query.executeStep()) {
+				result.push_back(query.getColumn(0));
+			}
+
+			if (result == indexes) {
+				return false;
+			}
+			indexes = result;
+			return true;
+		}
+
+	} else {
+		indexes.clear();
+		return true;
+	}
 }
 
 void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetName) {
-	auto getid = [this](const std::string& name) -> int {
-		SQLite::Statement query(mDB, "SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name");
-		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
-		if (query.executeStep()) {
-			return query.getColumn(0);
-		}
-		return 0;
-	};
-
-	int srcid = getid(srcSetName);
-	int dstid = getid(dstSetName);
+	int srcid = getsetid(mDB, srcSetName);
+	int dstid = getsetid(mDB, dstSetName);
 	if (srcid > 0 && dstid > 0) {
 		//delete existing views
 		{
