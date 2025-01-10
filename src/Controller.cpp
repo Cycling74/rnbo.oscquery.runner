@@ -2194,7 +2194,6 @@ void Controller::registerCommands() {
 				if (info.instances.size()) {
 					std::string loaded = getCurrentSetName();
 
-
 					mDB->setSave(name, info);
 					const std::string presetName = "initial";
 					saveSetPreset(name, presetName);
@@ -3430,10 +3429,11 @@ void Controller::handleProgramChange(ProgramChange p) {
 }
 
 std::string Controller::getCurrentSetName() {
+	std::string name = LAST_SET_NAME;
 	if (mSetCurrentNameParam && mSetCurrentNameParam->get_value_type() == ossia::val_type::STRING) {
-		return mSetCurrentNameParam->value().get<std::string>();
+		name = mSetCurrentNameParam->value().get<std::string>();
 	}
-	return std::string();
+	return name.size() ? name : LAST_SET_NAME;
 }
 
 std::string Controller::getCurrentSetPresetName() {
