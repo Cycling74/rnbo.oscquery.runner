@@ -199,19 +199,18 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
-
 		void sets(
 				std::function<void(const std::string& name, const std::string& created, bool initial)> func,
 				std::string rnbo_version = std::string()
 		);
 
 		//order by sort_order
-		std::vector<int> setViewIndexes(const std::string& setName);
+		std::vector<int> setViewIndexes(const std::string& setName, std::string rnbo_version = std::string());
 		boost::optional<std::tuple<
 			std::string,
 			std::vector<std::string>,
 			int
-		>> setViewGet(const std::string& setname, int viewIndex);
+		>> setViewGet(const std::string& setname, int viewIndex, std::string rnbo_version = std::string());
 
 		int setViewCreate(
 				const std::string& setname,

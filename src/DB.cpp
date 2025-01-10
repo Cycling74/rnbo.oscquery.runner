@@ -1148,8 +1148,10 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 	}
 }
 
-std::vector<int> DB::setViewIndexes(const std::string& setName) {
+std::vector<int> DB::setViewIndexes(const std::string& setName, std::string rnbo_version) {
 	std::vector<int> indexes;
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
 
 	SQLite::Statement query(mDB, R"(
 		SELECT view_index FROM sets_views
@@ -1158,7 +1160,7 @@ std::vector<int> DB::setViewIndexes(const std::string& setName) {
 		)"
 	);
 	query.bind(1, setName);
-	query.bind(2, cur_rnbo_version);
+	query.bind(2, rnbo_version);
 	while (query.executeStep()) {
 		indexes.push_back(query.getColumn(0));
 	}
@@ -1170,8 +1172,10 @@ boost::optional<std::tuple<
 	std::string,
 	std::vector<std::string>,
 	int
->> DB::setViewGet(const std::string& setname, int viewIndex) {
+>> DB::setViewGet(const std::string& setname, int viewIndex, std::string rnbo_version) {
 	boost::optional<std::tuple<std::string, std::vector<std::string>, int>> item;
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
 
 		SQLite::Statement query(mDB, R"(
 			SELECT name, params, sort_order FROM sets_views
@@ -1180,7 +1184,7 @@ boost::optional<std::tuple<
 			)"
 		);
 		query.bind(1, setname);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, rnbo_version);
 		query.bind(3, viewIndex);
 	if (query.executeStep()) {
 		const char * s = query.getColumn(0);
