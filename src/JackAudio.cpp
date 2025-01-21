@@ -2113,31 +2113,36 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 				RNBO::MillisecondTime off = (RNBO::MillisecondTime)evt.time * mFrameMillis;
 				auto time = nowms + off;
 
-				std::array<uint8_t, 3> bytes = { 0, 0, 0 };
-				std::memcpy(bytes.data(), evt.buffer, std::min(bytes.size(), evt.size));
-				auto key = midimap::key(bytes[0], bytes[1]);
+				if (evt.size <= 3) {
+					std::array<uint8_t, 3> bytes = { 0, 0, 0 };
 
-				if (key != 0) {
-					lastKey = key;
+					std::memcpy(bytes.data(), evt.buffer, std::min(bytes.size(), evt.size));
+					auto key = midimap::key(bytes[0], bytes[1]);
 
-					if (guard.owns_lock()) {
-						//eval midi map if we have the lock
-						auto it = mMIDIMap.find(key);
-						if (it != mMIDIMap.end()) {
-							double value = midimap::value(bytes[0], bytes[1], bytes[2]);
-							for (auto paramId: it->second) {
-								mCore->setParameterValueNormalized(paramId, value, time);
+					if (key != 0) {
+						lastKey = key;
+
+						if (guard.owns_lock()) {
+							//eval midi map if we have the lock
+							auto it = mMIDIMap.find(key);
+							if (it != mMIDIMap.end()) {
+								double value = midimap::value(bytes[0], bytes[1], bytes[2]);
+								for (auto paramId: it->second) {
+									mCore->setParameterValueNormalized(paramId, value, time);
+								}
+								continue;
 							}
-							continue;
 						}
+					}
+
+					//look for program change to change preset
+					if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
+						mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });
 					}
 				}
 
-				mMIDIInList.addEvent(RNBO::MidiEvent(time, 0, evt.buffer, evt.size));
-
-				//look for program change to change preset
-				if (mProgramChangeQueue && evt.size == 2 && (evt.buffer[0] & 0xF0) == 0xC0) {
-					mProgramChangeQueue->enqueue(ProgramChange { .chan = static_cast<uint8_t>(evt.buffer[0] & 0x0F), .prog = static_cast<uint8_t>(evt.buffer[1]) });
+				for (size_t offset = 0; offset < evt.size; offset += 3) {
+					mMIDIInList.addEvent(RNBO::MidiEvent(time, 0, evt.buffer + offset, std::min((size_t)3, evt.size - offset)));
 				}
 			}
 
