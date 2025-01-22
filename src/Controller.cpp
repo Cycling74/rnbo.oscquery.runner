@@ -156,12 +156,9 @@ namespace {
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
 void RunnerLog(RNBO::LogLevel level, const char* message) {
-	const static char* levelStr[] = { "[INFO]", "[WARNING]", "[ERROR]" };
-	std::string formattedMessage = levelStr[std::min(level, 2)];
-	formattedMessage += "\t";
-	formattedMessage += message;
-	formattedMessage += "\n";
-	std::cout << formattedMessage << std::endl;
+	const static std::array<const std::string, 3> levelStr = { "[INFO]", "[WARNING]", "[ERROR]" };
+	const size_t index = std::min((size_t)level, levelStr.size());
+	std::cout << levelStr[index] << "\t" << message << std::endl;
 }
 
 Controller::Controller(std::string server_name) {
