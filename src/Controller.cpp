@@ -15,6 +15,7 @@
 #include "JackAudio.h"
 #include "PatcherFactory.h"
 #include "RNBO_Version.h"
+#include "RNBO_LoggerImpl.h"
 
 #include <boost/process.hpp>
 #include <boost/process/child.hpp>
@@ -153,8 +154,20 @@ namespace {
 	boost::optional<CompileInfo> compileProcess;
 }
 
+//for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
+void RunnerLog(RNBO::LogLevel level, const char* message) {
+	const static char* levelStr[] = { "[INFO]", "[WARNING]", "[ERROR]" };
+	std::string formattedMessage = levelStr[std::min(level, 2)];
+	formattedMessage += "\t";
+	formattedMessage += message;
+	formattedMessage += "\n";
+	std::cout << formattedMessage << std::endl;
+}
 
 Controller::Controller(std::string server_name) {
+
+	RNBO::console->setLoggerOutputCallback(RunnerLog);
+
 	mDB = std::make_shared<DB>();
 	mProtocol = new ossia::net::multiplex_protocol();
 	mOssiaContext = ossia::net::create_network_context();
