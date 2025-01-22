@@ -55,6 +55,11 @@ int main(int argc, const char * argv[]) {
 		.dest("verbose")
 		.set_default("1")
 		.help("don't print status messages to stdout");
+	parser.add_option("-v", "--version")
+		.action("store_true")
+		.dest("version")
+		.set_default("0")
+		.help("print out version info");
 
 	optparse::Values options = parser.parse_args(argc, argv);
 	std::vector<std::string> args = parser.args();
@@ -78,6 +83,12 @@ int main(int argc, const char * argv[]) {
 	if (options.get("write_config")) {
 		config::write_file();
 		cout << "wrote config to path: " << config::file_path().string() << std::endl;
+		return 0;
+	}
+
+	if (options.get("version")) {
+		std::string rnbo_version(RNBO_VERSION);
+		cout << "runner rnbo version: " << rnbo_version << std::endl;
 		return 0;
 	}
 
