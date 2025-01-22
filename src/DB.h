@@ -62,6 +62,9 @@ class DB {
 		//get the RNBO versions from DB
 		void rnboVersions(std::function<void(const std::string&)> f);
 
+		boost::optional<std::string> migrationDataAvailable();
+		void markDataMigrated();
+
 		//NOTE paths are all just file names, use conf to find the actual locations
 		void patcherStore(
 				const std::string& name,

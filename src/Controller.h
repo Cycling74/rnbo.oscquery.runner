@@ -159,6 +159,8 @@ class Controller {
 		std::uintmax_t mDiskSpaceLast = 0;
 		std::string mDataFileDirMTimeLast;
 
+		ossia::net::parameter_base * mMigrationAvailable = nullptr;
+
 		std::chrono::duration<int> mDiskSpacePollPeriod = std::chrono::seconds(10);
 		std::chrono::time_point<std::chrono::steady_clock> mDiskSpacePollNext;
 

@@ -289,6 +289,19 @@ CREATE TABLE sets_views
 			)");
 	});
 
+	do_migration(16, [](SQLite::Database& db) {
+			//data migrations indicate that we've copied over the data we hope to for the runner_rnbo_version specified
+			//the lack of this entry can be used to compute the presence of migration data
+			db.exec(R"(
+CREATE TABLE data_migrations
+(
+	runner_rnbo_version TEXT NOT NULL,
+	data_rnbo_version TEXT NOT NULL,
+	UNIQUE (data_rnbo_version)
+)
+			)");
+	});
+
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
 }
@@ -302,6 +315,25 @@ void DB::rnboVersions(std::function<void(const std::string&)> f) {
 			std::string str(s);
 			f(s);
 		}
+}
+
+boost::optional<std::string> DB::migrationDataAvailable() {
+	SQLite::Statement query(mDB, "SELECT DISTINCT(runner_rnbo_version) FROM patchers WHERE runner_rnbo_version != ?1 AND runner_rnbo_version NOT IN (SELECT data_rnbo_version FROM data_migrations) ORDER BY id DESC LIMIT 1");
+	query.bind(1, cur_rnbo_version);
+
+	if (query.executeStep()) {
+		const char * val = query.getColumn(0);
+		return { std::string(val) };
+	}
+
+	return boost::none;
+}
+
+void DB::markDataMigrated() {
+		//mark all data migrated, no matter what the version is
+		SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(runner_rnbo_version), ?1 FROM patchers ORDER BY id DESC");
+		query.bind(1, cur_rnbo_version);
+		query.exec();
 }
 
 void DB::patcherStore(
@@ -859,7 +891,7 @@ void DB::setPresetDestroyAll(
 
 	SQLite::Statement query(mDB, R"(
 		DELETE FROM sets_presets
-		WHERE 
+		WHERE
 		set_id IN (
 			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name
 		)
@@ -1328,7 +1360,7 @@ bool DB::setViewsUpdateSortOrder(
 			orderings.push_back("view_index=" + std::to_string(i) + " DESC");
 		}
 
-		std::string s = 
+		std::string s =
 		R"(
 			UPDATE sets_views
 			SET sort_order = q.sort_order

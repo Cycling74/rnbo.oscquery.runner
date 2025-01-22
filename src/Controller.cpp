@@ -1155,6 +1155,27 @@ Controller::Controller(std::string server_name) {
 	auto update = info->create_child("update");
 	update->set(ossia::net::description_attribute{}, "Self upgrade/downgrade");
 
+	{
+		auto n = update->create_child("migration_available");
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+		n->set(ossia::net::description_attribute{}, "a rnbo version for existing data that may be migrated to this version. set it blank to indicate migration is complete.");
+
+		auto m = mDB->migrationDataAvailable();
+		if (m) {
+			p->push_value(m.get());
+		}
+
+		p->add_callback([this, p](const ossia::value& v) {
+			mDB->markDataMigrated();
+			//assure we can only write empty
+			if (v.get_type() != ossia::val_type::STRING || v.get<std::string>().size() != 0) {
+				p->push_value_quiet("");
+			}
+		});
+	}
+
+
 #if RNBO_USE_DBUS
 	mUpdateServiceProxy = std::make_shared<RnboUpdateServiceProxy>();
 	if (mUpdateServiceProxy) {
