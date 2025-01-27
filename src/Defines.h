@@ -53,7 +53,8 @@ enum class FileCommandError : unsigned int {
 
 enum class ListenerCommandStatus : unsigned int {
 	Received = 0,
-	Completed = 1
+	Completed = 1,
+	Failed = 2
 };
 
 enum class InstallProgramStatus : unsigned int {
