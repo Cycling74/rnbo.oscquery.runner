@@ -2970,7 +2970,7 @@ void Controller::registerCommands() {
 
 		//protect against feedback
 		if (ip == "127.0.0.1" && (port == 1234 || port == 5678)) {
-			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "feedback detected");
+			reportCommandError(id, static_cast<unsigned int>(ListenerCommandStatus::Failed), "feedback detected");
 			return false;
 		}
 
@@ -3006,9 +3006,15 @@ void Controller::registerCommands() {
 				if (!validateListenerCmd(id, params, key))
 					return;
 
-				if (mDB->listenersAdd(key.first, key.second)) {
-					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-					listenersAddProtocol(key.first, key.second);
+				if (!mDB->listenerExists(key.first, key.second)) {
+					try {
+						std::lock_guard<std::mutex> guard(mOssiaContextMutex);
+						listenersAddProtocol(key.first, key.second);
+						mDB->listenersAdd(key.first, key.second);
+					} catch (const std::exception&) {
+						reportCommandError(id, static_cast<unsigned int>(ListenerCommandStatus::Failed), "failed add listener for ip: " + key.first + " and port: " + std::to_string(key.second));
+						return;
+					}
 				}
 				updateListenersList();
 				reportCommandResult(id, {
@@ -3373,7 +3379,11 @@ void Controller::updateListenersList() {
 
 void Controller::restoreListeners() {
 	mDB->listeners([this](const std::string& ip, uint16_t port) {
-			listenersAddProtocol(ip, port);
+			try {
+				listenersAddProtocol(ip, port);
+			} catch (...) {
+				std::cerr << "error adding listener ip: " << ip << " port: " << std::to_string(port) << std::endl;
+			}
 	});
 	updateListenersList();
 }
