@@ -1438,6 +1438,19 @@ void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetNa
 	}
 }
 
+bool DB::listenerExists(const std::string& ip, uint16_t port)
+{
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "SELECT COUNT(*) from listeners WHERE ip = ?1 AND port = ?2");
+	query.bind(1, ip);
+	query.bind(2, port);
+	if (query.executeStep()) {
+		int cnt = query.getColumn(0);
+		return cnt > 0;
+	}
+	return false;
+}
+
 bool DB::listenersAdd(const std::string& ip, uint16_t port)
 {
 	std::lock_guard<std::mutex> guard(mMutex);
