@@ -331,7 +331,7 @@ boost::optional<std::string> DB::migrationDataAvailable() {
 
 void DB::markDataMigrated() {
 		//mark all data migrated, no matter what the version is
-		SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(runner_rnbo_version), ?1 FROM patchers ORDER BY id DESC");
+		SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(runner_rnbo_version), ?1 FROM patchers WHERE runner_rnbo_version != ?1 ORDER BY id DESC");
 		query.bind(1, cur_rnbo_version);
 		query.exec();
 }
