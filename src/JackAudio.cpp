@@ -38,6 +38,9 @@ namespace {
 
 	const std::string PORTGROUPKEY(JACK_METADATA_PORT_GROUP);
 
+	const char *  RNBO_PROP_INST_ID_KEY = "rnbo-instance-id";
+	const char * rnbo_inst_id_property_type = "http://www.w3.org/2001/XMLSchema#int";
+
 	const std::string RNBO_GRAPH_SINK_PORTGROUP("rnbo-graph-user-sink");
 	const std::string RNBO_GRAPH_SRC_PORTGROUP("rnbo-graph-user-src");
 
@@ -86,6 +89,7 @@ namespace {
 
 	const std::string bpm_property_key("http://www.x37v.info/jack/metadata/bpm");
 	const char * bpm_property_type = "https://www.w3.org/2001/XMLSchema#decimal";
+
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<ProcessAudioJack *>(arg)->process(nframes);
@@ -1060,7 +1064,7 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 
 			std::string key(prop.key);
 			std::string data(prop.data);
-			if (prop.type == nullptr || strcmp(prop.type, "https://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "text/plain") == 0) {
+			if (prop.type == nullptr || strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "https://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "text/plain") == 0) {
 				properties[key] = data;
 				if (PORTGROUPKEY.compare(key) == 0 && (RNBO_GRAPH_SRC_PORTGROUP.compare(data) == 0 || RNBO_GRAPH_SINK_PORTGROUP.compare(data) == 0)) {
 					inPortGroup = true;
@@ -1080,6 +1084,9 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 				if (*pEnd == 0) {
 					properties[key] = value;
 				}
+			} else {
+				std::cerr << "unhandled property type: \"" << prop.type << "\" for property with key: \"" << key << "\" treating as string" << std::endl;
+				properties[key] = prop.data;
 			}
 
 		}
@@ -1732,6 +1739,7 @@ void ProcessAudioJack::handleTransportTimeSig(double numerator, double denominat
 InstanceAudioJack::InstanceAudioJack(
 		std::shared_ptr<RNBO::CoreObject> core,
 		RNBO::Json conf,
+		unsigned int index,
 		std::string name,
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback,
@@ -1776,7 +1784,7 @@ InstanceAudioJack::InstanceAudioJack(
 	//zero out transport position
 	std::memset(&mTransportPosLast, 0, sizeof(jack_position_t));
 
-	builder([this, &inletsInfo, &outletsInfo](ossia::net::node_base * root) {
+	builder([this, &inletsInfo, &outletsInfo, index](ossia::net::node_base * root) {
 		//setup jack
 		auto jack = root->create_child("jack");
 		auto conn = jack->create_child("connections");
@@ -1862,6 +1870,7 @@ InstanceAudioJack::InstanceAudioJack(
 		auto midi_sinks = midi->create_child("sinks");
 		auto midi_sources = midi->create_child("sources");
 
+		std::string index_s = std::to_string(index);
 
 		//client name
 		{
@@ -1885,7 +1894,6 @@ InstanceAudioJack::InstanceAudioJack(
 						0
 				);
 
-
 				std::string name(jack_port_name(port));
 				names.push_back(name);
 
@@ -1900,8 +1908,11 @@ InstanceAudioJack::InstanceAudioJack(
 					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
 						auto comment = info["comment"].get<std::string>();
 						jack_uuid_t uuid = jack_port_uuid(port);
-						if (comment.size() > 0 && !jack_uuid_empty(uuid)) {
-							jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
+						if (!jack_uuid_empty(uuid)) {
+							if (comment.size() > 0) {
+								jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
+							}
+							jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
 						}
 					}
 					//TODO meta?
@@ -1939,8 +1950,11 @@ InstanceAudioJack::InstanceAudioJack(
 					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
 						auto comment = info["comment"].get<std::string>();
 						jack_uuid_t uuid = jack_port_uuid(port);
-						if (comment.size() > 0 && !jack_uuid_empty(uuid)) {
-							jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
+						if (!jack_uuid_empty(uuid)) {
+							if (comment.size() > 0) {
+								jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
+							}
+							jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
 						}
 					}
 					//TODO meta?
@@ -1969,6 +1983,11 @@ InstanceAudioJack::InstanceAudioJack(
 			mPortParamMap.insert({mJackMidiIn, build_port_param(mJackMidiIn, midi_sinks, name, true)});
 
 			midi_ins->push_value(ossia::value({ossia::value(name)}));
+
+			jack_uuid_t uuid = jack_port_uuid(mJackMidiIn);
+			if (!jack_uuid_empty(uuid)) {
+				jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+			}
 		}
 		{
 			mJackMidiOut = jack_port_register(mJackClient,
@@ -1989,6 +2008,11 @@ InstanceAudioJack::InstanceAudioJack(
 			mPortParamMap.insert({mJackMidiOut, build_port_param(mJackMidiOut, midi_sources, name, false)});
 
 			midi_outs->push_value(ossia::value({ossia::value(name)}));
+
+			jack_uuid_t uuid = jack_port_uuid(mJackMidiOut);
+			if (!jack_uuid_empty(uuid)) {
+				jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+			}
 		}
 	});
 

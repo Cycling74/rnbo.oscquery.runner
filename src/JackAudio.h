@@ -171,6 +171,7 @@ class InstanceAudioJack : public InstanceAudio {
 		InstanceAudioJack(
 				std::shared_ptr<RNBO::CoreObject> core,
 				RNBO::Json conf,
+				unsigned int index,
 				std::string name,
 				NodeBuilder builder,
 				std::function<void(ProgramChange)> progChangeCallback,
