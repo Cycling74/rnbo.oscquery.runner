@@ -37,7 +37,9 @@ namespace {
 	const std::string CONTROL_CLIENT_NAME("rnbo-control");
 
 	const std::string PORTGROUPKEY(JACK_METADATA_PORT_GROUP);
-	const std::string RNBO_GRAPH_PORTGROUP("rnbo-graph-user-io");
+
+	const std::string RNBO_GRAPH_SINK_PORTGROUP("rnbo-graph-user-sink");
+	const std::string RNBO_GRAPH_SRC_PORTGROUP("rnbo-graph-user-src");
 
 
 #ifdef __APPLE__
@@ -1060,7 +1062,7 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 			std::string data(prop.data);
 			if (prop.type == nullptr || strcmp(prop.type, "https://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "text/plain") == 0) {
 				properties[key] = data;
-				if (PORTGROUPKEY.compare(key) == 0 && RNBO_GRAPH_PORTGROUP.compare(data) == 0) {
+				if (PORTGROUPKEY.compare(key) == 0 && (RNBO_GRAPH_SRC_PORTGROUP.compare(data) == 0 || RNBO_GRAPH_SINK_PORTGROUP.compare(data) == 0)) {
 					inPortGroup = true;
 				}
 			}
@@ -1089,9 +1091,9 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 	auto flags = jack_port_flags(port);
 	if (flags & JackPortIsPhysical) {
 		properties["physical"] = true;
-		//automatically add physical io to the RNBO_GRAPH_PORTGROUP port group if there is no other port group indicated
+		//automatically add physical io to the rnbo graph io port group if there is no other port group indicated
 		if (!properties.contains(PORTGROUPKEY)) {
-			properties[PORTGROUPKEY] = RNBO_GRAPH_PORTGROUP;
+			properties[PORTGROUPKEY] = (flags & JackPortIsInput) != 0 ? RNBO_GRAPH_SINK_PORTGROUP : RNBO_GRAPH_SRC_PORTGROUP;
 			inPortGroup = true;
 		}
 	}
