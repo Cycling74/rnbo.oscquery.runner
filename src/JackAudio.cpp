@@ -1101,18 +1101,16 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 		properties["terminal"] = true;
 	}
 
-	auto n = mPortProps->find_child(name);
-	if (properties.size() > 0) {
+	{
+		auto n = mPortProps->find_child(name);
 		if (n == nullptr) {
 			n = mPortProps->create_child(name);
 			n->set(ossia::net::description_attribute{}, "JSON key/value object indicating Jack properties for this port");
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			n->create_parameter(ossia::val_type::STRING);
 		}
-		std::string j(properties.dump());
+		std::string j(properties.dump()); //may be empty
 		n->get_parameter()->push_value(j);
-	} else if (n != nullptr) {
-		mPortProps->remove_child(name);
 	}
 
 	{
