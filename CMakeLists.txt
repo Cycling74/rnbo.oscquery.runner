@@ -12,17 +12,46 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
+set(RNBO_CONAN_VERSION "" CACHE STRING "Optionally set a RNBO version to get from Conan")
+set(RNBO_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting RNBO from Conan")
+mark_as_advanced(RNBO_CONAN_VERSION)
+mark_as_advanced(RNBO_CONAN_TAG)
+
+set(JACK_CONAN_NAME "jack" CACHE STRING "Optionally set a JACK package name to get from Conan")
+set(JACK_CONAN_VERSION "" CACHE STRING "Optionally set a JACK version to get from Conan")
+set(JACK_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting JACK from Conan")
+mark_as_advanced(JACK_CONAN_NAME)
+mark_as_advanced(JACK_CONAN_VERSION)
+mark_as_advanced(JACK_CONAN_TAG)
+
 #find RNBO
-find_path(
-	RNBO_DIR
-	NAMES "RNBO.cpp"
-	PATHS
-		${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
-		${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
-		${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
-	NO_DEFAULT_PATH
-	DOC "Location of the RNBO C++ source code"
-)
+if (RNBO_CONAN_VERSION) 
+	conan_cmake_configure(
+		REQUIRES rnbo/${RNBO_CONAN_VERSION}@${RNBO_CONAN_TAG}
+		GENERATORS cmake_paths
+	)
+	conan_cmake_install(
+		PATH_OR_REFERENCE .
+		BUILD missing
+		SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+		SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+		PROFILE_HOST ${CONAN_PROFILE}
+		PROFILE_BUILD default
+	)
+	include(conan_paths)
+	SET(RNBO_DIR ${CONAN_RNBO_ROOT})
+else() 
+	find_path(
+		RNBO_DIR
+		NAMES "RNBO.cpp"
+		PATHS
+			${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
+			${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
+			${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
+		NO_DEFAULT_PATH
+		DOC "Location of the RNBO C++ source code"
+	)
+endif() 
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -237,8 +266,29 @@ if (USE_JACK)
 			NO_CMAKE_FIND_ROOT_PATH
 		)
 	else()
-		find_library(JACK_LIB "jack")
-		find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+		if (JACK_CONAN_VERSION)
+			conan_cmake_configure(
+				REQUIRES ${JACK_CONAN_NAME}/${JACK_CONAN_VERSION}@${JACK_CONAN_TAG}
+				GENERATORS cmake_find_package
+			)
+			conan_cmake_install(
+				PATH_OR_REFERENCE .
+				BUILD missing
+				SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+				SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+				PROFILE_HOST ${CONAN_PROFILE}
+				PROFILE_BUILD default
+			)
+			find_package(
+				${JACK_CONAN_NAME} 
+				REQUIRED
+			)
+			set(JACK_INCLUDE_DIR ${${JACK_CONAN_NAME}_INCLUDE_DIR})
+			set(JACK_LIB "")
+		else()
+			find_path(JACK_INCLUDE_DIR jack/jack.h REQUIRED)
+			find_library(JACK_LIB "jack")
+		endif()
 	endif()
   if (WITH_JACKSERVER)
     find_library(JACKSERVER_LIB "jackserver" REQUIRED)
@@ -247,10 +297,8 @@ if (USE_JACK)
     add_definitions(-DJACK_SERVER=0)
   endif()
 
-  if (JACK_LIB)
-    add_definitions(-DRNBO_USE_JACK)
-    list(APPEND PROJECT_SRC src/JackAudio.cpp)
-  endif()
+	add_definitions(-DRNBO_USE_JACK)
+	list(APPEND PROJECT_SRC src/JackAudio.cpp)
 else()
   add_definitions(-DJACK_SERVER=0)
 endif()
@@ -345,6 +393,11 @@ endif()
 if (WITH_DBUS)
 	target_link_libraries(${PROJECT_APP}
 		SDBusCpp::sdbus-c++
+	)
+endif()
+if (JACK_CONAN_VERSION)
+	target_link_libraries(${PROJECT_APP}
+		${JACK_CONAN_NAME}
 	)
 endif()
 
