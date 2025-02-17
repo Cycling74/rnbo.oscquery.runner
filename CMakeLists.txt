@@ -280,7 +280,7 @@ if (USE_JACK)
 				PROFILE_BUILD default
 			)
 			find_package(
-				${JACK_CONAN_NAME} 
+				${JACK_CONAN_NAME}
 				REQUIRED
 			)
 			set(JACK_INCLUDE_DIR ${${JACK_CONAN_NAME}_INCLUDE_DIR})
@@ -397,7 +397,7 @@ if (WITH_DBUS)
 endif()
 if (JACK_CONAN_VERSION)
 	target_link_libraries(${PROJECT_APP}
-		${JACK_CONAN_NAME}
+		${JACK_CONAN_NAME}::jack
 	)
 endif()
 
