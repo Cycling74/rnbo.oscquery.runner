@@ -3305,11 +3305,16 @@ void Controller::processCommands() {
 					compileProcess = CompileInfo(build_program, args, libPath, id, config, confFilePath, rnboPatchPath, maxRNBOVersion, migratePresets, instanceIndex);
 				}
 			} else {
-				auto f = mCommandHandlers.find(method);
-				if (f != mCommandHandlers.end()) {
-					f->second(method, id, params);
-				} else {
-					cerr << "unknown method " << method << endl;
+				try {
+					auto f = mCommandHandlers.find(method);
+					if (f != mCommandHandlers.end()) {
+						f->second(method, id, params);
+					} else {
+						cerr << "unknown method " << method << endl;
+					}
+				} catch (const std::exception& e) {
+					std::string message = "error processing method: " + method + " with error: " + e.what();
+					reportCommandError(id, 1000, message);
 				}
 			}
 		}
