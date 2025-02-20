@@ -2627,118 +2627,126 @@ void Controller::registerCommands() {
 			return;
 
 		std::string filetype = params["filetype"];
-		bool isSet = filetype == "set";
 
 		//file_write_extended base64 encodes the file name so we can have non ascii in there
 		std::string fileName = params["filename"].get<std::string>();
-		if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
-			reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
-			return;
-		}
-
-		//update timeout for datafile polling while file is writing, we want to read after all file operations complete
-		if (filetype == "datafile") {
-			mDatafilePollNext = steady_clock::now() + datafile_debounce_timeout;
-		}
-
-		//special handling for sets, filename == set name, we actually store
-		fs::path filePath;
-		if (isSet) {
-			filePath = saveFilePath(fileName);
-		} else {
-			auto dir = fileCmdDir(id, filetype);
-			if (!dir)
-				return;
-			filePath = dir.get() / fs::path(fileName);
-		}
-
-		std::fstream fs;
-		//allow for "append" to add to the end of an existing file
-		bool append = params["append"].is_boolean() && params["append"].get<bool>();
-		fs.open(filePath.string(), std::fstream::out | std::fstream::binary | (append ? std::fstream::app : std::fstream::trunc));
-		if (!fs.is_open()) {
-			reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
-			return;
-		}
-
-		std::string data = params["data"];
-		if (data.size() > 0) {
-			std::vector<char> out(data.size()); //out will be smaller than the in data
-			size_t read = 0;
-			if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
-				reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode data");
+		try {
+			bool isSet = filetype == "set";
+			if (method == "file_write_extended" && !base64_decode_inplace(fileName)) {
+				reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode filename");
 				return;
 			}
-			fs.write(&out.front(), sizeof(char) * read);
-			fs.close();
-		}
 
-		const bool complete = params.contains("complete") && params["complete"].get<bool>();
-
-		//special handling for set saving
-		if (isSet && complete) {
-
-			RNBO::Json setData;
-			{
-				std::ifstream i(filePath.string());
-				i >> setData;
-				i.close();
+			//update timeout for datafile polling while file is writing, we want to read after all file operations complete
+			if (filetype == "datafile") {
+				mDatafilePollNext = steady_clock::now() + datafile_debounce_timeout;
 			}
 
-			SetInfo info = SetInfo::fromJson(setData);
-			if (info.instances.size() > 0) {
-				mDB->setSave(fileName, info);
-				updateSetNames();
+			//special handling for sets, filename == set name, we actually store
+			fs::path filePath;
+			if (isSet) {
+				filePath = saveFilePath(fileName);
+			} else {
+				auto dir = fileCmdDir(id, filetype);
+				if (!dir)
+					return;
+				filePath = dir.get() / fs::path(fileName);
+			}
 
-				//handle presets
-				if (setData.contains("presets") && setData["presets"].is_object()) {
-					//TODO delete all existing presets?
-					for (const auto& kv: setData["presets"].items()) {
-						std::string presetName = kv.key();
-						mDB->setPresetDestroy(fileName, presetName);
-						if (kv.value().is_array()) {
-							auto& presets = kv.value();
-							for (const auto& entry: presets) {
-								if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
-									std::string patchername = entry["patchername"];
-									std::string patcherPresetName;
-									unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
-									RNBO::Json content = RNBO::Json::object();
-									if (entry.contains("content") && entry["content"].is_object())
-										content = entry["content"];
-									if (entry.contains("presetname") && entry["presetname"].is_string()) {
-										patcherPresetName = entry["presetname"];
+			std::fstream fs;
+			//allow for "append" to add to the end of an existing file
+			bool append = params["append"].is_boolean() && params["append"].get<bool>();
+			fs.open(filePath.string(), std::fstream::out | std::fstream::binary | (append ? std::fstream::app : std::fstream::trunc));
+			if (!fs.is_open()) {
+				reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
+				return;
+			}
+
+			std::string data = params["data"];
+			if (data.size() > 0) {
+				std::vector<char> out(data.size()); //out will be smaller than the in data
+				size_t read = 0;
+				if (base64_decode(data.c_str(), data.size(), &out.front(), &read, 0) != 1) {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::DecodeFailed), "failed to decode data");
+					return;
+				}
+				fs.write(&out.front(), sizeof(char) * read);
+				fs.close();
+			}
+
+			const bool complete = params.contains("complete") && params["complete"].get<bool>();
+
+			if (complete) {
+				std::cout << "wrote " << filetype << " file: " << fileName << std::endl;
+			}
+
+			//special handling for set saving
+			if (isSet && complete) {
+
+				RNBO::Json setData;
+				{
+					std::ifstream i(filePath.string());
+					i >> setData;
+					i.close();
+				}
+
+				SetInfo info = SetInfo::fromJson(setData);
+				if (info.instances.size() > 0) {
+					mDB->setSave(fileName, info);
+					updateSetNames();
+
+					//handle presets
+					if (setData.contains("presets") && setData["presets"].is_object()) {
+						//TODO delete all existing presets?
+						for (const auto& kv: setData["presets"].items()) {
+							std::string presetName = kv.key();
+							mDB->setPresetDestroy(fileName, presetName);
+							if (kv.value().is_array()) {
+								auto& presets = kv.value();
+								for (const auto& entry: presets) {
+									if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
+										std::string patchername = entry["patchername"];
+										std::string patcherPresetName;
+										unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
+										RNBO::Json content = RNBO::Json::object();
+										if (entry.contains("content") && entry["content"].is_object())
+											content = entry["content"];
+										if (entry.contains("presetname") && entry["presetname"].is_string()) {
+											patcherPresetName = entry["presetname"];
+										}
+										mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
+									} else {
+										std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
 									}
-									mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
-								} else {
-									std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
 								}
 							}
 						}
 					}
-				}
-				if (setData.contains("views") && setData["views"].is_array()) {
-					std::vector<int> sort_order;
-					//sorted
-					for (auto entry: setData["views"]) {
-						if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
-							auto index = entry["index"].get<int>();
-							auto name = entry["name"].get<std::string>();
-							auto params = entry["params"];
-							sort_order.push_back(index);
-							mDB->setViewCreate(fileName, name, params, index);
+					if (setData.contains("views") && setData["views"].is_array()) {
+						std::vector<int> sort_order;
+						//sorted
+						for (auto entry: setData["views"]) {
+							if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
+								auto index = entry["index"].get<int>();
+								auto name = entry["name"].get<std::string>();
+								auto params = entry["params"];
+								sort_order.push_back(index);
+								mDB->setViewCreate(fileName, name, params, index);
+							}
 						}
+						mDB->setViewsUpdateSortOrder(fileName, sort_order);
 					}
-					mDB->setViewsUpdateSortOrder(fileName, sort_order);
 				}
 			}
-		}
 
-		reportCommandResult(id, {
-			{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
-			{"message", "written"},
-			{"progress", 100}
-		});
+			reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+					{"message", "written"},
+					{"progress", 100}
+					});
+		} catch (const std::exception& e) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), std::string("write failed with message: \"") + e.what() + "\" for file: " + fileName + " type: " + filetype);
+		}
 	};
 
 	mCommandHandlers.insert({ "file_write", file_write });
@@ -3324,10 +3332,10 @@ void Controller::reportCommandError(std::string id, unsigned int code, std::stri
 				{ "message", message }
 			}
 			}
-	});
+	}, true);
 }
 
-void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
+void Controller::reportCommandStatus(std::string id, RNBO::Json obj, bool printerr) {
 	obj["jsonrpc"] = "2.0";
 	obj["id"] = id;
 	std::string status = obj.dump();
@@ -3335,6 +3343,9 @@ void Controller::reportCommandStatus(std::string id, RNBO::Json obj) {
 		std::cout << status << std::endl;
 	} else {
 		mResponseParam->push_value(status);
+		if (printerr) {
+			std::cerr << status << std::endl;
+		}
 	}
 }
 

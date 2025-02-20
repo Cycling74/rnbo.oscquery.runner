@@ -61,7 +61,7 @@ class Controller {
 		void processCommands();
 		void reportCommandResult(std::string id, RNBO::Json res);
 		void reportCommandError(std::string id, unsigned int code, std::string message);
-		void reportCommandStatus(std::string id, RNBO::Json obj);
+		void reportCommandStatus(std::string id, RNBO::Json obj, bool printerr = false);
 
 		void handleActive(bool active);
 		void updateDiskStats();
