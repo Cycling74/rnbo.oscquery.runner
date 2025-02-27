@@ -48,6 +48,7 @@ namespace fs = boost::filesystem;
 namespace bp = boost::process;
 
 namespace {
+	static const std::string runner_version(RUNNER_VERSION);
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
@@ -293,6 +294,7 @@ Controller::Controller(std::string server_name) {
 			std::make_pair("version", rnbo_version),
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
+			std::make_pair("runner_version", runner_version),
 			}) {
 		auto n = info->create_child(it.first);
 		auto p = n->create_parameter(ossia::val_type::STRING);

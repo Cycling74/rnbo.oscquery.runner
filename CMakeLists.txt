@@ -88,7 +88,16 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-set(PROJECT_VERSION "${RNBO_VERSION}")
+#https://stackoverflow.com/questions/1435953/how-can-i-pass-git-sha1-to-compiler-as-definition-using-cmake
+# git commit hash macro
+execute_process(
+  COMMAND git log -1 --format=%h
+  WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
+  OUTPUT_VARIABLE GIT_COMMIT_HASH
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+set(PROJECT_VERSION "${RNBO_VERSION}-${GIT_COMMIT_HASH}")
 set(PROJECT_APP "rnbooscquery")
 
 set(PROJECT_SRC
@@ -330,6 +339,7 @@ if (CCACHE_PROGRAM)
 endif()
 
 add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
+add_definitions(-DRUNNER_VERSION="${PROJECT_VERSION}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
 add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
 
