@@ -2239,6 +2239,8 @@ void Controller::registerCommands() {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
+					//TODO copy set presets??
+
 					const std::string presetName = "initial";
 					saveSetPreset(name, presetName);
 					reportCommandResult(id, {
@@ -2259,8 +2261,10 @@ void Controller::registerCommands() {
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						updateSetViews(name);
 
+						if (loaded == UNTITLED_SET_NAME) {
+							mDB->setDestroy(loaded);
+						}
 					}
-					//TODO copy set presets???
 					mSetPresetLoadedParam->push_value(presetName);
 					config::set(name, config::key::SetLastName);
 				} else {
