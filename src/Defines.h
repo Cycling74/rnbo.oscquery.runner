@@ -93,5 +93,3 @@ static const std::map<std::string, int> config_midi_channel_values = {
 	{"16", 16},
 	{"none", 17} //17 will never be valid
 };
-
-static const std::string LAST_SET_NAME = "RNBO_LAST_SET";

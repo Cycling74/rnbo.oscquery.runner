@@ -67,6 +67,9 @@ namespace {
 	static const std::string set_meta_key = "meta";
 	static const std::string set_connections_key = "connections";
 
+	static const std::string UNTITLED_SET_NAME = "(untitled)";
+	static const std::string LAST_SET_NAME = "RNBO_LAST_SET"; //XXX NO LONGER USED
+
 	ossia::net::node_base * find_or_create_child(ossia::net::node_base * parent, const std::string name) {
 			auto c = parent->find_child(name);
 			if (!c) {
@@ -167,6 +170,10 @@ Controller::Controller(std::string server_name) {
 	RNBO::console->setLoggerOutputCallback(RunnerLog);
 
 	mDB = std::make_shared<DB>();
+
+	//if the old set exists, rename it
+	mDB->setRename(LAST_SET_NAME, UNTITLED_SET_NAME);
+
 	mProtocol = new ossia::net::multiplex_protocol();
 	mOssiaContext = ossia::net::create_network_context();
 	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, 1234, 5678);
@@ -1337,7 +1344,8 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 	return nullptr;
 }
 
-void Controller::loadInitialSet(std::string lastSetName) {
+void Controller::loadInitialSet() {
+	std::string lastSetName = config::get<std::string>(config::key::SetLastName).value_or(UNTITLED_SET_NAME);
 	loadSet(mDB->setNameInitial().value_or(lastSetName));
 }
 
@@ -1357,7 +1365,6 @@ void Controller::loadSet(std::string name) {
 }
 
 void Controller::doLoadSet(std::string setname) {
-
 	try {
 		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
@@ -1442,7 +1449,7 @@ void Controller::doLoadSet(std::string setname) {
 		mProcessAudio->connect(setInfo->connections, mFirstSetLoad); //only do control connections when loading first set
 		mFirstSetLoad = false;
 
-		const bool loadInitial = setname.size() && setname != LAST_SET_NAME;
+		const bool loadInitial = setname.size() && setname != UNTITLED_SET_NAME;
 
 		//load presets and start instances
 		{
@@ -1466,7 +1473,7 @@ void Controller::doLoadSet(std::string setname) {
 			mSetMetaParam->push_value(setInfo->meta);
 		}
 
-		mSetCurrentNameParam->push_value(setname == LAST_SET_NAME ? "" : setname);
+		mSetCurrentNameParam->push_value(setname);
 		config::set(setname, config::key::SetLastName);
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
@@ -1725,7 +1732,7 @@ void Controller::updateSetNames() {
 	mSetNames.clear();
 	std::string initialName;
 	mDB->sets([this, &initialName](const std::string& name, const std::string& /*created*/, bool initial) {
-			if (name != LAST_SET_NAME) {
+			if (name != UNTITLED_SET_NAME) {
 				mSetNames.push_back(name);
 				if (initial) {
 					initialName = name;
@@ -1979,8 +1986,7 @@ bool Controller::processEvents() {
 		}
 		if (save) {
 			auto info = setInfo();
-			mDB->setSave(LAST_SET_NAME, info);
-			config::set(LAST_SET_NAME, config::key::SetLastName);
+			mDB->setSave(UNTITLED_SET_NAME, info);
 		}
 
 		//sets
@@ -2196,19 +2202,16 @@ void Controller::registerCommands() {
 					}
 				}
 				if (index < 0) {
-					//clear out all set views and presets from LAST_SET_NAME
-					const std::string loaded(LAST_SET_NAME);
+					//clear out all set views and presets from UNTITLED_SET_NAME
+					const std::string loaded(UNTITLED_SET_NAME);
 					mDB->setPresetDestroyAll(loaded);
 					mDB->setViewDestroy(loaded, -1);
 
-					//TODO do we just want to report LAST_SET_NAME ?
 					const std::string empty;
-					mSetCurrentNameParam->push_value(empty);
+					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
 					mSetPresetLoadedParam->push_value(empty);
 
 					updateSetPresetNames();
-					config::set(empty, config::key::SetLastName);
-
 					{
 
 						std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -2230,9 +2233,8 @@ void Controller::registerCommands() {
 				std::string name = params["name"].get<std::string>();
 				std::string meta = params["meta"].get<std::string>();
 				//TODO what about meta
-				//XXX
 				auto info = setInfo();
-				if (info.instances.size()) {
+				if (info.instances.size() && name != UNTITLED_SET_NAME) {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
@@ -2255,7 +2257,9 @@ void Controller::registerCommands() {
 						}
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						updateSetViews(name);
+
 					}
+					//TODO copy set presets???
 					mSetPresetLoadedParam->push_value(presetName);
 					config::set(name, config::key::SetLastName);
 				} else {
@@ -2310,7 +2314,7 @@ void Controller::registerCommands() {
 				if (getCurrentSetName() == name) {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
-					mSetCurrentNameParam->push_value("");
+					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						mSetViewsListNode->clear_children();
@@ -2349,6 +2353,7 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					saveSetPreset(setname, name);
 					reportCommandResult(id, {
@@ -2372,6 +2377,7 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					loadSetPreset(setname, name);
 					reportCommandResult(id, {
@@ -2391,6 +2397,7 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					mDB->setPresetDestroy(setname, name);
 					reportCommandResult(id, {
@@ -2415,6 +2422,7 @@ void Controller::registerCommands() {
 				std::string name = params["name"].get<std::string>();
 				std::string newName = params["newName"].get<std::string>();
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					mDB->setPresetRename(setname, name, newName);
 					if (name == getCurrentSetPresetName()) {
@@ -2438,6 +2446,7 @@ void Controller::registerCommands() {
 			"instance_set_view_create",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					std::string viewname = params["name"];
 					std::vector<std::string> viewParams;
@@ -2470,6 +2479,7 @@ void Controller::registerCommands() {
 			"instance_set_view_destroy",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					int index = params["index"].get<int>();
 					mDB->setViewDestroy(setname, index);
@@ -2500,6 +2510,7 @@ void Controller::registerCommands() {
 			"instance_set_view_order",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string setname = getCurrentSetName();
+				ensureSet(setname);
 				if (setname.size()) {
 					std::vector<int> indexes;
 					const RNBO::Json& order = params["order"];
@@ -2815,7 +2826,7 @@ void Controller::registerCommands() {
 
 					RNBO::Json content = RNBO::Json::object();
 					for (auto name: names) {
-						if (name == LAST_SET_NAME) {
+						if (name == UNTITLED_SET_NAME || name == LAST_SET_NAME) {
 							continue;
 						}
 						auto setInfo = mDB->setGet(name, rnboVersion);
@@ -3177,7 +3188,7 @@ void Controller::processCommands() {
 				//terminate existing compile
 				compileProcess.reset();
 
-				loadSet(LAST_SET_NAME);
+				loadSet(UNTITLED_SET_NAME);
 				continue;
 			}
 
@@ -3495,12 +3506,20 @@ void Controller::handleProgramChange(ProgramChange p) {
 	}
 }
 
+void Controller::ensureSet(std::string& name) {
+	if (name == UNTITLED_SET_NAME) {
+		//TODO check dirty?
+		auto info = setInfo();
+		mDB->setSave(name, info);
+	}
+}
+
 std::string Controller::getCurrentSetName() {
-	std::string name = LAST_SET_NAME;
+	std::string name;
 	if (mSetCurrentNameParam && mSetCurrentNameParam->get_value_type() == ossia::val_type::STRING) {
 		name = mSetCurrentNameParam->value().get<std::string>();
 	}
-	return name.size() ? name : LAST_SET_NAME;
+	return name.size() ? name : UNTITLED_SET_NAME;
 }
 
 std::string Controller::getCurrentSetPresetName() {

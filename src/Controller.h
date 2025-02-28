@@ -38,7 +38,7 @@ class Controller {
 		//return null on failure
 		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
 		//load set marked as initial, or.. if that doesn't exist, load lastSetName
-		void loadInitialSet(std::string lastSetName);
+		void loadInitialSet();
 		void loadSet(std::string name);
 #ifdef RNBO_OSCQUERY_BUILTIN_PATCHER
 		bool loadBuiltIn();
@@ -112,6 +112,7 @@ class Controller {
 		unsigned int nextInstanceIndex();
 
 		void handleProgramChange(ProgramChange);
+		void ensureSet(std::string& name);
 		std::string getCurrentSetName();
 		std::string getCurrentSetPresetName();
 
