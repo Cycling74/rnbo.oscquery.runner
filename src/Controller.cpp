@@ -696,6 +696,7 @@ Controller::Controller(std::string server_name) {
 					mSetCurrentNameParam = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "The currently loaded set's name");
+					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
 				}
 			}
 
