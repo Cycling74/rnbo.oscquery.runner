@@ -1,6 +1,7 @@
 #include "DB.h"
 #include "Config.h"
 
+#include <set>
 #include <iostream>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
