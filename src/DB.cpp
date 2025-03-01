@@ -21,7 +21,7 @@ namespace {
 		return std::string(s);
 	}
 
-	int getsetid(SQLite::Database& db, const std::string& name)  {
+	int getsetid(SQLite::Database& db, const std::string& name) {
 		SQLite::Statement query(db, "SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name");
 		query.bind(1, name);
 		query.bind(2, cur_rnbo_version);
@@ -494,7 +494,7 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 		int audio_inputs = query.getColumn(1);
 		int audio_outputs = query.getColumn(2);
 		int midi_inputs = query.getColumn(3);
-		int midi_outputs  = query.getColumn(4);
+		int midi_outputs = query.getColumn(4);
 
 		s = query.getColumn(5);
 		std::string created_at(s);
@@ -1086,6 +1086,7 @@ bool DB::setDestroy(const std::string& name)
 {
 	//presets get deleted because of on delete cascade
 	{
+		std::lock_guard<std::mutex> guard(mMutex);
 		SQLite::Statement query(mDB, "DELETE FROM sets WHERE name=?1 AND runner_rnbo_version=?2");
 		query.bind(1, name);
 		query.bind(2, cur_rnbo_version);
@@ -1097,6 +1098,7 @@ bool DB::setInitial(const std::string& name)
 {
 	//TODO can we do this in a single statement?
 	{
+		std::lock_guard<std::mutex> guard(mMutex);
 		SQLite::Statement query(mDB, "UPDATE sets SET initial = CASE WHEN name == ?1 THEN 1 ELSE 0 END WHERE runner_rnbo_version=?2");
 		query.bind(1, name);
 		query.bind(2, cur_rnbo_version);
@@ -1120,11 +1122,57 @@ bool DB::setRename(const std::string& oldName, const std::string& newName)
 	}
 }
 
+bool DB::setMatchesConnections(const std::string& name, const std::vector<std::string>& source, const std::vector<std::vector<std::string>>& dest) {
+	std::lock_guard<std::mutex> guard(mMutex);
+	int setid = getsetid(mDB, name);
+
+	std::set<std::string> destset;
+	for (auto d: dest) {
+		destset.insert(boost::algorithm::join(d, ":"));
+	}
+
+	{
+		SQLite::Statement query(mDB, "SELECT sink_name, sink_port_name FROM sets_connections WHERE source_name=?1 AND source_port_name=?2 AND set_id=?3");
+		query.bind(1, source[0]);
+		if (source.size() > 1) {
+			query.bind(2, source[1]);
+		} else {
+			query.bind(2, "");
+		}
+		query.bind(3, setid);
+		while (query.executeStep()) {
+			const char * s = query.getColumn(0);
+			std::string v(s);
+
+			s = query.getColumn(1);
+			if (strlen(s) > 0) {
+				v += ":" + std::string(s);
+			}
+
+			//if there isn't something to remove, we don't have a match
+			if (destset.erase(v) == 0) {
+				//std::cout << name << " didn't find " << v << std::endl;
+				return false;
+			}
+		}
+	}
+
+	/*
+		 for (auto v: destset) {
+		 std::cout << name << " left over: " << v << std::endl;
+		 }
+		 */
+
+	//if there is anything left over, we don't have a match
+	return destset.size() == 0;
+}
+
 boost::optional<std::string> DB::setNameInitial(std::string rnbo_version)
 {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 
+	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE runner_rnbo_version = ?1 AND initial = 1 ORDER BY name ASC LIMIT 1");
 	query.bind(1, rnbo_version);
 
@@ -1185,6 +1233,7 @@ std::vector<int> DB::setViewIndexes(const std::string& setName, std::string rnbo
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 
+	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, R"(
 		SELECT view_index FROM sets_views
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
@@ -1205,6 +1254,7 @@ boost::optional<std::tuple<
 	std::vector<std::string>,
 	int
 >> DB::setViewGet(const std::string& setname, int viewIndex, std::string rnbo_version) {
+	std::lock_guard<std::mutex> guard(mMutex);
 	boost::optional<std::tuple<std::string, std::vector<std::string>, int>> item;
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
@@ -1244,6 +1294,7 @@ int DB::setViewCreate(
 		int viewIndex
 ) {
 	if (viewIndex < 0) {
+		std::lock_guard<std::mutex> guard(mMutex);
 		SQLite::Statement query(mDB, R"(
 			SELECT MAX(view_index) + 1 FROM sets_views
 			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
@@ -1260,6 +1311,7 @@ int DB::setViewCreate(
 	}
 
 	{
+		std::lock_guard<std::mutex> guard(mMutex);
 		std::string paramString = boost::algorithm::join(params, ",");
 
 		SQLite::Statement query(mDB, R"(
@@ -1284,6 +1336,7 @@ void DB::setViewDestroy(
 		const std::string& setname,
 		int viewIndex
 ) {
+	std::lock_guard<std::mutex> guard(mMutex);
 	if (viewIndex < 0) {
 		SQLite::Statement query(mDB, R"(
 			DELETE FROM sets_views
@@ -1312,6 +1365,7 @@ void DB::setViewUpdateParams(
 		int viewIndex,
 		const std::vector<std::string> params
 ) {
+	std::lock_guard<std::mutex> guard(mMutex);
 	std::string paramString = boost::algorithm::join(params, ",");
 
 	SQLite::Statement query(mDB, R"(
@@ -1334,6 +1388,7 @@ void DB::setViewUpdateName(
 		int viewIndex,
 		const std::string& name
 ) {
+	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, R"(
 		UPDATE sets_views
 		SET name = ?4
@@ -1353,6 +1408,7 @@ bool DB::setViewsUpdateSortOrder(
 		const std::string& setname,
 		std::vector<int>& indexes
 ) {
+	std::lock_guard<std::mutex> guard(mMutex);
 	int setid = getsetid(mDB, setname);
 	if (setid > 0) {
 		std::vector<std::string> orderings;
@@ -1415,6 +1471,7 @@ bool DB::setViewsUpdateSortOrder(
 }
 
 void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetName) {
+	std::lock_guard<std::mutex> guard(mMutex);
 	int srcid = getsetid(mDB, srcSetName);
 	int dstid = getsetid(mDB, dstSetName);
 	if (srcid > 0 && dstid > 0) {

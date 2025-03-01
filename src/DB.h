@@ -192,6 +192,8 @@ class DB {
 		bool setInitial(const std::string& name);
 		bool setRename(const std::string& oldName, const std::string& newName);
 
+		bool setMatchesConnections(const std::string& name, const std::vector<std::string>& source, const std::vector<std::vector<std::string>>& dest);
+
 		boost::optional<std::string> setNameInitial(
 				std::string rnbo_version = std::string()
 		);
