@@ -194,6 +194,22 @@ namespace {
 
 		return names;
 	}
+
+
+	std::vector<std::string> cleanupPortNameInfo(const std::string& name)  {
+		std::vector<std::string> info;
+		boost::algorithm::split(info, name, boost::is_any_of(":"));
+		//add an empty entry if there is only 1 entry
+		if (info.size() == 1) {
+			info.push_back("");
+		} else {
+			//if there are more than 2 entries, build them back into 2
+			for (auto j = 2; j < info.size(); j++) {
+				info[1] += ":" + info[j];
+			}
+		}
+		return info;
+	};
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(ProgramChange)> progChangeCallback) :
@@ -639,32 +655,17 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 		return name;
 	};
 
-	auto cleanup_name_info = [](const std::string& name) -> std::vector<std::string> {
-		std::vector<std::string> info;
-		boost::algorithm::split(info, name, boost::is_any_of(":"));
-		//add an empty entry if there is only 1 entry
-		if (info.size() == 1) {
-			info.push_back("");
-		} else {
-			//if there are more than 2 entries, build them back into 2
-			for (auto j = 2; j < info.size(); j++) {
-				info[1] += ":" + info[j];
-			}
-		}
-		return info;
-	};
-
 	if ((sources = jack_get_ports(mJackClient, nullptr, nullptr, JackPortIsOutput)) != nullptr) {
 		for (size_t i = 0; sources[i] != nullptr; i++) {
 			std::string name(sources[i]);
 		 	jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
 			name = use_midi_port_alias(name);
 
-			std::vector<std::string> src_info = cleanup_name_info(name);
-			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias, &cleanup_name_info](std::string sinkname) {
+			std::vector<std::string> src_info = cleanupPortNameInfo(name);
+			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias](std::string sinkname) {
 					sinkname = use_midi_port_alias(sinkname);
 
-					std::vector<std::string> sink_info = cleanup_name_info(sinkname);
+					std::vector<std::string> sink_info = cleanupPortNameInfo(sinkname);
 					conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
 			});
 		}
@@ -728,7 +729,7 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 }
 
 //Controller is holding onto build mutex, so feel free to build and don't lock it
-void ProcessAudioJack::processEvents() {
+void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> connectionChangeCallback) {
 	auto now = steady_clock::now();
 
 #ifndef __APPLE__
@@ -859,7 +860,7 @@ void ProcessAudioJack::processEvents() {
 		doUpdate(mSourceMIDIPortConnectionUpdates, mPortMIDISourceConnectionsNode);
 
 		{
-			auto updateParamFromJack = [this](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
+			auto updateParamFromJack = [this, &connectionChangeCallback](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
 				//get the current param values
 				std::set<std::string> notInJack;
 				auto val = param->value();
@@ -877,9 +878,11 @@ void ProcessAudioJack::processEvents() {
 
 				bool inJackNotParam = false;
 				std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
-				iterate_connections(port, [&values, &inJackNotParam, &notInJack](std::string n) {
+				std::vector<std::vector<std::string>> connections;
+				iterate_connections(port, [&values, &connections, &inJackNotParam, &notInJack](std::string n) {
 						inJackNotParam = inJackNotParam || notInJack.erase(n) == 0;
 						values.push_back(n);
+						connections.push_back(cleanupPortNameInfo(n));
 				});
 
 				//if there are any remaining names in the set that we didn't see via jack
@@ -887,6 +890,10 @@ void ProcessAudioJack::processEvents() {
 				//push an update
 				if (update || !notInJack.empty() || inJackNotParam) {
 					param->push_value(values);
+					//notify changes
+					if (connectionChangeCallback) {
+						connectionChangeCallback(ConnectionChange(cleanupPortNameInfo(portname), isSource, connections));
+					}
 				}
 			};
 
