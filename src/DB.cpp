@@ -1098,7 +1098,7 @@ bool DB::setInitial(const std::string& name)
 {
 	//TODO can we do this in a single statement?
 	{
-		std::lock_guard<std::mutex> guard(mMutex);
+		std::lock_guard<std::mutex> guard(mMutex); //setNameInitial also grabs mutex
 		SQLite::Statement query(mDB, "UPDATE sets SET initial = CASE WHEN name == ?1 THEN 1 ELSE 0 END WHERE runner_rnbo_version=?2");
 		query.bind(1, name);
 		query.bind(2, cur_rnbo_version);
