@@ -601,6 +601,7 @@ Controller::Controller(std::string server_name) {
 
 				mSetMetaParam->add_callback([this](const ossia::value&) {
 					queueSave();
+					mSetDirtyParam->push_value(true);
 				});
 			}
 
@@ -697,6 +698,14 @@ Controller::Controller(std::string server_name) {
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "The currently loaded set's name");
 					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
+				}
+
+				{
+					auto n = current->create_child("dirty");
+					mSetDirtyParam = n->create_parameter(ossia::val_type::BOOL);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "Indication that the current set has unsaved changes");
+					mSetDirtyParam->push_value(false);
 				}
 			}
 
@@ -1471,9 +1480,10 @@ void Controller::doLoadSet(std::string setname) {
 		}
 
 		if (mSetMetaParam) {
-			mSetMetaParam->push_value(setInfo->meta);
+			mSetMetaParam->push_value_quiet(setInfo->meta);
 		}
 
+		mSetDirtyParam->push_value(false);
 		mSetCurrentNameParam->push_value(setname);
 		config::set(setname, config::key::SetLastName);
 		updateSetPresetNames();
@@ -1901,6 +1911,7 @@ unsigned int Controller::nextInstanceIndex() {
 
 bool Controller::processEvents() {
 	auto now = steady_clock::now();
+
 	try {
 		{
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
@@ -1915,11 +1926,21 @@ bool Controller::processEvents() {
 
 		processCommands();
 
+		std::string loadedset = getCurrentSetName();
+		auto handleConnectionChange = [this, &loadedset](ConnectionChange change) {
+			//figure out if connections are inconsistent with those in the DB
+			if (change.issource) {
+				if (!mDB->setMatchesConnections(loadedset, change.port, change.connections)) {
+					mSetDirtyParam->push_value(true);
+				}
+			}
+		};
+
 		bool anyInstances = false;
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mProcessAudio)
-				mProcessAudio->processEvents();
+				mProcessAudio->processEvents(handleConnectionChange);
 			for (auto& i: mInstances) {
 				auto& inst = std::get<0>(i);
 				inst->processEvents();
@@ -2183,6 +2204,7 @@ void Controller::registerCommands() {
 						{"message", "loaded"},
 						{"progress", 100}
 					});
+					mSetDirtyParam->push_value(true);
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -2221,6 +2243,7 @@ void Controller::registerCommands() {
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
+				mSetDirtyParam->push_value(true);
 				reportCommandResult(id, {
 					{"code", 0},
 					{"message", "unloaded"},
@@ -2239,6 +2262,7 @@ void Controller::registerCommands() {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
+					mSetDirtyParam->push_value(false);
 					//TODO copy set presets??
 
 					const std::string presetName = "initial";
@@ -2320,6 +2344,7 @@ void Controller::registerCommands() {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
 					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
+					mSetDirtyParam->push_value(false);
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						mSetViewsListNode->clear_children();

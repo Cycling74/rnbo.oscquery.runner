@@ -150,6 +150,8 @@ class Controller {
 		std::mutex mSetLoadPendingMutex;
 		boost::optional<std::string> mSetLoadPending;
 
+		ossia::net::parameter_base * mSetDirtyParam = nullptr;
+
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
 
