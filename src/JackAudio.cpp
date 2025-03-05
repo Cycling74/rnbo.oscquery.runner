@@ -1909,17 +1909,17 @@ InstanceAudioJack::InstanceAudioJack(
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sinks, name, true)});
 
-				//pretty names from comment
-				if (inletsInfo.size() > i) {
-					auto info = inletsInfo[i];
-					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
-						auto comment = info["comment"].get<std::string>();
-						jack_uuid_t uuid = jack_port_uuid(port);
-						if (!jack_uuid_empty(uuid)) {
+				jack_uuid_t uuid = jack_port_uuid(port);
+				if (!jack_uuid_empty(uuid)) {
+					jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+					//pretty names from comment
+					if (inletsInfo.size() > i) {
+						auto info = inletsInfo[i];
+						if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
+							auto comment = info["comment"].get<std::string>();
 							if (comment.size() > 0) {
 								jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
 							}
-							jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
 						}
 					}
 					//TODO meta?
@@ -1951,17 +1951,17 @@ InstanceAudioJack::InstanceAudioJack(
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sources, name, false)});
 
-				//pretty names from comment
-				if (outletsInfo.size() > i) {
-					auto info = outletsInfo[i];
-					if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
-						auto comment = info["comment"].get<std::string>();
-						jack_uuid_t uuid = jack_port_uuid(port);
-						if (!jack_uuid_empty(uuid)) {
+				jack_uuid_t uuid = jack_port_uuid(port);
+				if (!jack_uuid_empty(uuid)) {
+					jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+					//pretty names from comment
+					if (outletsInfo.size() > i) {
+						auto info = outletsInfo[i];
+						if (info.is_object() && info.contains("comment") && info["comment"].is_string()) {
+							auto comment = info["comment"].get<std::string>();
 							if (comment.size() > 0) {
 								jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, comment.c_str(), "text/plain");
 							}
-							jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
 						}
 					}
 					//TODO meta?
