@@ -364,6 +364,13 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				}
 
 				{
+					auto n = param.create_child("display_name");
+					auto p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					p->push_value(std::string(info.displayName));
+				}
+
+				{
 					auto n = param.create_child("normalized");
 					auto p = n->create_parameter(ossia::val_type::FLOAT);
 
