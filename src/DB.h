@@ -6,6 +6,7 @@
 #include <boost/optional.hpp>
 #include <mutex>
 #include <vector>
+#include <unordered_map>
 
 struct SetConnectionInfo {
 	std::string source_name;
@@ -221,6 +222,7 @@ class DB {
 				const std::string& setname,
 				const std::string& viewname,
 				const std::vector<std::string> params,
+				const std::unordered_map<unsigned int, std::string>& patcherInstances, //index -> patchernames
 				int index = -1 //less than zero means find next index
 		);
 

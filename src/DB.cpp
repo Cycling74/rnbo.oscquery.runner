@@ -1,8 +1,11 @@
 #include "DB.h"
 #include "Config.h"
 
+#include <algorithm>
 #include <set>
 #include <iostream>
+#include <sstream>
+#include <fstream>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/none.hpp>
@@ -31,6 +34,44 @@ namespace {
 		}
 		return 0;
 	};
+
+	void writePatchersParams(SQLite::Database& db, const int patcher_id, const fs::path& config_name) {
+		auto configp = config::get<fs::path>(config::key::SourceCacheDir).get() / config_name;
+
+		if (!fs::exists(configp)) {
+			std::cerr << "config file does not exist at path: " << configp.string() << std::endl;
+			return;
+		}
+
+		RNBO::Json config;
+		std::ifstream i(configp.string());
+		i >> config;
+		if (!config.contains("parameters")) {
+			std::cerr << "config file does not contain parameters: " << configp.string() << std::endl;
+			return;
+		}
+
+		SQLite::Transaction transaction(db);
+		SQLite::Statement query(db, "INSERT INTO patchers_params (patcher_id, param_id, param_index) VALUES(?1, ?2, ?3)");
+
+		for (auto p: config["parameters"]) {
+			if (p.contains("type") && p.contains("index") && p.contains("paramId")) {
+				if (p["type"].get<std::string>() == "ParameterTypeNumber") {
+					std::string param_id = p["paramId"].get<std::string>();
+					int param_index = p["index"].get<int>();
+					query.bind(1, patcher_id);
+					query.bind(2, param_id);
+					query.bind(3, param_index);
+					query.exec();
+					query.reset();
+				}
+			} else {
+				std::cerr << "config param entry does not contain expected keys: " << configp.string() << std::endl;
+				break;
+			}
+		}
+		transaction.commit();
+	}
 }
 
 DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite::OPEN_READWRITE|SQLite::OPEN_CREATE) {
@@ -303,6 +344,114 @@ CREATE TABLE data_migrations
 			)");
 	});
 
+	//need to be able to map param id to param index for sets_views
+	do_migration(17, [](SQLite::Database& db) {
+
+			//create the table
+			db.exec(R"(
+CREATE TABLE patchers_params
+(
+	patcher_id INTEGER NOT NULL,
+	param_id TEXT NOT NULL,
+	param_index INTEGER NOT NULL,
+	FOREIGN KEY (patcher_id) REFERENCES patchers(id) ON DELETE CASCADE,
+	UNIQUE (patcher_id, param_id)
+)
+			)");
+
+			//get the data, we only care about current patchers cuz import will also create the data
+			{
+				std::unordered_map<int, std::string> idtoconfig;
+				{
+					SQLite::Statement query(db, "SELECT id, config_path FROM patchers WHERE runner_rnbo_version = ?1");
+					query.bind(1, cur_rnbo_version);
+					while (query.executeStep()) {
+						int id = query.getColumn(0);
+						const char * s = query.getColumn(1);
+						idtoconfig.insert({ id, std::string(s) });
+					}
+				}
+
+				//update current patchers
+				for (auto& kv: idtoconfig) {
+					writePatchersParams(db, kv.first, kv.second);
+				}
+			}
+
+			db.exec(R"(
+CREATE TABLE sets_views_params
+(
+	set_view_id INTEGER NOT NULL,
+
+	sort_order INTEGER NOT NULL,
+	set_instance_index INTEGER NOT NULL,
+	patcher_id INTEGER NOT NULL,
+	param_index INTEGER NOT NULL,
+
+	FOREIGN KEY (set_view_id) REFERENCES sets_views(id) ON DELETE CASCADE
+)
+)");
+			{
+				//migrate the data
+				std::vector<std::tuple<int, std::string, int>> data;
+				{
+					SQLite::Statement query(db, "SELECT id, params, set_id FROM sets_views");
+					while (query.executeStep()) {
+							int id = query.getColumn(0);
+							const char * s = query.getColumn(1);
+							int set_id = query.getColumn(2);
+
+							data.emplace_back(id, getStringColumn(query, 1), set_id);
+					}
+				}
+				for (auto& entry: data) {
+					int set_view_id = std::get<0>(entry);
+					int set_id = std::get<2>(entry);
+
+					std::unordered_map<int, int> instanceindexpatcherid;
+					{
+						SQLite::Statement query(db, "SELECT set_instance_index, patcher_id FROM sets_patcher_instances WHERE set_id = ?1");
+						query.bind(1, set_id);
+						while (query.executeStep()) {
+							instanceindexpatcherid.insert({ query.getColumn(0), query.getColumn(1) });
+						}
+					}
+
+					std::vector<std::string> params;
+					boost::algorithm::split(params, std::get<1>(entry), boost::is_any_of(","));
+
+					{
+						SQLite::Statement query(db, "INSERT INTO sets_views_params (set_view_id, sort_order, set_instance_index, param_index, patcher_id) VALUES(?1, ?2, ?3, ?4, ?5)");
+						for (auto i = 0; i < params.size(); i++) {
+							std::vector<std::string> details;
+							boost::algorithm::split(details, params[i], boost::is_any_of(":"));
+							if (details.size() == 2) {
+								int set_instance_index = std::stoi(details[0]);
+								int param_index = std::stoi(details[1]);
+
+								auto it = instanceindexpatcherid.find(set_instance_index);
+								if (it != instanceindexpatcherid.end()) {
+									int patcher_id = it->second;
+
+									query.bind(1, set_view_id);
+									query.bind(2, i);
+									query.bind(3, set_instance_index);
+									query.bind(4, param_index);
+									query.bind(5, patcher_id);
+
+									query.exec();
+									query.reset();
+								} else {
+									std::cerr << "failed to find patcher id while migrating set view data" << std::endl;
+								}
+							}
+						}
+					}
+				}
+			}
+
+	});
+
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
 }
@@ -379,6 +528,8 @@ void DB::patcherStore(
 	}
 
 	auto new_id = mDB.getLastInsertRowid();
+	writePatchersParams(mDB, new_id, config_name);
+
 	if (old_id) {
 		if (migrate_presets) {
 			SQLite::Statement query(mDB, R"(
@@ -401,6 +552,8 @@ void DB::patcherStore(
 			query.bind(2, new_id);
 			query.exec();
 		}
+
+		//TODO delete old patchers_params ?
 	}
 }
 
@@ -1292,6 +1445,7 @@ int DB::setViewCreate(
 		const std::string& setname,
 		const std::string& viewname,
 		const std::vector<std::string> params,
+		const std::unordered_map<unsigned int, std::string>& patcherInstances, //index -> patchernames
 		int viewIndex
 ) {
 	if (viewIndex < 0) {
