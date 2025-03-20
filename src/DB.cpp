@@ -35,6 +35,48 @@ namespace {
 		return 0;
 	};
 
+	std::unordered_map<int, int> setInstanceToPatcherId(SQLite::Database& db, int set_id) {
+		std::unordered_map<int, int> values;
+		SQLite::Statement query(db, "SELECT set_instance_index, patcher_id FROM sets_patcher_instances WHERE set_id = ?1");
+		query.bind(1, set_id);
+		while (query.executeStep()) {
+			values.insert({ query.getColumn(0), query.getColumn(1) });
+		}
+		return values;
+	}
+
+	void insertSetViewParams(SQLite::Database& db, int set_id, int set_view_id, const std::vector<std::string>& params) {
+		std::unordered_map<int, int> instanceindexpatcherid = setInstanceToPatcherId(db, set_id);
+
+		{
+			SQLite::Statement query(db, "INSERT INTO sets_views_params (set_view_id, sort_order, set_instance_index, param_index, patcher_id) VALUES(?1, ?2, ?3, ?4, ?5)");
+			for (auto i = 0; i < params.size(); i++) {
+				std::vector<std::string> details;
+				boost::algorithm::split(details, params[i], boost::is_any_of(":"));
+				if (details.size() == 2) {
+					int set_instance_index = std::stoi(details[0]);
+					int param_index = std::stoi(details[1]);
+
+					auto it = instanceindexpatcherid.find(set_instance_index);
+					if (it != instanceindexpatcherid.end()) {
+						int patcher_id = it->second;
+
+						query.bind(1, set_view_id);
+						query.bind(2, i);
+						query.bind(3, set_instance_index);
+						query.bind(4, param_index);
+						query.bind(5, patcher_id);
+
+						query.exec();
+						query.reset();
+					} else {
+						std::cerr << "failed to find patcher id while inserting set view param data" << std::endl;
+					}
+				}
+			}
+		}
+	}
+
 	void writePatchersParams(SQLite::Database& db, const int patcher_id, const fs::path& config_name) {
 		auto configp = config::get<fs::path>(config::key::SourceCacheDir).get() / config_name;
 
@@ -407,46 +449,10 @@ CREATE TABLE sets_views_params
 				for (auto& entry: data) {
 					int set_view_id = std::get<0>(entry);
 					int set_id = std::get<2>(entry);
-
-					std::unordered_map<int, int> instanceindexpatcherid;
-					{
-						SQLite::Statement query(db, "SELECT set_instance_index, patcher_id FROM sets_patcher_instances WHERE set_id = ?1");
-						query.bind(1, set_id);
-						while (query.executeStep()) {
-							instanceindexpatcherid.insert({ query.getColumn(0), query.getColumn(1) });
-						}
-					}
-
+					std::string& paramsString = std::get<1>(entry);
 					std::vector<std::string> params;
-					boost::algorithm::split(params, std::get<1>(entry), boost::is_any_of(","));
-
-					{
-						SQLite::Statement query(db, "INSERT INTO sets_views_params (set_view_id, sort_order, set_instance_index, param_index, patcher_id) VALUES(?1, ?2, ?3, ?4, ?5)");
-						for (auto i = 0; i < params.size(); i++) {
-							std::vector<std::string> details;
-							boost::algorithm::split(details, params[i], boost::is_any_of(":"));
-							if (details.size() == 2) {
-								int set_instance_index = std::stoi(details[0]);
-								int param_index = std::stoi(details[1]);
-
-								auto it = instanceindexpatcherid.find(set_instance_index);
-								if (it != instanceindexpatcherid.end()) {
-									int patcher_id = it->second;
-
-									query.bind(1, set_view_id);
-									query.bind(2, i);
-									query.bind(3, set_instance_index);
-									query.bind(4, param_index);
-									query.bind(5, patcher_id);
-
-									query.exec();
-									query.reset();
-								} else {
-									std::cerr << "failed to find patcher id while migrating set view data" << std::endl;
-								}
-							}
-						}
-					}
+					boost::algorithm::split(params, paramsString, boost::is_any_of(","));
+					insertSetViewParams(db, set_id, set_view_id, params);
 				}
 			}
 
@@ -1445,18 +1451,17 @@ int DB::setViewCreate(
 		const std::string& setname,
 		const std::string& viewname,
 		const std::vector<std::string> params,
-		const std::unordered_map<unsigned int, std::string>& patcherInstances, //index -> patchernames
 		int viewIndex
 ) {
+	int set_id = 0;
+	{
+		std::lock_guard<std::mutex> guard(mMutex);
+		set_id = getsetid(mDB, setname);
+	}
 	if (viewIndex < 0) {
 		std::lock_guard<std::mutex> guard(mMutex);
-		SQLite::Statement query(mDB, R"(
-			SELECT MAX(view_index) + 1 FROM sets_views
-			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-			)"
-		);
-		query.bind(1, setname);
-		query.bind(2, cur_rnbo_version);
+		SQLite::Statement query(mDB, "SELECT MAX(view_index) + 1 FROM sets_views WHERE set_id = ?1");
+		query.bind(1, set_id);
 
 		if (query.executeStep()) {
 			viewIndex = query.getColumn(0);
@@ -1467,21 +1472,26 @@ int DB::setViewCreate(
 
 	{
 		std::lock_guard<std::mutex> guard(mMutex);
+
 		std::string paramString = boost::algorithm::join(params, ",");
 
 		SQLite::Statement query(mDB, R"(
 			INSERT INTO sets_views (set_id, view_index, params, name)
-			SELECT MAX(sets.id), ?3, ?4, ?5
-			FROM sets WHERE sets.name = ?1 AND sets.runner_rnbo_version = ?2 GROUP BY sets.name
+			VALUES(?1, ?2, ?3, ?4)
 			)"
 		);
 
-		query.bind(1, setname);
-		query.bind(2, cur_rnbo_version);
-		query.bind(3, viewIndex);
-		query.bind(4, paramString);
-		query.bind(5, viewname);
+		query.bind(1, set_id);
+		query.bind(2, viewIndex);
+		query.bind(3, paramString);
+		query.bind(4, viewname);
 		query.exec();
+	}
+
+	int set_view_id = mDB.getLastInsertRowid();
+	{
+		std::lock_guard<std::mutex> guard(mMutex);
+		insertSetViewParams(mDB, set_id, set_view_id, params);
 	}
 
 	return viewIndex;
