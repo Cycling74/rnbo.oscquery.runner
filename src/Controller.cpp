@@ -1800,19 +1800,19 @@ void Controller::addSetView(std::string setname, int index) {
 		auto n = view->create_child("params");
 		auto p = n->create_parameter(ossia::val_type::LIST);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-		n->set(ossia::net::description_attribute{}, "list of parameters in format instance_index:parameter_index");
+		n->set(ossia::net::description_attribute{}, "list of parameters in format instance_index:parameter_id");
 		std::vector<ossia::value> l;
 		for (auto param: params) {
 			l.push_back(param);
 		}
 		p->push_value(l);
 		p->add_callback([this, setname, index](const ossia::value& val) {
-			std::vector<std::string> params;
+			std::vector<ViewParam> params;
 			if (val.get_type() == ossia::val_type::LIST) {
 				auto l = val.get<std::vector<ossia::value>>();
 				for (auto item: l) {
 					if (item.get_type() == ossia::val_type::STRING) {
-						params.push_back(item.get<std::string>());
+						params.push_back(ViewParam::fromString(item.get<std::string>()));
 					}
 				}
 			}
@@ -2479,18 +2479,21 @@ void Controller::registerCommands() {
 				ensureSet(setname);
 				if (setname.size()) {
 					std::string viewname = params["name"];
-					std::vector<std::string> viewParams;
+					std::vector<ViewParam> viewParams;
 
-					for (auto p: params["params"]) {
-						viewParams.push_back(p.get<std::string>());
-					}
+	        try {
+	          for (auto p: params["params"]) {
+	              viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
+	          }
+	        } catch (...) { 
+	          std::cerr << "error parsing view params" << std::endl;
+	        }
 
 					int index = mDB->setViewCreate(setname, viewname, viewParams);
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						addSetView(setname, index);
 					}
-
 
 					reportCommandResult(id, {
 						{"code", 0},
@@ -2772,9 +2775,17 @@ void Controller::registerCommands() {
 							if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
 								auto index = entry["index"].get<int>();
 								auto name = entry["name"].get<std::string>();
-								auto params = entry["params"];
-								sort_order.push_back(index);
-								mDB->setViewCreate(fileName, name, params, index);
+
+	              try {
+	                std::vector<ViewParam> viewParams;
+	                for (auto p: entry["params"]) {
+	                  viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
+	                }
+	                sort_order.push_back(index);
+	                mDB->setViewCreate(fileName, name, viewParams, index);
+	              } catch (const std::exception& e) {
+	                std::cerr << "failed to import param view " << name << std::endl;
+	              }
 							}
 						}
 						mDB->setViewsUpdateSortOrder(fileName, sort_order);
