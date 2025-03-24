@@ -53,6 +53,12 @@ struct SetInfo {
 	static SetInfo fromJson(const RNBO::Json& json);
 };
 
+struct ViewParam {
+	int instance_index;
+	std::string param_id;
+	ViewParam(int index, std::string id) : instance_index(index), param_id(id) {}
+	static ViewParam fromString(const std::string& v);
+};
 
 class DB {
 	public:
@@ -221,7 +227,7 @@ class DB {
 		int setViewCreate(
 				const std::string& setname,
 				const std::string& viewname,
-				const std::vector<std::string> params,
+				const std::vector<ViewParam> params,
 				int index = -1 //less than zero means find next index
 		);
 
@@ -234,7 +240,7 @@ class DB {
 		void setViewUpdateParams(
 				const std::string& setname,
 				int viewIndex,
-				const std::vector<std::string> params
+				const std::vector<ViewParam> params
 		);
 
 		void setViewUpdateName(
