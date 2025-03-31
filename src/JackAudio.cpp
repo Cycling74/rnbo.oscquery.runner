@@ -44,7 +44,6 @@ namespace {
 	const std::string RNBO_GRAPH_SINK_PORTGROUP("rnbo-graph-user-sink");
 	const std::string RNBO_GRAPH_SRC_PORTGROUP("rnbo-graph-user-src");
 
-
 #ifdef __APPLE__
 	const static std::string jack_driver_name = "coreaudio";
 	const static std::string jack_midi_driver_name = "coremidi";
@@ -1113,6 +1112,19 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 	}
 	if (flags & JackPortIsTerminal) {
 		properties["terminal"] = true;
+	}
+
+	properties["source"] = (bool)(flags & JackPortIsOutput);
+
+	{
+		std::string porttype(jack_port_type(port));
+		if (porttype == std::string(JACK_DEFAULT_AUDIO_TYPE)) {
+			properties["type"] = "audio";
+		} else if (porttype == std::string(JACK_DEFAULT_MIDI_TYPE)) {
+			properties["type"] = "midi";
+		} else {
+			properties["type"] = porttype;
+		}
 	}
 
 	{
