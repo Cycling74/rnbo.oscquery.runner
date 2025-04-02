@@ -216,7 +216,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	mParamInterface = mCore->createParameterInterface(RNBO::ParameterEventInterface::MultiProducer, mEventHandler.get());
 
 	std::string audioName = name + "-" + std::to_string(mIndex);
-	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mMIDIMap));
+	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mParamMIDIMap, mInportMIDIMap));
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
@@ -1521,6 +1521,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	RNBO::Json meta;
 	bool setDefault = false;
 	bool isParam = false;
+	bool isInport = false;
 	bool usenormalized = false;
 
 	//set default meta if length is zero and there is a default
@@ -1576,6 +1577,8 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 				break;
 			case MetaUpdateCommand::Subject::Inport:
 				{
+					isInport = true;
+
 					name = update.messageTag;
 					oscAccessMode = ossia::access_mode::SET;
 					oscAddr = portToOSC && name.starts_with('/') ? name : "";
@@ -1652,28 +1655,28 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	}
 	queueConfigChangeSignal();
 
-	if (isParam) {
-		uint16_t midiKey = 0;
-		if (meta.is_object() && meta.contains("midi")) {
-			midiKey = midimap::key(meta["midi"]);
-		}
+	uint16_t midiKey = 0;
+	if (meta.is_object() && meta.contains("midi")) {
+		midiKey = midimap::key(meta["midi"]);
+	}
 
+	if (isParam) {
 		//clear out mapping if it doesn't match our current mapping
 		{
-			auto it = mMIDIMapLookup.find(update.paramIndex);
-			if (it != mMIDIMapLookup.end()) {
+			auto it = mParamMIDIMapLookup.find(update.paramIndex);
+			if (it != mParamMIDIMapLookup.end()) {
 				auto key = it->second;
 
 				if (key != midiKey) {
-					mMIDIMapLookup.erase(it);
+					mParamMIDIMapLookup.erase(it);
 
 					std::unique_lock<std::mutex> guard(mMIDIMapMutex);
-					auto mapIt = mMIDIMap.find(key);
-					if (mapIt != mMIDIMap.end()) {
+					auto mapIt = mParamMIDIMap.find(key);
+					if (mapIt != mParamMIDIMap.end()) {
 						//remove this param from the set and maybe ditch the set
 						mapIt->second.erase(update.paramIndex);
 						if (mapIt->second.empty()) {
-							mMIDIMap.erase(mapIt);
+							mParamMIDIMap.erase(mapIt);
 						}
 					} else {
 						//ERROR?
@@ -1692,16 +1695,62 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 			//is there already a set in the midi map?
 			{
-				auto it = mMIDIMap.find(midiKey);
-				if (it != mMIDIMap.end()) {
+				auto it = mParamMIDIMap.find(midiKey);
+				if (it != mParamMIDIMap.end()) {
 					it->second.insert(update.paramIndex);
 				} else {
-					mMIDIMap.insert({midiKey, {update.paramIndex}});
+					mParamMIDIMap.insert({midiKey, {update.paramIndex}});
 				}
 			}
 
 			//set reverse lookup
-			mMIDIMapLookup[update.paramIndex] = midiKey;
+			mParamMIDIMapLookup[update.paramIndex] = midiKey;
+		}
+	} else if (isInport) {
+		auto tag = RNBO::TAG(name.c_str());
+		{
+			auto it = mInportMIDIMapLookup.find(tag);
+			if (it != mInportMIDIMapLookup.end()) {
+				auto key = it->second;
+
+				if (key != midiKey) {
+					mInportMIDIMapLookup.erase(it);
+
+					std::unique_lock<std::mutex> guard(mMIDIMapMutex);
+					auto mapIt = mInportMIDIMap.find(key);
+					if (mapIt != mInportMIDIMap.end()) {
+						//remove this inport from the set and maybe ditch the set
+						mapIt->second.erase(tag);
+						if (mapIt->second.empty()) {
+							mInportMIDIMap.erase(mapIt);
+						}
+					} else {
+						//ERROR?
+					}
+
+				} else {
+					midiKey = 0; //don't change map
+					// TODO we may need to change once we allow for ranges etc
+				}
+			}
+		}
+
+		//setup new mapping
+		if (midiKey) {
+			std::unique_lock<std::mutex> guard(mMIDIMapMutex);
+
+			//is there already a set in the midi map?
+			{
+				auto it = mInportMIDIMap.find(midiKey);
+				if (it != mInportMIDIMap.end()) {
+					it->second.insert(tag);
+				} else {
+					mInportMIDIMap.insert({midiKey, {tag}});
+				}
+			}
+
+			//set reverse lookup
+			mInportMIDIMapLookup[tag] = midiKey;
 		}
 	}
 

@@ -1763,9 +1763,10 @@ InstanceAudioJack::InstanceAudioJack(
 		NodeBuilder builder,
 		std::function<void(ProgramChange)> progChangeCallback,
 		std::mutex& midiMapMutex,
-		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& midiMap
+		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>>& paramMIDIMap,
+		std::unordered_map<uint16_t, std::set<RNBO::MessageTag>>& inportMIDIMap
 		) : mCore(core), mInstanceConf(conf), mProgramChangeCallback(progChangeCallback),
-	mMIDIMapMutex(midiMapMutex), mMIDIMap(midiMap)
+	mMIDIMapMutex(midiMapMutex), mParamMIDIMap(paramMIDIMap), mInportMIDIMap(inportMIDIMap)
 {
 
 	std::string clientName = name;
@@ -2383,13 +2384,31 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 						lastKey = key;
 
 						if (guard.owns_lock()) {
-							//eval midi map if we have the lock
-							auto it = mMIDIMap.find(key);
-							if (it != mMIDIMap.end()) {
-								double value = midimap::value(bytes[0], bytes[1], bytes[2]);
-								for (auto paramId: it->second) {
-									mCore->setParameterValueNormalized(paramId, value, time);
+							bool mapped = false;
+							{
+								//eval midi map if we have the lock
+								auto it = mParamMIDIMap.find(key);
+								if (it != mParamMIDIMap.end()) {
+									double value = midimap::value(bytes[0], bytes[1], bytes[2]);
+									for (auto paramId: it->second) {
+										mCore->setParameterValueNormalized(paramId, value, time);
+									}
+									mapped = true;
 								}
+							}
+							{
+								//eval midi map if we have the lock
+								auto it = mInportMIDIMap.find(key);
+								if (it != mInportMIDIMap.end()) {
+									double value = midimap::value(bytes[0], bytes[1], bytes[2], false); //un-normalized value
+									for (auto tag: it->second) {
+										mCore->sendMessage(tag, static_cast<RNBO::number>(value));
+									}
+									mapped = true;
+								}
+							}
+
+							if (mapped) {
 								continue;
 							}
 						}

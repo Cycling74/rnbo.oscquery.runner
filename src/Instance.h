@@ -212,8 +212,11 @@ class Instance {
 		Queue<MetaUpdateCommand> mMetaUpdateQueue;
 
 		std::mutex mMIDIMapMutex;
-		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>> mMIDIMap; //ParamMIDIMap::key() -> [parameter index, param index]
-		std::unordered_map<RNBO::ParameterIndex, uint16_t> mMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
+		std::unordered_map<uint16_t, std::set<RNBO::ParameterIndex>> mParamMIDIMap; //ParamMIDIMap::key() -> [parameter index, param index]
+		std::unordered_map<RNBO::ParameterIndex, uint16_t> mParamMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
+		std::unordered_map<uint16_t, std::set<RNBO::MessageTag>> mInportMIDIMap; //ParamMIDIMap::key() -> [inport tag, inport tag]
+		std::unordered_map<RNBO::MessageTag, uint16_t> mInportMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
+																																						
 		ossia::net::parameter_base * mMIDILastParam; //for mapping
 		bool mMIDILastReport = false; //if we publish to the above param, it is pretty noisy otherwise
 
