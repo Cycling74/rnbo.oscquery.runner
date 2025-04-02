@@ -1324,14 +1324,18 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
-			//queue a save whenenever the configuration changes
-			instance->registerConfigChangeCallback([this] {
-					queueSave();
-			});
 			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
 					handleInstancePresetLoad(instanceIndex, setPresetName, presetName);
 			});
 			instance->activate();
+			instance->processEvents();
+			instance->markConfigChanged(false); //use a hammer to disable change reporting
+
+			//queue a save whenenever the configuration changes
+			instance->registerConfigChangeCallback([this] {
+					mSetDirtyParam->push_value(true);
+					queueSave();
+			});
 			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
 		}
 		if (cmdId.size()) {

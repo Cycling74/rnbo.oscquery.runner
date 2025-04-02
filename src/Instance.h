@@ -78,6 +78,9 @@ class Instance {
 			mPresetsDirty = false;
 			updatePresetEntries();
 		}
+		void markConfigChanged(bool v) {
+			mConfigChanged = v;
+		}
 	private:
 		bool mPresetsDirty = false;
 

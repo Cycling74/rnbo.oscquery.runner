@@ -217,10 +217,6 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 	std::string audioName = name + "-" + std::to_string(mIndex);
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mMIDIMap));
-	mAudio->registerConfigChangeCallback([this]() {
-			if (mConfigChangeCallback != nullptr)
-			mConfigChangeCallback();
-	});
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
@@ -324,6 +320,11 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							mParamMetaDefault.insert({index, meta.dump()});
 						}
 
+						op->add_callback([this, op, on, index](const ossia::value& val) {
+								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
+								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
+						});
+
 						if (metaoverride.is_object()) {
 							op->push_value(metaoverride.dump());
 							handleMetadataUpdate(MetaUpdateCommand(on, op, index, metaoverride.dump()));
@@ -333,11 +334,6 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 						} else {
 							op->push_value("");
 						}
-
-						op->add_callback([this, op, on, index](const ossia::value& val) {
-								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
-								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
-						});
 
 						//keep track of parameter
 						mParamMetaParams.insert({index, op});
@@ -885,7 +881,9 @@ void Instance::processDataRefCommands() {
 			continue;
 		DataRefCommand cmd = cmdOpt.get();
 		if (loadDataRefCleanup(cmd.id, cmd.fileName)) {
-			queueConfigChangeSignal();
+			//TODO loading datarefs is changing dirty status, can we figure out a better way?
+			//DISABLING until then 
+			//queueConfigChangeSignal();
 		}
 	}
 }
