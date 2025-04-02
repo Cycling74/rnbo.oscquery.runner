@@ -112,7 +112,8 @@ class Instance {
 			enum class Subject {
 				Param,
 				Inport,
-				Outport
+				Outport,
+				DataRef
 			};
 
 			ossia::net::node_base * node = nullptr; //"meta" node (and children)
@@ -217,6 +218,7 @@ class Instance {
 		std::unordered_map<std::string, std::string> mInportMetaDefault;
 		std::unordered_map<std::string, std::string> mOutportMetaDefault;
 		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaDefault;
+		std::unordered_map<std::string, std::string> mDataRefMetaDefault;
 
 		//mappings that aren't default, to be stored with configuration
 		std::mutex mMetaMapMutex;
@@ -224,6 +226,7 @@ class Instance {
 		std::unordered_map<std::string, std::string> mOutportMetaMapped;
 		std::unordered_map<RNBO::ParameterIndex, std::string> mParamMetaMapped;
 		std::unordered_map<RNBO::ParameterIndex, ossia::net::parameter_base *> mParamMetaParams;
+		std::unordered_map<std::string, std::string> mDataRefMetaMapped;
 
 		ossia::net::node_base * mOSCRoot = nullptr;
 		//functions to run when we clear out OSC mapping

@@ -267,6 +267,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		RNBO::Json paramMetaOverride = RNBO::Json::array();
 		RNBO::Json inportMetaOverride = RNBO::Json::object();
 		RNBO::Json outportMetaOverride = RNBO::Json::object();
+		RNBO::Json datarefMetaOverride = RNBO::Json::object();
 		if (conf.contains("metaoverride") && conf["metaoverride"].is_object()) {
 			auto& o = conf["metaoverride"];
 
@@ -278,6 +279,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 			}
 			if (o.contains("outports") && o["outports"].is_object()) {
 				outportMetaOverride = o["outports"];
+			}
+			if (o.contains("datarefs") && o["datarefs"].is_object()) {
+				datarefMetaOverride = o["datarefs"];
 			}
 		}
 
@@ -437,6 +441,11 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		}
 
 		{
+			RNBO::Json datarefConfig;
+			if (conf.contains("externalDataRefs")) {
+				datarefConfig = conf["externalDataRefs"];
+			}
+
 			auto dataRefs = root->create_child("data_refs");
 			for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
 				auto id = mCore->getExternalDataId(index);
@@ -452,6 +461,45 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 						if (val.get_type() == ossia::val_type::STRING)
 							mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
 				});
+
+				//add meta
+				{
+					RNBO::Json meta;
+					for (auto& j: datarefConfig) {
+						if (j.is_object() && j.contains("id") && j["id"].get<std::string>() == name) {
+							meta = j["meta"];
+							break;
+						}
+					}
+					RNBO::Json metaoverride = datarefMetaOverride[name];
+
+					auto param_meta = add_meta_to_param(*n);
+					auto on = param_meta.first;
+					auto op = param_meta.second;
+
+					if (meta.is_object()) {
+						mDataRefMetaDefault.insert({name, meta.dump()});
+					}
+
+					std::string mapping;
+					if (metaoverride.is_object()) {
+						op->push_value(metaoverride.dump());
+						mapping = metaoverride.dump();
+					} else if (meta.is_object()) {
+						op->push_value(meta.dump());
+						mapping = meta.dump();
+					} else {
+						op->push_value("");
+					}
+					handleMetadataUpdate(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::DataRef, name, mapping));
+
+					op->add_callback([this, op, on, name](const ossia::value& val) {
+							std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
+							mMetaUpdateQueue.push(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::DataRef, name, s));
+					});
+
+				}
+
 				mDataRefNodes.emplace(name, d);
 			}
 		}
@@ -1192,6 +1240,13 @@ RNBO::Json Instance::currentConfig() {
 			outports[kv.first] = RNBO::Json::parse(kv.second);
 		}
 		meta["outports"] = outports;
+
+		RNBO::Json datarefs = RNBO::Json::object();
+		for (auto& kv: mDataRefMetaMapped) {
+			datarefs[kv.first] = RNBO::Json::parse(kv.second);
+		}
+		meta["datarefs"] = datarefs;
+
 	} catch (...) {
 		std::cerr << "problem creating meta config" << std::endl;
 	}
@@ -1567,6 +1622,27 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						mOutportMetaMapped[name] = update.meta;
 					} else {
 						mOutportMetaMapped.erase(name);
+					}
+				}
+				break;
+			case MetaUpdateCommand::Subject::DataRef:
+				{
+					name = update.messageTag;
+
+					bool isCustom = !setDefault;
+					auto it = mDataRefMetaDefault.find(name);
+					if (it != mDataRefMetaDefault.end()) {
+						//push new value but let fall through to unmap meta
+						if (setDefault) {
+							update.param->push_value(it->second);
+						} else {
+							isCustom = update.meta != it->second;
+						}
+					}
+					if (isCustom) {
+						mDataRefMetaMapped[name] = update.meta;
+					} else {
+						mDataRefMetaMapped.erase(name);
 					}
 				}
 				break;
