@@ -23,7 +23,7 @@ namespace {
 }
 
 namespace midimap {
-	double value(uint8_t status, uint8_t data0, uint8_t data1) {
+	double value(uint8_t status, uint8_t data0, uint8_t data1, bool normalize) {
 		switch (status & 0xF0) {
 			//note off maps to note on key
 			case NOTE_OFF:
@@ -34,22 +34,33 @@ namespace midimap {
 				break;
 			case KEY_PRESSURE:
 			case CONTROL_CHANGE:
-				return static_cast<double>(data1) / 127.0;
+				if (normalize)
+					return static_cast<double>(data1) / 127.0;
+				else
+					return static_cast<double>(data1);
 				break;
 			case PITCH_BEND_CHANGE:
 				return static_cast<double>((static_cast<uint16_t>(data1) << 7) + static_cast<uint16_t>(data0)) / 16383.0;
 			case PROGRAM_CHANGE:
 			case CHANNEL_PRESSURE:
-				return static_cast<double>(data0) / 127.0;
+				if (normalize)
+					return static_cast<double>(data0) / 127.0;
+				else
+					return static_cast<double>(data0);
 			case 0xF0:
 				switch (status) {
 					case SONG_POSITION_POINTER:
 						//14-bit unsigned
-						return static_cast<double>((static_cast<uint16_t>(data1) << 7) + static_cast<uint16_t>(data0)) / 16383.0;
+						if (normalize)
+							return static_cast<double>((static_cast<uint16_t>(data1) << 7) + static_cast<uint16_t>(data0)) / 16383.0;
+						return static_cast<double>((static_cast<uint16_t>(data1) << 7) + static_cast<uint16_t>(data0));
 					case QUARTER_FRAME:
 					case SONG_SELECT:
 						//one byte
-						return static_cast<double>(data0) / 127.0;
+						if (normalize)
+							return static_cast<double>(data0) / 127.0;
+						else
+							return static_cast<double>(data0);
 					case TUNE_REQUEST:
 					case START:
 					case CONTINUE:
