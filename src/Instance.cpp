@@ -247,15 +247,33 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 		{
 			auto config = root->create_child("config");
 
-			auto n = config->create_child("set_preset_patcher_named");
-			n->set(ossia::net::description_attribute{}, "Should set presets saved simply store the name of the last patcher instance preset loaded/saved");
-			auto p = n->create_parameter(ossia::val_type::BOOL);
-			p->push_value(mSetPresetPatcherNamed);
-			p->add_callback([this](const ossia::value& v) {
-				if (v.get_type() == ossia::val_type::BOOL) {
-					mSetPresetPatcherNamed = v.get<bool>();
+			{
+				auto n = config->create_child("set_preset_patcher_named");
+				n->set(ossia::net::description_attribute{}, "Should set presets saved simply store the name of the last patcher instance preset loaded/saved");
+				auto p = n->create_parameter(ossia::val_type::BOOL);
+				p->push_value(mSetPresetPatcherNamed);
+				p->add_callback([this](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::BOOL) {
+						mSetPresetPatcherNamed = v.get<bool>();
+					}
+				});
+			}
+
+			{
+				std::string namealias;
+				if (conf.contains("namealias") && conf["namealias"].is_string()) {
+					namealias = conf["namealias"].get<std::string>();
 				}
-			});
+				auto n = config->create_child("name_alias");
+				n->set(ossia::net::description_attribute{}, "An alias to use when displaying this instance in a graph");
+				auto p = mNameAliasParam = n->create_parameter(ossia::val_type::STRING);
+				p->push_value(namealias);
+				p->add_callback([this](const ossia::value& /*v*/) { 
+					//TODO check unique?
+					//TODO set jack pretty name?
+					queueConfigChangeSignal();
+				});
+			}
 
 		}
 
@@ -1214,6 +1232,13 @@ RNBO::Json Instance::currentConfig() {
 	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
 
 	//mAudio->addConfig(config);
+
+	if (mNameAliasParam) {
+		std::string namealias = mNameAliasParam->value().get<std::string>(); 
+		if (namealias.size()) {
+			config["namealias"] = namealias;
+		}
+	}
 
 	//meta mappings
 	try {

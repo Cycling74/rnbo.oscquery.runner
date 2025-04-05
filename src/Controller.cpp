@@ -1416,9 +1416,9 @@ void Controller::doLoadSet(std::string setname) {
 			}
 			config["name"] = name;
 
-			//override datarefs
 			if (entry.config.size()) {
 				auto instConfig = RNBO::Json::parse(entry.config);
+				//override datarefs
 				if (instConfig.contains("datarefs"))
 					config["datarefs"] = instConfig["datarefs"];
 				//load the last preset as the initial one
@@ -1431,6 +1431,9 @@ void Controller::doLoadSet(std::string setname) {
 				}
 				if (instConfig.contains("setpreset")) {
 					config["setpreset"] = instConfig["setpreset"];
+				}
+				if (instConfig["namealias"].is_string()) {
+					config["namealias"] = instConfig["namealias"];
 				}
 			}
 

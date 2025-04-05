@@ -270,4 +270,6 @@ class Instance {
 
 		//do we use a preset name instead of preset content when saving set presets
 		bool mSetPresetPatcherNamed = false;
+
+		ossia::net::parameter_base * mNameAliasParam = nullptr;
 };
