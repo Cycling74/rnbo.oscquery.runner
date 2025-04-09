@@ -3162,7 +3162,6 @@ void Controller::registerCommands() {
 				if (!fs::exists(exportlocation)) {
 					fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
 					fs::path tmppath = tmpdir / sanitizedPackageName;
-					std::cout << "tmppath " << tmppath.string() << std::endl;
 
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(FileCommandStatus::Received)},
