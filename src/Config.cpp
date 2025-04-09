@@ -33,6 +33,7 @@ namespace {
 	static fs::path default_backup_dir = config::make_path("~/Documents/rnbo/backup/");
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
 	static fs::path default_db_path = config::make_path("~/Documents/rnbo/oscqueryrunner.sqlite");
+	static fs::path default_export_dir = config::make_path("~/Documents/rnbo/exports/");
 
 	static fs::path home_dir_config_file_path = config::make_path("~/.config/rnbo/runner.json");
 
@@ -63,6 +64,7 @@ namespace {
 		{config::key::BackupDir, default_backup_dir.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
 		{config::key::DBPath, default_db_path.string()},
+		{config::key::ExportDir, default_export_dir.string()},
 		{config::key::UUIDPath, default_runner_uuid_path.string()},
 		{config::key::InstanceAutoStartLast, true},
 		{config::key::InstanceAutoConnectAudio, true},
@@ -163,6 +165,14 @@ namespace config {
 						return rp;
 				}
 			}
+			if (k == key::TempDir) {
+				std::string tmpdir(std::getenv("TMPDIR"));
+				if (tmpdir.size() == 0) {
+					tmpdir = "/tmp/"; //TODO windows
+				}
+				return fs::absolute(fs::path(tmpdir));
+			}
+
 			return boost::none;
 		}
 		return make_path(p.get());

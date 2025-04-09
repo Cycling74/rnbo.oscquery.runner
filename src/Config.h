@@ -18,6 +18,8 @@ namespace config {
 		const static std::string SaveDir = "save_dir"; //where do we persist saved data, for auto start on restart
 		const static std::string BackupDir = "backup_dir"; //where do we save backup (like db) data
 		const static std::string DBPath = "db_path"; //where is the database file?
+		const static std::string ExportDir = "export_dir"; //where do we store exported data (sets, patchers)
+		const static std::string TempDir = "temp_dir"; //where to place temp files
 																																																			//
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
 
