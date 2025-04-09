@@ -3277,6 +3277,8 @@ void Controller::registerCommands() {
 						}
 							
 						if (include_presets) {
+							fs::path location = srcdir / fs::path(sanitizeName(patchername) + "-presets.json");
+
 							std::vector<std::string> presetnames;
 							std::string initialpreset;
 							mDB->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial) { 
@@ -3296,10 +3298,14 @@ void Controller::registerCommands() {
 									return;
 								}
 							}
-							patcherinfo["presets"] = content;
 							if (initialpreset.size()) {
 								patcherinfo["preset_initial"] = initialpreset;
 							}
+
+							if (writeJson(content, tmppath / location)) {
+								return;
+							}
+							patcherinfo["presets"] = location.string();
 						}
 
 						//common info
