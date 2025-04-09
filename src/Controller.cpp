@@ -187,6 +187,7 @@ namespace {
 	}
 
 	void addSetContent(RNBO::Json& setJson, std::shared_ptr<DB>& db, std::string name, std::string rnboVersion, bool include_presets, bool include_views = true) {
+		setJson["name"] = name;
 		//get presets
 		//XXX could this become too large??
 		if (include_presets) {
@@ -3095,30 +3096,20 @@ void Controller::registerCommands() {
 				}
 
 				std::set<std::string> patchernames;
+				std::set<std::string> setnames;
 				RNBO::Json setJson;
 
 				if (params.contains("set")) {
 					std::string setname = params["set"];
+					setnames.insert(setname);
 
 					auto setInfo = mDB->setGet(setname, rnboVersion);
 					if (!setInfo) {
 						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "set does not exist");
 						return;
 					}
-					for (auto inst: setInfo->instances) {
-						if (patchernames.count(inst.patcher_name)) {
-							continue;
-						}
-						patchernames.insert(inst.patcher_name);
-					}
-
-					setJson = setInfo->toJson();
-					//TODO could the content get too large with presets and views in it??
-					addSetContent(setJson, mDB, setname, rnboVersion, include_presets, include_views);
-
 					packagename = "graph-" + setname + "-" + setInfo->created_at;
-					info["setname"] = setname;
-					info["created_at"] = setInfo->created_at;
+
 				} else if (params.contains("patcher")) {
 					std::string name = params["patcher"];
 
@@ -3139,6 +3130,7 @@ void Controller::registerCommands() {
 				}
 
 				auto writeJson = [id, this](const RNBO::Json& data, fs::path filePath) -> bool {
+					fs::create_directories(filePath.parent_path());
 					std::fstream fs;
 					fs.open(filePath.string(), std::fstream::out | std::fstream::binary | std::fstream::trunc);
 					if (!fs.is_open()) {
@@ -3177,9 +3169,28 @@ void Controller::registerCommands() {
 
 					fs::create_directories(tmppath);
 
-					if (setJson.is_object() && writeJson(setJson, tmppath / "set.json")) {
-						return; //error
+					RNBO::Json sets = RNBO::Json::array();
+					for (auto setname: setnames) {
+						auto setInfo = mDB->setGet(setname, rnboVersion);
+						fs::path location = fs::path("sets") / fs::path(sanitizeName(setname) + ".json");
+						for (auto inst: setInfo->instances) {
+							if (patchernames.count(inst.patcher_name)) {
+								continue;
+							}
+							patchernames.insert(inst.patcher_name);
+						}
+
+						RNBO::Json setJson = setInfo->toJson();
+						//TODO could the content get too large with presets and views in it??
+						addSetContent(setJson, mDB, setname, rnboVersion, include_presets, include_views);
+
+						if (writeJson(setJson, tmppath / location)) {
+							return; //error
+						}
+						sets.push_back(location.string());
 					}
+
+					info["sets"] = sets;
 
 					RNBO::Json targets = RNBO::Json::array();
 
@@ -3328,6 +3339,7 @@ void Controller::registerCommands() {
 						reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), msg);
 						return;
 					}
+					fs::remove_all(tmppath, ec);
 				}
 				reportCommandResult(id, {
 						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
