@@ -181,6 +181,64 @@ namespace {
 		static const std::string name = sanitizeName(rnbo_system_processor + "-" + rnbo_system_name + "-" + rnbo_compiler_id + "-" + rnbo_compiler_version);
 		return name;
 	}
+
+	fs::path packagedir(std::string rnboVersion) {
+		return config::get<fs::path>(config::key::PackageDir).get() / sanitizeName(rnboVersion);
+	}
+
+	void addSetContent(RNBO::Json& setJson, std::shared_ptr<DB>& db, std::string name, std::string rnboVersion, bool include_presets, bool include_views = true) {
+		//get presets
+		//XXX could this become too large??
+		if (include_presets) {
+			RNBO::Json presets = RNBO::Json::object();
+			std::vector<std::string> presetNames = db->setPresets(name, rnboVersion);
+			if (presetNames.size()) {
+				for (auto presetName: presetNames) {
+					RNBO::Json preset = RNBO::Json::array();
+
+					db->setPresets(
+							name, presetName,
+							[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName) {
+							RNBO::Json entry;
+							entry["patchername"] = patcherName;
+							entry["instanceindex"] = static_cast<int>(instanceIndex);
+							if (patcherPresetName.size()) {
+								entry["presetname"] = patcherPresetName;
+							} else {
+								entry["content"] = RNBO::Json::parse(content);
+							}
+							preset.push_back(entry);
+							}, rnboVersion);
+
+					presets[presetName] = preset;
+				}
+
+				setJson["presets"] = presets;
+			}
+		}
+
+		if (include_views) {
+			RNBO::Json views = RNBO::Json::array();
+			auto indexes = db->setViewIndexes(name, rnboVersion);
+			if (indexes.size()) {
+				for (auto index: indexes) {
+					auto data = db->setViewGet(name, index, rnboVersion);
+					if (!data)
+						continue;
+					RNBO::Json entry;
+
+					entry["index"] = index;
+					entry["name"] = std::get<0>(data.get());
+					entry["params"] = std::get<1>(data.get());
+					entry["sort_order"] = std::get<2>(data.get());
+
+					views.push_back(entry);
+				}
+
+				setJson["views"] = views;
+			}
+		}
+	}
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
@@ -2906,50 +2964,7 @@ void Controller::registerCommands() {
 						auto setInfo = mDB->setGet(name, rnboVersion);
 						if (setInfo) {
 							RNBO::Json s = setInfo->toJson();
-
-							//get presets
-							//XXX could this become too large??
-							RNBO::Json presets;
-							std::vector<std::string> presetNames = mDB->setPresets(name, rnboVersion);
-							for (auto presetName: presetNames) {
-								RNBO::Json preset;
-
-								mDB->setPresets(
-										name, presetName,
-										[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName) {
-											RNBO::Json entry;
-											entry["patchername"] = patcherName;
-											entry["instanceindex"] = static_cast<int>(instanceIndex);
-											if (patcherPresetName.size()) {
-												entry["presetname"] = patcherPresetName;
-											} else {
-												entry["content"] = RNBO::Json::parse(content);
-											}
-											preset.push_back(entry);
-										}, rnboVersion);
-
-								presets[presetName] = preset;
-							}
-							s["presets"] = presets;
-
-							RNBO::Json views = RNBO::Json::array();
-							auto indexes = mDB->setViewIndexes(name, rnboVersion);
-							for (auto index: indexes) {
-								auto data = mDB->setViewGet(name, index, rnboVersion);
-								if (!data)
-									continue;
-								RNBO::Json entry;
-
-								entry["index"] = index;
-								entry["name"] = std::get<0>(data.get());
-								entry["params"] = std::get<1>(data.get());
-								entry["sort_order"] = std::get<2>(data.get());
-
-								views.push_back(entry);
-							}
-
-							s["views"] = views;
-
+							addSetContent(s, mDB, name, rnboVersion, true, true);
 							content[name] = s;
 						}
 					}
@@ -3074,6 +3089,11 @@ void Controller::registerCommands() {
 					include_presets = params["include_presets"].get<bool>();
 				}
 
+				bool include_views = true;
+				if (params.contains("include_views")) {
+					include_views = params["include_views"].get<bool>();
+				}
+
 				std::set<std::string> patchernames;
 				RNBO::Json setJson;
 
@@ -3093,6 +3113,9 @@ void Controller::registerCommands() {
 					}
 
 					setJson = setInfo->toJson();
+					//TODO could the content get too large with presets and views in it??
+					addSetContent(setJson, mDB, setname, rnboVersion, include_presets, include_views);
+
 					packagename = "graph-" + setname + "-" + setInfo->created_at;
 					info["setname"] = setname;
 					info["created_at"] = setInfo->created_at;
@@ -3132,7 +3155,7 @@ void Controller::registerCommands() {
 
 				auto sanitizedPackageName = sanitizeName(packagename);
 
-				auto exportdir = config::get<fs::path>(config::key::ExportDir).get() / sanitizeName(rnboVersion);
+				auto exportdir = packagedir(rnboVersion);
 				auto tarname = fs::path(sanitizedPackageName + ".tar");
 				auto exportlocation = exportdir / tarname;
 
@@ -3252,6 +3275,32 @@ void Controller::registerCommands() {
 							}
 							patcherinfo["config"] = location.string();
 						}
+							
+						if (include_presets) {
+							std::vector<std::string> presetnames;
+							std::string initialpreset;
+							mDB->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial) { 
+									presetnames.push_back(n); 
+									if (isinitial) {
+										initialpreset = n;
+									}
+									}, rnboVersion);
+
+							RNBO::Json content = RNBO::Json::object();
+							for (auto name: presetnames) {
+								auto preset = mDB->preset(patchername, name, rnboVersion);
+								if (preset) {
+									content[name] = RNBO::Json::parse(preset->first);
+								} else {
+									reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
+									return;
+								}
+							}
+							patcherinfo["presets"] = content;
+							if (initialpreset.size()) {
+								patcherinfo["preset_initial"] = initialpreset;
+							}
+						}
 
 						//common info
 						patcherinfo["name"] = patchername;
@@ -3267,13 +3316,13 @@ void Controller::registerCommands() {
 						return;
 					}
 
+					fs::create_directories(exportlocation.parent_path());
 					std::vector<std::string> args { "cf", exportlocation.string(), sanitizedPackageName };
 					if (bp::system(bp::search_path("tar"), args, bp::start_dir(tmpdir)) != 0) {
 						std::string msg = "failed to create tar file";
 						reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), msg);
 						return;
 					}
-
 				}
 				reportCommandResult(id, {
 						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
