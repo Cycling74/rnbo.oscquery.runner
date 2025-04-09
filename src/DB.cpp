@@ -624,22 +624,20 @@ void DB::patcherStore(
 	}
 }
 
-bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string rnbo_version) {
+bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string& created_at, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
-		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name, created_at FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (query.executeStep()) {
-			const char * s = query.getColumn(0);
-			so_name = fs::path(s);
-			s = query.getColumn(1);
-			config_name = fs::path(s);
-			s = query.getColumn(2);
-			rnbo_patch_name = fs::path(s);
+			so_name = fs::path(getStringColumn(query, 0));
+			config_name = fs::path(getStringColumn(query, 1));
+			rnbo_patch_name = fs::path(getStringColumn(query, 2));
+			created_at = getStringColumn(query, 3);
 			return true;
 		}
 		return false;
@@ -1142,11 +1140,12 @@ void DB::setSave(
 	}
 
 	if (id == 0) {
-		SQLite::Statement query(mDB, "INSERT INTO sets (name, runner_rnbo_version, filename, meta) VALUES (?1, ?2, ?3, ?4)");
+		SQLite::Statement query(mDB, "INSERT INTO sets (name, runner_rnbo_version, filename, meta, created_at) VALUES (?1, ?2, ?3, ?4, CASE LENGTH(?5) WHEN 0 THEN datetime('now', 'localtime') ELSE ?5 END)");
 		query.bind(1, name);
 		query.bind(2, cur_rnbo_version);
 		query.bind(3, "DB"); //no longer used
 		query.bind(4, info.meta);
+		query.bind(5, info.created_at);
 		query.exec();
 		id = mDB.getLastInsertRowid();
 	} else {
@@ -1227,7 +1226,7 @@ boost::optional<SetInfo> DB::setGet(
 	SetInfo info;
 
 	{
-		SQLite::Statement query(mDB, "SELECT id, meta FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT id, meta, created_at FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (!query.executeStep()) {
@@ -1236,6 +1235,7 @@ boost::optional<SetInfo> DB::setGet(
 
 		set_id = query.getColumn(0);
 		info.meta = getStringColumn(query, 1);
+		info.created_at = getStringColumn(query, 2);
 	}
 
 	//instance index -> name
@@ -1864,6 +1864,7 @@ RNBO::Json SetInfo::toJson() {
 
 	return {
 		{"set_info_version", 2},
+		{"created_at", created_at},
 		{"meta", m},
 		{"instances", inst},
 		{"connections", conn}
@@ -1883,6 +1884,9 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 			}
 			for (auto& i: json["connections"]) {
 				info.connections.push_back(SetConnectionInfo::fromJson(i));
+			}
+			if (json.contains("created_at") && json["created_at"].is_string()) {
+				info.created_at = json["created_at"].get<std::string>();
 			}
 		} else {
 			//invalid
