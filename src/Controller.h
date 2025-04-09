@@ -201,6 +201,8 @@ class Controller {
 
 		bool mFirstSetLoad = true;
 
+    std::string mSystemPrettyName;
+
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
 #endif

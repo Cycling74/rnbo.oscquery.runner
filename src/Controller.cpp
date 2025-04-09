@@ -52,6 +52,18 @@ namespace {
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
+
+#if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
+	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
+#else 
+	static const std::string rnbo_compiler_id = "unknown";
+#endif
+#if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
+	static const std::string rnbo_compiler_version = std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION);
+#else 
+	static const std::string rnbo_compiler_version = "unknown";
+#endif
+
 	static std::string build_program("rnbo-compile-so");
 
 	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
@@ -156,6 +168,19 @@ namespace {
 	};
 
 	boost::optional<CompileInfo> compileProcess;
+
+	std::string sanitizeName(std::string n) {
+		n.erase(std::remove_if(n.begin(), n.end(),
+					[](unsigned char x) { 
+					return !(std::isalnum(x) || x == '-' || x == '_' || x == '.');
+					}), n.end());
+		return n;
+	}
+
+	std::string targetid() {
+		static const std::string name = sanitizeName(rnbo_system_processor + "-" + rnbo_system_name + "-" + rnbo_compiler_id + "-" + rnbo_compiler_version);
+		return name;
+	}
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
@@ -302,6 +327,7 @@ Controller::Controller(std::string server_name) {
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			std::make_pair("runner_version", runner_version),
+			std::make_pair("target_id", targetid()),
 			}) {
 		auto n = info->create_child(it.first);
 		auto p = n->create_parameter(ossia::val_type::STRING);
@@ -326,6 +352,7 @@ Controller::Controller(std::string server_name) {
 						if (name.size() && name[0] == '"' && name[name.size() - 1] == '"') {
 							name = name.substr(1, name.size() - 2);
 						}
+						mSystemPrettyName = name;
 
 						auto n = info->create_child("system_os_name");
 						auto p = n->create_parameter(ossia::val_type::STRING);
@@ -351,25 +378,21 @@ Controller::Controller(std::string server_name) {
 		p->push_value(config::get_system_id());
 	}
 
-#if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
 	{
 		auto n = info->create_child("compiler_version");
 		auto p = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "the version of the compiler that this executable was built with");
-		p->push_value(std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION));
+		p->push_value(rnbo_compiler_version);
 	}
-#endif
 
-#if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
 	{
 		auto n = info->create_child("compiler_id");
 		auto p = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "the id of the compiler that this executable was built with");
-		p->push_value(std::string(RNBOOSCQUERY_CXX_COMPILER_ID));
+		p->push_value(rnbo_compiler_id);
 	}
-#endif
 
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
@@ -398,6 +421,7 @@ Controller::Controller(std::string server_name) {
 			"file_write_extended",
 			"file_read",
 			"file_exists",
+			"package",
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
@@ -1400,7 +1424,8 @@ void Controller::doLoadSet(std::string setname) {
 			fs::path libPath;
 			fs::path confPath;
 			fs::path patcherPath; //ignored
-			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath)) {
+			std::string created_at; //ignored
+			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at)) {
 				cerr << "failed to find patcher with name '" << name << "' while loading set, skipping" << std::endl;
 				continue;
 			}
@@ -2175,8 +2200,9 @@ void Controller::registerCommands() {
 				fs::path libPath;
 				fs::path confPath;
 				fs::path patcherName; //ignored
+				std::string created_at; //ignored
 				RNBO::Json config;
-				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName)) {
+				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName, created_at)) {
 					libPath = fs::absolute(mCompileCache / libPath);
 					confPath = fs::absolute(mSourceCache / confPath);
 
@@ -2934,7 +2960,8 @@ void Controller::registerCommands() {
 					fs::path libPath;
 					fs::path confName;
 					fs::path patcherName;
-					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, rnboVersion)) {
+					std::string created_at;
+					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, created_at, rnboVersion)) {
 						fs::path contentName = filetype == "patcher" ? patcherName : confName;
 						fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
 						RNBO::Json content = RNBO::Json::object();
@@ -2944,6 +2971,7 @@ void Controller::registerCommands() {
 							b << i.rdbuf();
 							content["content"] = b.str();
 							content["filename"] = contentName.string();
+							content["created_at"] = created_at;
 							readContent = content.dump();
 						} else {
 							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
@@ -3028,6 +3056,235 @@ void Controller::registerCommands() {
 			}
 	});
 
+	mCommandHandlers.insert({
+			"package",
+			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string packagename;
+				RNBO::Json info = RNBO::Json::object();
+
+				std::string rnboVersion;
+				if (params.contains("rnbo_version")) {
+					rnboVersion = params["rnbo_version"];
+				} else {
+					rnboVersion = rnbo_version;
+				}
+
+				bool include_presets = true;
+				if (params.contains("include_presets")) {
+					include_presets = params["include_presets"].get<bool>();
+				}
+
+				std::set<std::string> patchernames;
+				RNBO::Json setJson;
+
+				if (params.contains("set")) {
+					std::string setname = params["set"];
+
+					auto setInfo = mDB->setGet(setname, rnboVersion);
+					if (!setInfo) {
+						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "set does not exist");
+						return;
+					}
+					for (auto inst: setInfo->instances) {
+						if (patchernames.count(inst.patcher_name)) {
+							continue;
+						}
+						patchernames.insert(inst.patcher_name);
+					}
+
+					setJson = setInfo->toJson();
+					packagename = "graph-" + setname + "-" + setInfo->created_at;
+					info["setname"] = setname;
+					info["created_at"] = setInfo->created_at;
+				} else if (params.contains("patcher")) {
+					std::string name = params["patcher"];
+
+					fs::path libPath;
+					fs::path confPath;
+					fs::path patcherPath;
+					std::string created_at;
+
+					if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, rnboVersion)) {
+						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "patcher does not exist");
+						return;
+					}
+
+					patchernames.insert(name);
+					packagename = "patcher-" + name + "-" + created_at;
+					info["patchername"] = name;
+					info["created_at"] = created_at;
+				}
+
+				auto writeJson = [id, this](const RNBO::Json& data, fs::path filePath) -> bool {
+					std::fstream fs;
+					fs.open(filePath.string(), std::fstream::out | std::fstream::binary | std::fstream::trunc);
+					if (!fs.is_open()) {
+						reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), "failed to open file for write: " + filePath.string());
+						return true;
+					}
+
+					std::string out = data.dump();
+					fs.write(&out.front(), sizeof(char) * out.size());
+					fs.close();
+
+					return false;
+				};
+
+				auto sanitizedPackageName = sanitizeName(packagename);
+
+				auto exportdir = config::get<fs::path>(config::key::ExportDir).get() / sanitizeName(rnboVersion);
+				auto tarname = fs::path(sanitizedPackageName + ".tar");
+				auto exportlocation = exportdir / tarname;
+
+				if (!fs::exists(exportlocation)) {
+					fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
+					fs::path tmppath = tmpdir / sanitizedPackageName;
+					std::cout << "tmppath " << tmppath.string() << std::endl;
+
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(FileCommandStatus::Received)},
+							{"message", "creating"},
+							{"packagename", packagename},
+							{"tarname", tarname.string()},
+							{"progress", 10}
+							});
+
+					//remove if it exists
+					boost::system::error_code ec;
+					fs::remove_all(tmppath, ec);
+
+					fs::create_directories(tmppath);
+
+					if (setJson.is_object() && writeJson(setJson, tmppath / "set.json")) {
+						return; //error
+					}
+
+					RNBO::Json targets = RNBO::Json::array();
+
+					fs::path targetdir = "targets" / fs::path(targetid());
+					{
+						RNBO::Json target = RNBO::Json::object();
+
+						target["id"] = targetid();
+						target["system_processor"] = rnbo_system_processor;
+						target["system_name"] = rnbo_system_name;
+						target["compiler_id"] = rnbo_compiler_id;
+						target["compiler_version"] = rnbo_compiler_version;
+						target["dir"] = targetdir.string();
+
+						if (mSystemPrettyName.size()) {
+							target["system_os_name"] = mSystemPrettyName;
+						}
+
+						targets.push_back(target);
+					}
+
+
+					info["rnbo_version"] = rnboVersion;
+					info["runner_version"] = runner_version;
+					info["targets"] = targets;
+
+					fs::path patchersdir =  targetdir / "patchers";
+					fs::path srcdir =  "src";
+
+					RNBO::Json patchers = RNBO::Json::array();
+					for (auto patchername: patchernames) {
+						fs::path libPath;
+						fs::path confPath;
+						fs::path patcherPath;
+						std::string created_at;
+
+						if (!mDB->patcherGetLatest(patchername, libPath, confPath, patcherPath, created_at, rnboVersion)) {
+							std::string msg = "patcher with name: \"" + patchername + " and rnbo version: " + rnboVersion + " not found";
+							reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), msg);
+							return;
+						}
+
+						libPath = fs::absolute(mCompileCache / libPath);
+						confPath = fs::absolute(mSourceCache / confPath);
+						patcherPath = fs::absolute(mSourceCache / patcherPath);
+
+						RNBO::Json patcherinfo;
+						RNBO::Json binaries = RNBO::Json::array();
+						RNBO::Json binary = RNBO::Json::object();
+
+						auto do_copy = [this, &tmppath, id](const fs::path& src, const fs::path& location) {
+							fs::path dst = tmppath / location;
+							if (!fs::exists(dst.parent_path())) {
+								fs::create_directories(dst.parent_path());
+							}
+
+							if (!fs::copy_file(src, dst)) {
+								std::string msg = "failed to copy patcher file name: \"" + src.filename().string();
+								reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), msg);
+								return true;
+							}
+							return false;
+						};
+
+						//binary data
+						{
+							fs::path location = patchersdir / libPath.filename();
+							if (do_copy(libPath, location)) {
+								return;
+							}
+
+							binary["target_id"] = targetid();
+							binary["location"] = location.string();
+						}
+
+						binaries.push_back(binary);
+
+						//src data
+						if (fs::exists(patcherPath)) {
+							fs::path location = srcdir / patcherPath.filename();
+							if (do_copy(patcherPath, location)) {
+								return;
+							}
+
+							patcherinfo["patcher"] = location.string();
+						}
+
+						if (fs::exists(confPath)) {
+							fs::path location = srcdir / confPath.filename();
+							if (do_copy(confPath, location)) {
+								return;
+							}
+							patcherinfo["config"] = location.string();
+						}
+
+						//common info
+						patcherinfo["name"] = patchername;
+						patcherinfo["binaries"] = binaries;
+						patcherinfo["created_at"] = created_at;
+
+						patchers.push_back(patcherinfo);
+					}
+
+					info["patchers"] = patchers;
+
+					if (writeJson(info, tmppath	 / "info.json")) {
+						return;
+					}
+
+					std::vector<std::string> args { "cf", exportlocation.string(), sanitizedPackageName };
+					if (bp::system(bp::search_path("tar"), args, bp::start_dir(tmpdir)) != 0) {
+						std::string msg = "failed to create tar file";
+						reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), msg);
+						return;
+					}
+
+				}
+				reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+						{"message", "completed"},
+						{"packagename", packagename},
+						{"tarname", tarname.string()},
+						{"progress", 100}
+					});
+			}
+	});
+
 	auto validateListenerCmd = [this](const std::string& id, const RNBO::Json& params, std::pair<std::string, uint16_t>& key) -> bool {
 		if (!params.is_object() || !params.contains("ip") || !params.contains("port")) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::InvalidRequestObject), "request object invalid");
@@ -3049,6 +3306,7 @@ void Controller::registerCommands() {
 			{"progress", 1}
 		});
 		return true;
+
 	};
 
 	//clear all but oscquery
