@@ -267,6 +267,17 @@ namespace {
 		fs.close();
 	}
 
+	RNBO::Json readJson(fs::path filePath) {
+		if (!fs::exists(filePath)) {
+			std::string msg = "no file at: " + filePath.string();
+			throw std::runtime_error(msg);
+		}
+		RNBO::Json j;
+		std::ifstream i(filePath.string());
+		i >> j;
+		return j;
+	}
+
 	//return tar name
 	fs::path createPackage(
 			std::shared_ptr<DB>& db, 
@@ -768,7 +779,8 @@ Controller::Controller(std::string server_name) {
 			"file_read",
 			"file_read64",
 			"file_exists",
-			"package",
+			"package_create",
+			"package_install",
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
@@ -2288,6 +2300,38 @@ unsigned int Controller::nextInstanceIndex() {
 	return index;
 }
 
+void Controller::installPackage(const boost::filesystem::path& contentdir) {
+	//get info
+	RNBO::Json info = readJson(contentdir / "info.json");
+	if (!info.contains("schema_version") || info["schema_version"] != 1) {
+		throw std::runtime_error("don't know how to read info.json");
+	}
+
+	auto do_copy = [&contentdir](const fs::path& src, const fs::path& dst) {
+		if (!fs::exists(dst.parent_path())) {
+			fs::create_directories(dst.parent_path());
+		}
+
+		if (!fs::copy_file(contentdir / src, dst)) {
+			std::string msg = "failed to copy file name: \"" + src.filename().string();
+			throw std::runtime_error(msg);
+		}
+	};
+
+	//datafiles
+	if (info.contains("datafiles")) {
+		auto dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+		auto datafiles = info["datafiles"];
+		for (const auto& entry: datafiles) {
+			fs::path dst = dstdir / entry["name"].get<std::string>();
+			if (fs::exists(dst)) {
+				continue; //skip overwritting data files
+			}
+			do_copy(fs::path(entry["location"].get<std::string>()), dst);
+		}
+	}
+}
+
 bool Controller::processEvents() {
 	auto now = steady_clock::now();
 
@@ -3446,9 +3490,8 @@ void Controller::registerCommands() {
 			}
 	});
 
-
 	mCommandHandlers.insert({
-			"package",
+			"package_create",
 			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string packagename;
 
@@ -3485,7 +3528,7 @@ void Controller::registerCommands() {
 
 					auto setInfo = mDB->setGet(setname, rnboVersion);
 					if (!setInfo) {
-						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "set does not exist");
+						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "set does not exist");
 						return;
 					}
 					packagename = "graph-" + setname;
@@ -3499,7 +3542,7 @@ void Controller::registerCommands() {
 					std::string created_at;
 
 					if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, rnboVersion)) {
-						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "patcher does not exist");
+						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "patcher does not exist");
 						return;
 					}
 
@@ -3517,8 +3560,54 @@ void Controller::registerCommands() {
 							{"progress", 100}
 						});
 				} catch (std::runtime_error& e) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::WriteFailed), e.what());
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::WriteFailed), e.what());
 				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"package_install",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				//TODO validate
+				std::string filename = params["filename"];
+
+				reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(FileCommandStatus::Received)},
+						{"message", "received"},
+						{"progress", 1}
+					});
+
+				fs::path packagelocation = fs::absolute(packagedir(rnbo_version) / filename);
+				if (!fs::exists(packagelocation)) {
+					std::string msg = "cannot find package file at: " + packagelocation.string();
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), msg);
+				}
+
+				fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
+				fs::path contentlocation = tmpdir / fs::path(filename).replace_extension();
+
+				//remove anything that might already be there
+				boost::system::error_code ec;
+				fs::remove_all(contentlocation, ec);
+
+				//extract
+				std::vector<std::string> args { "xf", packagelocation.string() };
+				if (bp::system(bp::search_path("tar"), args, bp::start_dir(tmpdir)) != 0) {
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::Unknown), "failed to unarchive package");
+					return;
+				}
+				try {
+					installPackage(contentlocation);
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+							{"message", "completed"},
+							{"progress", 100}
+						});
+				} catch (std::runtime_error& e) {
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::Unknown), e.what());
+				}
+				fs::remove_all(contentlocation, ec);
+
 			}
 	});
 

@@ -105,11 +105,13 @@ class Controller {
 		void loadSetPreset(const std::string& setName, std::string presetName);
 		void handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName);
 
+		unsigned int nextInstanceIndex();
+
+    void installPackage(const boost::filesystem::path& location);
+
 		//guard by mInstanceMutex
 		std::string mPendingSetPresetName;
 		std::set<unsigned int> mInstancesPendingPresetLoad;
-
-		unsigned int nextInstanceIndex();
 
 		void handleProgramChange(ProgramChange);
 		void ensureSet(std::string& name);
