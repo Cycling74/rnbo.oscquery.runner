@@ -244,6 +244,58 @@ namespace {
 		}
 	}
 
+	void storeSetContent(const RNBO::Json& setData, std::shared_ptr<DB>& db, std::string setname) {
+		//handle presets
+		if (setData.contains("presets") && setData["presets"].is_object()) {
+			//TODO delete all existing presets?
+			for (const auto& kv: setData["presets"].items()) {
+				std::string presetName = kv.key();
+				db->setPresetDestroy(setname, presetName);
+				if (kv.value().is_array()) {
+					auto& presets = kv.value();
+					for (const auto& entry: presets) {
+						if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
+							std::string patchername = entry["patchername"];
+							std::string patcherPresetName;
+							unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
+							RNBO::Json content = RNBO::Json::object();
+							if (entry.contains("content") && entry["content"].is_object())
+								content = entry["content"];
+							if (entry.contains("presetname") && entry["presetname"].is_string()) {
+								patcherPresetName = entry["presetname"];
+							}
+							db->setPresetSave(patchername, presetName, setname, instanceindex, content.dump(), patcherPresetName);
+						} else {
+							std::cerr << "don't know how to handle set: " << setname << " preset: " << presetName << " entry" << std::endl;
+						}
+					}
+				}
+			}
+		}
+		if (setData.contains("views") && setData["views"].is_array()) {
+			std::vector<int> sort_order;
+			//sorted
+			for (auto entry: setData["views"]) {
+				if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
+					auto index = entry["index"].get<int>();
+					auto name = entry["name"].get<std::string>();
+
+					try {
+						std::vector<ViewParam> viewParams;
+						for (auto p: entry["params"]) {
+							viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
+						}
+						sort_order.push_back(index);
+						db->setViewCreate(setname, name, viewParams, index);
+					} catch (const std::exception& e) {
+						std::cerr << "failed to import param view " << name << std::endl;
+					}
+				}
+			}
+			db->setViewsUpdateSortOrder(setname, sort_order);
+		}
+	}
+
 	struct PackageConfig {
 		bool include_presets = true;
 		bool include_binaries = true;
@@ -380,12 +432,11 @@ namespace {
 			info["sets"] = sets;
 		}
 
-		RNBO::Json targets = RNBO::Json::array();
+		RNBO::Json targets = RNBO::Json::object();
 		fs::path targetdir = "targets" / fs::path(targetid());
 		if (config.include_binaries) {
 			RNBO::Json target = RNBO::Json::object();
 
-			target["id"] = targetid();
 			target["system_processor"] = rnbo_system_processor;
 			target["system_name"] = rnbo_system_name;
 			target["compiler_id"] = rnbo_compiler_id;
@@ -396,7 +447,7 @@ namespace {
 				target["system_os_name"] = config.system_pretty_name;
 			}
 
-			targets.push_back(target);
+			targets[targetid()] = target;
 			info["targets"] = targets;
 		}
 
@@ -425,17 +476,13 @@ namespace {
 
 			if (config.include_binaries) {
 				//binary data
-				RNBO::Json binaries = RNBO::Json::array();
-				RNBO::Json binary = RNBO::Json::object();
+				RNBO::Json binaries = RNBO::Json::object();
 				{
 					fs::path location = targetdir / "patchers" / libPath.filename();
 					do_copy(libPath, location);
 
-					binary["target_id"] = targetid();
-					binary["location"] = location.string();
+					binaries[targetid()] = location.string();
 				}
-
-				binaries.push_back(binary);
 				patcherinfo["binaries"] = binaries;
 			}
 
@@ -2303,8 +2350,15 @@ unsigned int Controller::nextInstanceIndex() {
 void Controller::installPackage(const boost::filesystem::path& contentdir) {
 	//get info
 	RNBO::Json info = readJson(contentdir / "info.json");
-	if (!info.contains("schema_version") || info["schema_version"] != 1) {
+	if (!info.contains("schema_version") || info["schema_version"] != 1 || !info.contains("rnbo_version")) {
 		throw std::runtime_error("don't know how to read info.json");
+	}
+
+	std::string package_rnbo_version = info["rnbo_version"].get<std::string>();
+
+	if (package_rnbo_version != rnbo_version) {
+		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_version: " + rnbo_version;
+		throw std::runtime_error(msg);
 	}
 
 	auto do_copy = [&contentdir](const fs::path& src, const fs::path& dst) {
@@ -2312,13 +2366,12 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 			fs::create_directories(dst.parent_path());
 		}
 
-		if (!fs::copy_file(contentdir / src, dst)) {
+		if (!fs::copy_file(contentdir / src, dst, fs::copy_option::overwrite_if_exists)) {
 			std::string msg = "failed to copy file name: \"" + src.filename().string();
 			throw std::runtime_error(msg);
 		}
 	};
 
-	//datafiles
 	if (info.contains("datafiles")) {
 		auto dstdir = config::get<fs::path>(config::key::DataFileDir).get();
 		auto datafiles = info["datafiles"];
@@ -2329,6 +2382,65 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 			}
 			do_copy(fs::path(entry["location"].get<std::string>()), dst);
 		}
+	}
+
+	if (info.contains("patchers")) {
+		auto entries = info["patchers"];
+		const auto target = targetid();
+		for (const auto& entry: entries) {
+			std::string libFile;
+			std::string configFileName;
+			std::string patcherFileName;
+			RNBO::Json config;
+
+			std::string name = entry["name"].get<std::string>();
+			if (!entry.contains("binaries") || !entry["binaries"].contains(target)) {
+				std::string msg = "no binary for patcher " + name + " in package";
+				throw std::runtime_error(msg);
+			}
+
+			//TODO check for collisions?
+			{
+				fs::path src = fs::path(entry["binaries"][target].get<std::string>());
+				do_copy(src, mCompileCache / src.filename());
+				libFile = src.filename().string();
+			}
+
+			if (entry.contains("config")) {
+				fs::path src = fs::path(entry["config"].get<std::string>());
+				do_copy(src, mSourceCache / src.filename());
+				configFileName = src.filename().string();
+				config = readJson(mSourceCache / src.filename());
+			}
+
+			if (entry.contains("patcher")) {
+				fs::path src = fs::path(entry["patcher"].get<std::string>());
+				do_copy(src, mSourceCache / src.filename());
+				patcherFileName = src.filename().string();
+			}
+
+			patcherStore(name, libFile, configFileName, patcherFileName, package_rnbo_version, config, false);
+
+			if (entry.contains("presets")) {
+				RNBO::Json presets = readJson(contentdir / fs::path(entry["presets"].get<std::string>()));
+				for (auto& kv: presets.items()) {
+					assert(kv.value().is_object());
+					mDB->presetSave(name, kv.key(), kv.value().dump());
+				}
+			}
+		}
+	}
+
+	if (info.contains("sets")) {
+		auto entries = info["sets"];
+		for (const auto& entry: entries) {
+			std::string name = entry["name"].get<std::string>();
+			RNBO::Json setData = readJson(contentdir / fs::path(entry["location"].get<std::string>()));
+			SetInfo info = SetInfo::fromJson(setData);
+			mDB->setSave(name, info);
+			storeSetContent(setData, mDB, name);
+		}
+		updateSetNames();
 	}
 }
 
@@ -3173,57 +3285,8 @@ void Controller::registerCommands() {
 				SetInfo info = SetInfo::fromJson(setData);
 				if (info.instances.size() > 0) {
 					mDB->setSave(fileName, info);
+					storeSetContent(setData, mDB, fileName);
 					updateSetNames();
-
-					//handle presets
-					if (setData.contains("presets") && setData["presets"].is_object()) {
-						//TODO delete all existing presets?
-						for (const auto& kv: setData["presets"].items()) {
-							std::string presetName = kv.key();
-							mDB->setPresetDestroy(fileName, presetName);
-							if (kv.value().is_array()) {
-								auto& presets = kv.value();
-								for (const auto& entry: presets) {
-									if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
-										std::string patchername = entry["patchername"];
-										std::string patcherPresetName;
-										unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
-										RNBO::Json content = RNBO::Json::object();
-										if (entry.contains("content") && entry["content"].is_object())
-											content = entry["content"];
-										if (entry.contains("presetname") && entry["presetname"].is_string()) {
-											patcherPresetName = entry["presetname"];
-										}
-										mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
-									} else {
-										std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
-									}
-								}
-							}
-						}
-					}
-					if (setData.contains("views") && setData["views"].is_array()) {
-						std::vector<int> sort_order;
-						//sorted
-						for (auto entry: setData["views"]) {
-							if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
-								auto index = entry["index"].get<int>();
-								auto name = entry["name"].get<std::string>();
-
-	              try {
-	                std::vector<ViewParam> viewParams;
-	                for (auto p: entry["params"]) {
-	                  viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
-	                }
-	                sort_order.push_back(index);
-	                mDB->setViewCreate(fileName, name, viewParams, index);
-	              } catch (const std::exception& e) {
-	                std::cerr << "failed to import param view " << name << std::endl;
-	              }
-							}
-						}
-						mDB->setViewsUpdateSortOrder(fileName, sort_order);
-					}
 				}
 			}
 
