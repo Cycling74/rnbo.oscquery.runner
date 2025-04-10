@@ -313,6 +313,15 @@ namespace {
 			}
 		};
 
+		auto append_datarefs = [&datafilenames](const RNBO::Json& content) {
+			if (content.contains("datarefs") && content["datarefs"].is_object()) {
+				auto datarefs = content["datarefs"];
+				for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+					datafilenames.insert(it.value().get<std::string>());
+				}
+			}
+		};
+
 		RNBO::Json sets = RNBO::Json::array();
 		for (auto setname: setnames) {
 			auto setInfo = db->setGet(setname, rnboVersion);
@@ -329,7 +338,20 @@ namespace {
 			addSetContent(setJson, db, setname, rnboVersion, config.include_presets, config.include_views);
 			writeJson(setJson, tmppath / location);
 
-			//TODO parse presets for datafiles
+			//parse presets for datafiles
+			if (config.include_datafiles && setJson.contains("presets")) {
+				//key  value, value is an array of entries
+				const RNBO::Json& presets = setJson["presets"];
+				for (auto pit = presets.begin(); pit != presets.end(); ++pit) {
+					const RNBO::Json& entries = pit.value();
+					for (auto entry: entries) {
+						if (entry.contains("content") && entry["content"].is_object()) {
+							const RNBO::Json& preset = entry["content"];
+							append_datarefs(preset);
+						}
+					}
+				}
+			}
 
 			RNBO::Json setDesc = RNBO::Json::object();
 			setDesc["name"] = setname;
@@ -413,6 +435,14 @@ namespace {
 				fs::path location = srcdir / confPath.filename();
 				do_copy(confPath, location);
 				patcherinfo["config"] = location.string();
+
+				if (config.include_datafiles) {
+					RNBO::Json patcherConfig;
+					std::ifstream i(confPath.string());
+					i >> patcherConfig;
+					i.close();
+					append_datarefs(patcherConfig);
+				}
 			}
 
 			if (config.include_presets) {
@@ -431,7 +461,13 @@ namespace {
 				for (auto name: presetnames) {
 					auto preset = db->preset(patchername, name, rnboVersion);
 					if (preset) {
-						content[name] = RNBO::Json::parse(preset->first);
+						RNBO::Json presetJson = RNBO::Json::parse(preset->first);
+
+						if (config.include_datafiles) {
+							append_datarefs(presetJson);
+						}
+
+						content[name] = presetJson;
 					} else {
 						throw std::runtime_error("preset does not exist");
 					}
@@ -442,8 +478,6 @@ namespace {
 
 				writeJson(content, tmppath / location);
 				patcherinfo["presets"] = location.string();
-
-				//TODO parse presets for datafiles
 			}
 
 			//common info
