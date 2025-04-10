@@ -20,6 +20,9 @@
 #include <boost/process.hpp>
 #include <boost/process/child.hpp>
 
+#include <boost/uuid/detail/md5.hpp>
+#include <boost/algorithm/hex.hpp>
+
 #include <ossia/context.hpp>
 #include <ossia/detail/config.hpp>
 
@@ -763,6 +766,7 @@ Controller::Controller(std::string server_name) {
 		std::vector<ossia::value> supported = {
 			"file_write_extended",
 			"file_read",
+			"file_read64",
 			"file_exists",
 			"package",
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
@@ -2993,7 +2997,10 @@ void Controller::registerCommands() {
 	};
 
 	//helper to validate and report as there are 2 different commands
-	auto fileCmdDir = [this](const std::string& id, std::string filetype) -> boost::optional<fs::path> {
+	auto fileCmdDir = [this](const std::string& id, std::string filetype, std::string rnboVersion = std::string()) -> boost::optional<fs::path> {
+		if (rnboVersion.size() == 0) {
+			rnboVersion = rnbo_version;
+		}
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
 			r = config::get<fs::path>(config::key::DataFileDir);
@@ -3001,6 +3008,8 @@ void Controller::registerCommands() {
 			r = mSourceCache;
 		} else if (filetype == "patcherlib") {
 			r = mCompileCache;
+		} else if (filetype == "package") {
+			r = packagedir(rnboVersion);
 		} else if (filetype == "set") {
 			r = config::get<fs::path>(config::key::SaveDir).get();
 		} else {
@@ -3019,7 +3028,12 @@ void Controller::registerCommands() {
 				if (!validateFileCmd(id, params, false))
 					return;
 				std::string filetype = params["filetype"];
-				auto dir = fileCmdDir(id, filetype);
+				std::string rnboVersion = rnbo_version;
+				if (params.contains("rnbo_version")) {
+					rnboVersion = params["rnbo_version"];
+				}
+
+				auto dir = fileCmdDir(id, filetype, rnboVersion);
 				if (!dir)
 					return;
 
@@ -3179,8 +3193,242 @@ void Controller::registerCommands() {
 		}
 	};
 
+	auto file_read = [this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+		//TODO validate
+		if (!params.contains("size") || !params["size"].is_number()) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "must include size param");
+		}
+
+		int size = params["size"];
+		std::string filetype = params["filetype"];
+		std::string fileName;
+		std::string readContent;
+		std::string rnboVersion;
+		if (params.contains("rnbo_version")) {
+			rnboVersion = params["rnbo_version"];
+		}
+
+		if (params.contains("filename")) {
+			fileName = params["filename"];
+		}
+
+		if (filetype == "presets") {
+			//read in content
+			//filename is actually patcher name
+			std::string patcherName = fileName;
+			readContent.clear();
+
+			std::vector<std::string> names;
+			mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); }, rnboVersion);
+
+			RNBO::Json content = RNBO::Json::object();
+			for (auto name: names) {
+				auto preset = mDB->preset(patcherName, name, rnboVersion);
+				if (preset) {
+					content[name] = RNBO::Json::parse(preset->first);
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
+					return;
+				}
+			}
+
+			readContent = content.dump();
+		} else if (filetype == "sets") {
+			std::vector<std::string> names;
+			mDB->sets([&names](const std::string& n, const std::string&, bool initial) { names.push_back(n); }, rnboVersion);
+
+			RNBO::Json content = RNBO::Json::object();
+			for (auto name: names) {
+				if (name == UNTITLED_SET_NAME || name == LAST_SET_NAME) {
+					continue;
+				}
+				auto setInfo = mDB->setGet(name, rnboVersion);
+				if (setInfo) {
+					RNBO::Json s = setInfo->toJson();
+					addSetContent(s, mDB, name, rnboVersion, true, true);
+					content[name] = s;
+				}
+			}
+
+			readContent = content.dump();
+		} else if (filetype == "patcher" || filetype == "patcherconfig") {
+			//get the latest from this version
+			fs::path libPath;
+			fs::path confName;
+			fs::path patcherName;
+			std::string created_at;
+			if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, created_at, rnboVersion)) {
+				fs::path contentName = filetype == "patcher" ? patcherName : confName;
+				fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
+				RNBO::Json content = RNBO::Json::object();
+				if (fs::exists(filePath)) {
+					std::ifstream i(filePath.string());
+					std::stringstream b;
+					b << i.rdbuf();
+					content["content"] = b.str();
+					content["filename"] = contentName.string();
+					content["created_at"] = created_at;
+					readContent = content.dump();
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
+					return;
+				}
+			} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
+					return;
+			}
+		} else if (filetype == "patchers") {
+			RNBO::Json content = RNBO::Json::array();
+			//get patcher names
+			mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&) {
+					content.push_back(v);
+			}, rnboVersion);
+			readContent = content.dump();
+		} else if (filetype == "versions") {
+			RNBO::Json content = RNBO::Json::array();
+			mDB->rnboVersions([&content](const std::string& v) {
+					content.push_back(v);
+			});
+			readContent = content.dump();
+		} else {
+			auto dir = fileCmdDir(id, filetype, rnboVersion);
+			if (!dir) {
+				reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "invalid directory");
+				return;
+			}
+
+			//read in file
+			if (fileName.size()) {
+				fs::path filePath = dir.get() / fs::path(fileName);
+				if (fs::exists(filePath)) {
+					std::ifstream i(filePath.string());
+					if (method != "file_read64") {
+						std::stringstream b;
+						b << i.rdbuf();
+						readContent = b.str();
+					} else {
+						using boost::uuids::detail::md5;
+
+						const size_t fileBytes = fs::file_size(filePath);
+						const double fileSize = static_cast<double>(fileBytes);
+
+						md5 hash;
+						int seq = 0;
+						size_t remaining = fileBytes;
+
+						auto report = [this, id, &seq, &remaining, fileSize](ssize_t read, const std::vector<char>& out, size_t nout, std::string md5sum = std::string()) {
+							if (nout == 0 && md5sum.size() == 0) //if there is no data, don't report, but we must report if there is a md5
+								return;
+
+							std::string chunk;
+							if (nout > 0) {
+								chunk = std::string(out.begin(), out.begin() + nout);
+							}
+							remaining -= read;
+
+							RNBO::Json resp = {
+								{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
+								{"message", "read"},
+								{"content64", chunk},
+								{"seq", seq++},
+								{"remaining", remaining},
+								{"progress", static_cast<int>(std::clamp(100.0 * ((fileSize - remaining) / fileSize), 0.0, 99.0))}
+							};
+
+							if (md5sum.size() > 0) {
+								resp["md5"] = md5sum;
+								resp["progress"] = 100;
+							}
+
+							reportCommandResult(id, resp);
+						};
+
+						//stream, don't read all into ram
+						std::vector<char> buf(size);
+						std::vector<char> out(size * 4); //what is the correct max encoded size?
+						struct base64_state state;
+
+						// Initialize stream encoder:
+						base64_stream_encode_init(&state, 0);
+
+						size_t nout = 0;
+						while (i.good()) {
+							i.read(buf.data(), size);
+							ssize_t read = i.gcount();
+
+							if (read > 0) {
+								hash.process_bytes(buf.data(), read);
+								base64_stream_encode(&state, buf.data(), read, out.data(), &nout);
+								report(read, out, nout);
+							}
+
+						}
+
+						base64_stream_encode_final(&state, out.data(), &nout);
+
+						//https://stackoverflow.com/questions/55070320/how-to-calculate-md5-of-a-file-using-boost
+						std::string md5sum;
+						{
+							md5::digest_type digest;
+							hash.get_digest(digest);
+							const auto intDigest = reinterpret_cast<const int*>(&digest);
+							boost::algorithm::hex(intDigest, intDigest + (sizeof(md5::digest_type)/sizeof(int)), std::back_inserter(md5sum));
+						}
+
+						report(0, out, nout, md5sum);
+						return;
+					}
+				} else {
+					std::string msg = "file does not exist at path " + filePath.string();
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), msg);
+					return;
+				}
+			} else {
+				fs::path dirPath = dir.get();
+				if (fs::exists(dirPath)) {
+					RNBO::Json content = RNBO::Json::array();
+					for (const auto& entry: fs::directory_iterator(dir.get())) {
+						content.push_back(entry.path().string());
+					}
+					readContent = content.dump();
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
+					return;
+				}
+			}
+		}
+
+		if (readContent.size() == 0) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "no content");
+			return;
+		}
+
+		int remaining = 0;
+		double fileSize = readContent.size();
+		double read = 0;
+		int seq = 0;
+
+		//XXX there is probably a more efficient way to do this
+		while (readContent.size()) {
+			std::string chunk = readContent.substr(0, size);
+			readContent.erase(0, size);
+			read += size;
+			remaining = readContent.size();
+			reportCommandResult(id, {
+				{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
+				{"message", "read"},
+				{"content", chunk},
+				{"seq", seq++},
+				{"remaining", remaining},
+				{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(100.0 * read / fileSize, 0.0, 99.0))}
+			});
+		}
+	};
+
 	mCommandHandlers.insert({ "file_write", file_write });
 	mCommandHandlers.insert({ "file_write_extended", file_write });
+	mCommandHandlers.insert({ "file_read", file_read });
+	mCommandHandlers.insert({ "file_read64", file_read });
 
 	mCommandHandlers.insert({
 			"file_exists",
@@ -3198,163 +3446,6 @@ void Controller::registerCommands() {
 			}
 	});
 
-	mCommandHandlers.insert({
-			"file_read",
-			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
-				//TODO validate
-
-				int size = params["size"];
-				std::string filetype = params["filetype"];
-				std::string fileName;
-				std::string readContent;
-				std::string rnboVersion;
-				if (params.contains("rnbo_version")) {
-					rnboVersion = params["rnbo_version"];
-				}
-
-				if (params.contains("filename")) {
-					fileName = params["filename"];
-				}
-
-				if (filetype == "presets") {
-					//read in content
-					//filename is actually patcher name
-					std::string patcherName = fileName;
-					readContent.clear();
-
-					std::vector<std::string> names;
-					mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); }, rnboVersion);
-
-					RNBO::Json content = RNBO::Json::object();
-					for (auto name: names) {
-						auto preset = mDB->preset(patcherName, name, rnboVersion);
-						if (preset) {
-							content[name] = RNBO::Json::parse(preset->first);
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
-							return;
-						}
-					}
-
-					readContent = content.dump();
-				} else if (filetype == "sets") {
-					std::vector<std::string> names;
-					mDB->sets([&names](const std::string& n, const std::string&, bool initial) { names.push_back(n); }, rnboVersion);
-
-					RNBO::Json content = RNBO::Json::object();
-					for (auto name: names) {
-						if (name == UNTITLED_SET_NAME || name == LAST_SET_NAME) {
-							continue;
-						}
-						auto setInfo = mDB->setGet(name, rnboVersion);
-						if (setInfo) {
-							RNBO::Json s = setInfo->toJson();
-							addSetContent(s, mDB, name, rnboVersion, true, true);
-							content[name] = s;
-						}
-					}
-
-					readContent = content.dump();
-				} else if (filetype == "patcher" || filetype == "patcherconfig") {
-					//get the latest from this version
-					fs::path libPath;
-					fs::path confName;
-					fs::path patcherName;
-					std::string created_at;
-					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, created_at, rnboVersion)) {
-						fs::path contentName = filetype == "patcher" ? patcherName : confName;
-						fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
-						RNBO::Json content = RNBO::Json::object();
-						if (fs::exists(filePath)) {
-							std::ifstream i(filePath.string());
-							std::stringstream b;
-							b << i.rdbuf();
-							content["content"] = b.str();
-							content["filename"] = contentName.string();
-							content["created_at"] = created_at;
-							readContent = content.dump();
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
-							return;
-						}
-					} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
-							return;
-					}
-				} else if (filetype == "patchers") {
-					RNBO::Json content = RNBO::Json::array();
-					//get patcher names
-					mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&) {
-							content.push_back(v);
-					}, rnboVersion);
-					readContent = content.dump();
-				} else if (filetype == "versions") {
-					RNBO::Json content = RNBO::Json::array();
-					mDB->rnboVersions([&content](const std::string& v) {
-							content.push_back(v);
-					});
-					readContent = content.dump();
-				} else {
-					auto dir = fileCmdDir(id, filetype);
-					if (!dir) {
-						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "invalid directory");
-						return;
-					}
-
-					//read in file
-					if (fileName.size()) {
-						fs::path filePath = dir.get() / fs::path(fileName);
-						if (fs::exists(filePath)) {
-							std::ifstream i(filePath.string());
-							std::stringstream b;
-							b << i.rdbuf();
-							readContent = b.str();
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "file doesn't exist");
-							return;
-						}
-					} else {
-						fs::path dirPath = dir.get();
-						if (fs::exists(dirPath)) {
-							RNBO::Json content = RNBO::Json::array();
-							for (const auto& entry: fs::directory_iterator(dir.get())) {
-								content.push_back(entry.path().string());
-							}
-							readContent = content.dump();
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
-							return;
-						}
-					}
-				}
-
-				if (readContent.size() == 0) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "no content");
-					return;
-				}
-
-				int remaining = 0;
-				double fileSize = readContent.size();
-				double read = 0;
-				int seq = 0;
-
-				//XXX there is probably a more efficient way to do this
-				while (readContent.size()) {
-					std::string chunk = readContent.substr(0, size);
-					readContent.erase(0, size);
-					read += size;
-					remaining = readContent.size();
-					reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
-						{"message", "read"},
-						{"content", chunk},
-						{"seq", seq++},
-						{"remaining", remaining},
-						{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(100.0 * read / fileSize, 0.0, 99.0))}
-					});
-				}
-			}
-	});
 
 	mCommandHandlers.insert({
 			"package",
