@@ -274,7 +274,7 @@ namespace {
 			std::string rnboVersion
 			) 
 	{
-		auto sanitizedPackageName = sanitizeName(packagename);
+		auto sanitizedPackageName = sanitizeName("rnborunner-" + rnboVersion + "-package-" + packagename);
 
 		auto exportdir = packagedir(rnboVersion);
 		auto tarname = fs::path(sanitizedPackageName + ".tar");
