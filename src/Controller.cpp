@@ -246,6 +246,7 @@ namespace {
 		bool include_binaries = true;
 		bool include_datafiles = true;
 		bool include_views = true;
+		bool repackage_existing = true; //do we exit early if a tar already exists with the computed name?
 		std::string system_pretty_name;
 	};
 
@@ -275,18 +276,17 @@ namespace {
 	{
 		auto sanitizedPackageName = sanitizeName(packagename);
 
-		std::set<std::string> datafilenames; // TODO
-
 		auto exportdir = packagedir(rnboVersion);
 		auto tarname = fs::path(sanitizedPackageName + ".tar");
 		auto exportlocation = exportdir / tarname;
 
-		if (fs::exists(exportlocation)) {
+		if (!config.repackage_existing && fs::exists(exportlocation)) {
 			return tarname;
 		}
 
 		RNBO::Json info = RNBO::Json::object();
 		info["schema_version"] = 1;
+		info["name"] = packagename;
 
 		fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
 		fs::path tmppath = tmpdir / sanitizedPackageName;
@@ -296,10 +296,10 @@ namespace {
 
 		//remove if it exists
 		boost::system::error_code ec;
+		fs::remove(exportlocation, ec);
 		fs::remove_all(tmppath, ec);
 
 		fs::create_directories(tmppath);
-
 
 		auto do_copy = [&tmppath](const fs::path& src, const fs::path& location) {
 			fs::path dst = tmppath / location;
@@ -313,6 +313,7 @@ namespace {
 			}
 		};
 
+		std::set<std::string> datafilenames;
 		auto append_datarefs = [&datafilenames](const RNBO::Json& content) {
 			if (content.contains("datarefs") && content["datarefs"].is_object()) {
 				auto datarefs = content["datarefs"];
@@ -3396,7 +3397,7 @@ void Controller::registerCommands() {
 						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "set does not exist");
 						return;
 					}
-					packagename = "graph-" + setname + "-" + setInfo->created_at;
+					packagename = "graph-" + setname;
 
 				} else if (params.contains("patcher")) {
 					std::string name = params["patcher"];
@@ -3412,7 +3413,7 @@ void Controller::registerCommands() {
 					}
 
 					patchernames.insert(name);
-					packagename = "patcher-" + name + "-" + created_at;
+					packagename = "patcher-" + name;
 				}
 
 				try {
