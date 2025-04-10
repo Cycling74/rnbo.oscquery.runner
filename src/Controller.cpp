@@ -3584,8 +3584,11 @@ void Controller::registerCommands() {
 
 				std::set<std::string> patchernames;
 				std::set<std::string> setnames;
-
-				if (params.contains("set")) {
+				if (params.contains("all")) {
+					packagename = "all";
+					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&) { patchernames.insert(name); }, rnboVersion);
+					mDB->sets([&setnames](const std::string& name, const std::string& /*created*/, bool /*initial*/ ) { setnames.insert(name); }, rnboVersion);
+				} else if (params.contains("set")) {
 					std::string setname = params["set"];
 					setnames.insert(setname);
 
@@ -3611,6 +3614,9 @@ void Controller::registerCommands() {
 
 					patchernames.insert(name);
 					packagename = "patcher-" + name;
+				} else {
+						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "don't know what to package");
+						return;
 				}
 
 				try {
