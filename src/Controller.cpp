@@ -3973,9 +3973,20 @@ void Controller::processCommands() {
 					{"progress", 10}
 				});
 
-				//create library name, based on time so we don't have to unload existing
-				std::string libName = "RNBORunnerSO" + timeTag;
+				//config might be in a file
+				RNBO::Json config;
+				fs::path confFilePath;
+				if (params.contains("config_file")) {
+					confFilePath = params["config_file"].get<std::string>();
+					confFilePath = fs::absolute(mSourceCache / confFilePath);
+					std::ifstream i(confFilePath.string());
+					i >> config;
+					i.close();
+				} else if (params.contains("config")) {
+					config = params["config"];
+				}
 
+				std::string libName = fs::path(fileName).replace_extension().string();
 				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::vector<std::string> args = {
@@ -3988,22 +3999,10 @@ void Controller::processCommands() {
 
 				//start compile
 				{
-					//config might be in a file
-					RNBO::Json config;
 					boost::optional<unsigned int> instanceIndex = 0;
-					fs::path confFilePath;
 					fs::path rnboPatchPath;
 
 					std::string maxRNBOVersion = "unknown";
-					if (params.contains("config_file")) {
-						confFilePath = params["config_file"].get<std::string>();
-						confFilePath = fs::absolute(mSourceCache / confFilePath);
-						std::ifstream i(confFilePath.string());
-						i >> config;
-						i.close();
-					} else if (params.contains("config")) {
-						config = params["config"];
-					}
 
 					if (params.contains("patcher_file")) {
 						rnboPatchPath = params["patcher_file"].get<std::string>();
