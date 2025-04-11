@@ -48,6 +48,7 @@ struct SetInfo {
 	std::vector<SetConnectionInfo> connections;
 	std::vector<SetInstanceInfo> instances;
 	std::string meta = "{}";
+	std::string created_at;
 
 	RNBO::Json toJson();
 	static SetInfo fromJson(const RNBO::Json& json);
@@ -90,6 +91,7 @@ class DB {
 				boost::filesystem::path& so_name,
 				boost::filesystem::path& config_name,
 				boost::filesystem::path& rnbo_patch_name,
+				std::string& created_at,
 				std::string rnbo_version = std::string()
 		);
 		boost::optional<std::string> patcherNameByIndex(int index);

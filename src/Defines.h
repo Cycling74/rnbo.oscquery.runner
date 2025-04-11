@@ -51,6 +51,12 @@ enum class FileCommandError : unsigned int {
 	ReadFailed = 5,
 };
 
+enum class PackageCommandError : unsigned int {
+	Unknown = 0,
+	WriteFailed = 1,
+	NotFound = 2,
+};
+
 enum class ListenerCommandStatus : unsigned int {
 	Received = 0,
 	Completed = 1,

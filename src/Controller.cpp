@@ -20,6 +20,9 @@
 #include <boost/process.hpp>
 #include <boost/process/child.hpp>
 
+#include <boost/uuid/detail/md5.hpp>
+#include <boost/algorithm/hex.hpp>
+
 #include <ossia/context.hpp>
 #include <ossia/detail/config.hpp>
 
@@ -52,6 +55,18 @@ namespace {
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
+
+#if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
+	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
+#else 
+	static const std::string rnbo_compiler_id = "unknown";
+#endif
+#if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
+	static const std::string rnbo_compiler_version = std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION);
+#else 
+	static const std::string rnbo_compiler_version = "unknown";
+#endif
+
 	static std::string build_program("rnbo-compile-so");
 
 	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
@@ -156,6 +171,420 @@ namespace {
 	};
 
 	boost::optional<CompileInfo> compileProcess;
+
+	std::string sanitizeName(std::string n) {
+		n.erase(std::remove_if(n.begin(), n.end(),
+					[](unsigned char x) { 
+					return !(std::isalnum(x) || x == '-' || x == '_' || x == '.');
+					}), n.end());
+		return n;
+	}
+
+	std::string targetid() {
+		static const std::string name = sanitizeName(rnbo_system_processor + "-" + rnbo_system_name + "-" + rnbo_compiler_id + "-" + rnbo_compiler_version);
+		return name;
+	}
+
+	fs::path packagedir(std::string rnboVersion) {
+		return config::get<fs::path>(config::key::PackageDir).get() / sanitizeName(rnboVersion);
+	}
+
+	void addSetContent(RNBO::Json& setJson, std::shared_ptr<DB>& db, std::string name, std::string rnboVersion, bool include_presets, bool include_views = true) {
+		setJson["name"] = name;
+		//get presets
+		//XXX could this become too large??
+		if (include_presets) {
+			RNBO::Json presets = RNBO::Json::object();
+			std::vector<std::string> presetNames = db->setPresets(name, rnboVersion);
+			if (presetNames.size()) {
+				for (auto presetName: presetNames) {
+					RNBO::Json preset = RNBO::Json::array();
+
+					db->setPresets(
+							name, presetName,
+							[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName) {
+							RNBO::Json entry;
+							entry["patchername"] = patcherName;
+							entry["instanceindex"] = static_cast<int>(instanceIndex);
+							if (patcherPresetName.size()) {
+								entry["presetname"] = patcherPresetName;
+							} else {
+								entry["content"] = RNBO::Json::parse(content);
+							}
+							preset.push_back(entry);
+							}, rnboVersion);
+
+					presets[presetName] = preset;
+				}
+
+				setJson["presets"] = presets;
+			}
+		}
+
+		if (include_views) {
+			RNBO::Json views = RNBO::Json::array();
+			auto indexes = db->setViewIndexes(name, rnboVersion);
+			if (indexes.size()) {
+				for (auto index: indexes) {
+					auto data = db->setViewGet(name, index, rnboVersion);
+					if (!data)
+						continue;
+					RNBO::Json entry;
+
+					entry["index"] = index;
+					entry["name"] = std::get<0>(data.get());
+					entry["params"] = std::get<1>(data.get());
+					entry["sort_order"] = std::get<2>(data.get());
+
+					views.push_back(entry);
+				}
+
+				setJson["views"] = views;
+			}
+		}
+	}
+
+	void storeSetContent(const RNBO::Json& setData, std::shared_ptr<DB>& db, std::string setname) {
+		//handle presets
+		if (setData.contains("presets") && setData["presets"].is_object()) {
+			//TODO delete all existing presets?
+			for (const auto& kv: setData["presets"].items()) {
+				std::string presetName = kv.key();
+				db->setPresetDestroy(setname, presetName);
+				if (kv.value().is_array()) {
+					auto& presets = kv.value();
+					for (const auto& entry: presets) {
+						if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
+							std::string patchername = entry["patchername"];
+							std::string patcherPresetName;
+							unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
+							RNBO::Json content = RNBO::Json::object();
+							if (entry.contains("content") && entry["content"].is_object())
+								content = entry["content"];
+							if (entry.contains("presetname") && entry["presetname"].is_string()) {
+								patcherPresetName = entry["presetname"];
+							}
+							db->setPresetSave(patchername, presetName, setname, instanceindex, content.dump(), patcherPresetName);
+						} else {
+							std::cerr << "don't know how to handle set: " << setname << " preset: " << presetName << " entry" << std::endl;
+						}
+					}
+				}
+			}
+		}
+		if (setData.contains("views") && setData["views"].is_array()) {
+			std::vector<int> sort_order;
+			//sorted
+			for (auto entry: setData["views"]) {
+				if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
+					auto index = entry["index"].get<int>();
+					auto name = entry["name"].get<std::string>();
+
+					try {
+						std::vector<ViewParam> viewParams;
+						for (auto p: entry["params"]) {
+							viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
+						}
+						sort_order.push_back(index);
+						db->setViewCreate(setname, name, viewParams, index);
+					} catch (const std::exception& e) {
+						std::cerr << "failed to import param view " << name << std::endl;
+					}
+				}
+			}
+			db->setViewsUpdateSortOrder(setname, sort_order);
+		}
+	}
+
+	struct PackageConfig {
+		bool include_presets = true;
+		bool include_binaries = true;
+		bool include_datafiles = true;
+		bool include_views = true;
+		bool repackage_existing = true; //do we exit early if a tar already exists with the computed name?
+		std::string system_pretty_name;
+	};
+
+	void writeJson(const RNBO::Json& data, fs::path filePath) {
+		fs::create_directories(filePath.parent_path());
+		std::fstream fs;
+		fs.open(filePath.string(), std::fstream::out | std::fstream::binary | std::fstream::trunc);
+		if (!fs.is_open()) {
+			std::string msg = "failed to open file for write: " + filePath.string();
+			throw std::runtime_error(msg);
+		}
+
+		std::string out = data.dump();
+		fs.write(&out.front(), sizeof(char) * out.size());
+		fs.close();
+	}
+
+	RNBO::Json readJson(fs::path filePath) {
+		if (!fs::exists(filePath)) {
+			std::string msg = "no file at: " + filePath.string();
+			throw std::runtime_error(msg);
+		}
+		RNBO::Json j;
+		std::ifstream i(filePath.string());
+		i >> j;
+		return j;
+	}
+
+	//return tar name
+	fs::path createPackage(
+			std::shared_ptr<DB>& db, 
+			std::string packagename,
+			std::set<std::string>& setnames, 
+			std::set<std::string>& patchernames, 
+			PackageConfig& config,
+			std::string rnboVersion
+			) 
+	{
+		auto sanitizedPackageName = sanitizeName(packagename + "-rnbo-" + rnboVersion);
+
+		auto exportdir = packagedir(rnboVersion);
+		auto tarname = fs::path(sanitizedPackageName + ".rnbopack");
+		auto exportlocation = exportdir / tarname;
+
+		if (!config.repackage_existing && fs::exists(exportlocation)) {
+			return tarname;
+		}
+
+		RNBO::Json info = RNBO::Json::object();
+		info["schema_version"] = 1;
+		info["name"] = packagename;
+
+		fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
+		fs::path tmppath = tmpdir / sanitizedPackageName;
+
+		fs::path sourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
+		fs::path compileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
+
+		//remove if it exists
+		boost::system::error_code ec;
+		fs::remove(exportlocation, ec);
+		fs::remove_all(tmppath, ec);
+
+		fs::create_directories(tmppath);
+
+		auto do_copy = [&tmppath](const fs::path& src, const fs::path& location) {
+			fs::path dst = tmppath / location;
+			if (!fs::exists(dst.parent_path())) {
+				fs::create_directories(dst.parent_path());
+			}
+
+			if (!fs::copy_file(src, dst)) {
+				std::string msg = "failed to copy file name: \"" + src.filename().string();
+				throw std::runtime_error(msg);
+			}
+		};
+
+		std::set<std::string> datafilenames;
+		auto append_datarefs = [&datafilenames](const RNBO::Json& content) {
+			if (content.contains("datarefs") && content["datarefs"].is_object()) {
+				auto datarefs = content["datarefs"];
+				for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+					datafilenames.insert(it.value().get<std::string>());
+				}
+			}
+		};
+
+		RNBO::Json sets = RNBO::Json::array();
+		for (auto setname: setnames) {
+			auto setInfo = db->setGet(setname, rnboVersion);
+			fs::path location = fs::path("sets") / fs::path(sanitizeName(setname) + ".json");
+			for (auto inst: setInfo->instances) {
+				if (patchernames.count(inst.patcher_name)) {
+					continue;
+				}
+				patchernames.insert(inst.patcher_name);
+			}
+
+			RNBO::Json setJson = setInfo->toJson();
+			//TODO could the content get too large with presets and views in it??
+			addSetContent(setJson, db, setname, rnboVersion, config.include_presets, config.include_views);
+			writeJson(setJson, tmppath / location);
+
+			//parse presets for datafiles
+			if (config.include_datafiles && setJson.contains("presets")) {
+				//key  value, value is an array of entries
+				const RNBO::Json& presets = setJson["presets"];
+				for (auto pit = presets.begin(); pit != presets.end(); ++pit) {
+					const RNBO::Json& entries = pit.value();
+					for (auto entry: entries) {
+						if (entry.contains("content") && entry["content"].is_object()) {
+							const RNBO::Json& preset = entry["content"];
+							append_datarefs(preset);
+						}
+					}
+				}
+			}
+
+			RNBO::Json setDesc = RNBO::Json::object();
+			setDesc["name"] = setname;
+			setDesc["location"] = location.string();
+			setDesc["created_at"] = setInfo->created_at;
+
+			sets.push_back(setDesc);
+		}
+
+		if (setnames.size()) {
+			info["sets"] = sets;
+		}
+
+		RNBO::Json targets = RNBO::Json::object();
+		fs::path targetdir = "targets" / fs::path(targetid());
+		if (config.include_binaries) {
+			RNBO::Json target = RNBO::Json::object();
+
+			target["system_processor"] = rnbo_system_processor;
+			target["system_name"] = rnbo_system_name;
+			target["compiler_id"] = rnbo_compiler_id;
+			target["compiler_version"] = rnbo_compiler_version;
+			target["dir"] = targetdir.string();
+
+			if (config.system_pretty_name.size()) {
+				target["system_os_name"] = config.system_pretty_name;
+			}
+
+			targets[targetid()] = target;
+			info["targets"] = targets;
+		}
+
+		info["rnbo_version"] = rnboVersion;
+		info["runner_version"] = runner_version;
+
+		fs::path srcdir =  "src";
+
+		RNBO::Json patchers = RNBO::Json::array();
+		for (auto patchername: patchernames) {
+			fs::path libPath;
+			fs::path confPath;
+			fs::path patcherPath;
+			std::string created_at;
+
+			if (!db->patcherGetLatest(patchername, libPath, confPath, patcherPath, created_at, rnboVersion)) {
+				std::string msg = "patcher with name: \"" + patchername + " and rnbo version: " + rnboVersion + " not found";
+				throw std::runtime_error(msg);
+			}
+
+			libPath = fs::absolute(compileCache / libPath);
+			confPath = fs::absolute(sourceCache / confPath);
+			patcherPath = fs::absolute(sourceCache / patcherPath);
+
+			RNBO::Json patcherinfo;
+
+			if (config.include_binaries) {
+				//binary data
+				RNBO::Json binaries = RNBO::Json::object();
+				{
+					fs::path location = targetdir / "patchers" / libPath.filename();
+					do_copy(libPath, location);
+
+					binaries[targetid()] = location.string();
+				}
+				patcherinfo["binaries"] = binaries;
+			}
+
+			//src data
+			if (fs::exists(patcherPath)) {
+				fs::path location = srcdir / patcherPath.filename();
+				do_copy(patcherPath, location);
+				patcherinfo["patcher"] = location.string();
+			}
+
+			if (fs::exists(confPath)) {
+				fs::path location = srcdir / confPath.filename();
+				do_copy(confPath, location);
+				patcherinfo["config"] = location.string();
+
+				if (config.include_datafiles) {
+					RNBO::Json patcherConfig;
+					std::ifstream i(confPath.string());
+					i >> patcherConfig;
+					i.close();
+					append_datarefs(patcherConfig);
+				}
+			}
+
+			if (config.include_presets) {
+				fs::path location = srcdir / fs::path(sanitizeName(patchername) + "-presets.json");
+
+				std::vector<std::string> presetnames;
+				std::string initialpreset;
+				db->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial) { 
+						presetnames.push_back(n); 
+						if (isinitial) {
+						initialpreset = n;
+						}
+						}, rnboVersion);
+
+				RNBO::Json content = RNBO::Json::object();
+				for (auto name: presetnames) {
+					auto preset = db->preset(patchername, name, rnboVersion);
+					if (preset) {
+						RNBO::Json presetJson = RNBO::Json::parse(preset->first);
+
+						if (config.include_datafiles) {
+							append_datarefs(presetJson);
+						}
+
+						content[name] = presetJson;
+					} else {
+						throw std::runtime_error("preset does not exist");
+					}
+				}
+				if (initialpreset.size()) {
+					patcherinfo["preset_initial"] = initialpreset;
+				}
+
+				writeJson(content, tmppath / location);
+				patcherinfo["presets"] = location.string();
+			}
+
+			//common info
+			patcherinfo["name"] = patchername;
+			patcherinfo["created_at"] = created_at;
+
+			patchers.push_back(patcherinfo);
+		}
+
+		info["patchers"] = patchers;
+
+		if (config.include_datafiles && datafilenames.size()) {
+			RNBO::Json datafiles = RNBO::Json::array();
+
+			auto datafiledir = config::get<fs::path>(config::key::DataFileDir).get();
+			for (auto name: datafilenames) {
+				fs::path src = datafiledir / fs::path(name);
+				if (!fs::exists(src)) {
+					std::cerr << "cannot find datafile to package at: " << src.string() << " skipping" << std::endl;
+					continue;
+				}
+				fs::path location = fs::path("datafiles") / fs::path(name);
+
+				RNBO::Json datafileinfo = RNBO::Json::object();
+				do_copy(src, location);
+				datafileinfo["location"] = location.string();
+				datafileinfo["name"] = name;
+				//TODO any other reasonable info/
+				datafiles.push_back(datafileinfo);
+			}
+
+			info["datafiles"] = datafiles;
+		}
+
+		writeJson(info, tmppath	 / "info.json");
+
+		fs::create_directories(exportlocation.parent_path());
+		std::vector<std::string> args { "cf", exportlocation.string(), sanitizedPackageName };
+		if (bp::system(bp::search_path("tar"), args, bp::start_dir(tmpdir)) != 0) {
+			std::string msg = "failed to create tar file";
+			throw std::runtime_error(msg);
+		}
+		fs::remove_all(tmppath, ec);
+		return tarname;
+	}
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
@@ -302,6 +731,7 @@ Controller::Controller(std::string server_name) {
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			std::make_pair("runner_version", runner_version),
+			std::make_pair("target_id", targetid()),
 			}) {
 		auto n = info->create_child(it.first);
 		auto p = n->create_parameter(ossia::val_type::STRING);
@@ -326,6 +756,7 @@ Controller::Controller(std::string server_name) {
 						if (name.size() && name[0] == '"' && name[name.size() - 1] == '"') {
 							name = name.substr(1, name.size() - 2);
 						}
+						mSystemPrettyName = name;
 
 						auto n = info->create_child("system_os_name");
 						auto p = n->create_parameter(ossia::val_type::STRING);
@@ -351,25 +782,21 @@ Controller::Controller(std::string server_name) {
 		p->push_value(config::get_system_id());
 	}
 
-#if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
 	{
 		auto n = info->create_child("compiler_version");
 		auto p = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "the version of the compiler that this executable was built with");
-		p->push_value(std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION));
+		p->push_value(rnbo_compiler_version);
 	}
-#endif
 
-#if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
 	{
 		auto n = info->create_child("compiler_id");
 		auto p = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		n->set(ossia::net::description_attribute{}, "the id of the compiler that this executable was built with");
-		p->push_value(std::string(RNBOOSCQUERY_CXX_COMPILER_ID));
+		p->push_value(rnbo_compiler_id);
 	}
-#endif
 
 	{
 		//ossia doesn't seem to support 64bit integers, so we use a string as 31 bits
@@ -397,7 +824,10 @@ Controller::Controller(std::string server_name) {
 		std::vector<ossia::value> supported = {
 			"file_write_extended",
 			"file_read",
+			"file_read64",
 			"file_exists",
+			"package_create",
+			"package_install",
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
@@ -1400,7 +1830,8 @@ void Controller::doLoadSet(std::string setname) {
 			fs::path libPath;
 			fs::path confPath;
 			fs::path patcherPath; //ignored
-			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath)) {
+			std::string created_at; //ignored
+			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at)) {
 				cerr << "failed to find patcher with name '" << name << "' while loading set, skipping" << std::endl;
 				continue;
 			}
@@ -1916,6 +2347,103 @@ unsigned int Controller::nextInstanceIndex() {
 	return index;
 }
 
+void Controller::installPackage(const boost::filesystem::path& contentdir) {
+	//get info
+	RNBO::Json info = readJson(contentdir / "info.json");
+	if (!info.contains("schema_version") || info["schema_version"] != 1 || !info.contains("rnbo_version")) {
+		throw std::runtime_error("don't know how to read info.json");
+	}
+
+	std::string package_rnbo_version = info["rnbo_version"].get<std::string>();
+
+	if (package_rnbo_version != rnbo_version) {
+		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_version: " + rnbo_version;
+		throw std::runtime_error(msg);
+	}
+
+	auto do_copy = [&contentdir](const fs::path& src, const fs::path& dst) {
+		if (!fs::exists(dst.parent_path())) {
+			fs::create_directories(dst.parent_path());
+		}
+
+		if (!fs::copy_file(contentdir / src, dst, fs::copy_option::overwrite_if_exists)) {
+			std::string msg = "failed to copy file name: \"" + src.filename().string();
+			throw std::runtime_error(msg);
+		}
+	};
+
+	if (info.contains("datafiles")) {
+		auto dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+		auto datafiles = info["datafiles"];
+		for (const auto& entry: datafiles) {
+			fs::path dst = dstdir / entry["name"].get<std::string>();
+			if (fs::exists(dst)) {
+				continue; //skip overwritting data files
+			}
+			do_copy(fs::path(entry["location"].get<std::string>()), dst);
+		}
+	}
+
+	if (info.contains("patchers")) {
+		auto entries = info["patchers"];
+		const auto target = targetid();
+		for (const auto& entry: entries) {
+			std::string libFile;
+			std::string configFileName;
+			std::string patcherFileName;
+			RNBO::Json config;
+
+			std::string name = entry["name"].get<std::string>();
+			if (!entry.contains("binaries") || !entry["binaries"].contains(target)) {
+				std::string msg = "no binary for patcher " + name + " in package";
+				throw std::runtime_error(msg);
+			}
+
+			//TODO check for collisions?
+			{
+				fs::path src = fs::path(entry["binaries"][target].get<std::string>());
+				do_copy(src, mCompileCache / src.filename());
+				libFile = src.filename().string();
+			}
+
+			if (entry.contains("config")) {
+				fs::path src = fs::path(entry["config"].get<std::string>());
+				do_copy(src, mSourceCache / src.filename());
+				configFileName = src.filename().string();
+				config = readJson(mSourceCache / src.filename());
+			}
+
+			if (entry.contains("patcher")) {
+				fs::path src = fs::path(entry["patcher"].get<std::string>());
+				do_copy(src, mSourceCache / src.filename());
+				patcherFileName = src.filename().string();
+			}
+
+			patcherStore(name, libFile, configFileName, patcherFileName, package_rnbo_version, config, false);
+
+			if (entry.contains("presets")) {
+				RNBO::Json presets = readJson(contentdir / fs::path(entry["presets"].get<std::string>()));
+				for (auto& kv: presets.items()) {
+					assert(kv.value().is_object());
+					mDB->presetSave(name, kv.key(), kv.value().dump());
+				}
+			}
+		}
+	}
+
+	if (info.contains("sets")) {
+		auto entries = info["sets"];
+		for (const auto& entry: entries) {
+			std::string name = entry["name"].get<std::string>();
+			RNBO::Json setData = readJson(contentdir / fs::path(entry["location"].get<std::string>()));
+			SetInfo info = SetInfo::fromJson(setData);
+			mDB->setSave(name, info);
+			storeSetContent(setData, mDB, name);
+		}
+		updateSetNames();
+	}
+}
+
 bool Controller::processEvents() {
 	auto now = steady_clock::now();
 
@@ -2175,8 +2703,9 @@ void Controller::registerCommands() {
 				fs::path libPath;
 				fs::path confPath;
 				fs::path patcherName; //ignored
+				std::string created_at; //ignored
 				RNBO::Json config;
-				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName)) {
+				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName, created_at)) {
 					libPath = fs::absolute(mCompileCache / libPath);
 					confPath = fs::absolute(mSourceCache / confPath);
 
@@ -2624,7 +3153,10 @@ void Controller::registerCommands() {
 	};
 
 	//helper to validate and report as there are 2 different commands
-	auto fileCmdDir = [this](const std::string& id, std::string filetype) -> boost::optional<fs::path> {
+	auto fileCmdDir = [this](const std::string& id, std::string filetype, std::string rnboVersion = std::string()) -> boost::optional<fs::path> {
+		if (rnboVersion.size() == 0) {
+			rnboVersion = rnbo_version;
+		}
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
 			r = config::get<fs::path>(config::key::DataFileDir);
@@ -2632,6 +3164,8 @@ void Controller::registerCommands() {
 			r = mSourceCache;
 		} else if (filetype == "patcherlib") {
 			r = mCompileCache;
+		} else if (filetype == "package") {
+			r = packagedir(rnboVersion);
 		} else if (filetype == "set") {
 			r = config::get<fs::path>(config::key::SaveDir).get();
 		} else {
@@ -2650,7 +3184,12 @@ void Controller::registerCommands() {
 				if (!validateFileCmd(id, params, false))
 					return;
 				std::string filetype = params["filetype"];
-				auto dir = fileCmdDir(id, filetype);
+				std::string rnboVersion = rnbo_version;
+				if (params.contains("rnbo_version")) {
+					rnboVersion = params["rnbo_version"];
+				}
+
+				auto dir = fileCmdDir(id, filetype, rnboVersion);
 				if (!dir)
 					return;
 
@@ -2746,57 +3285,8 @@ void Controller::registerCommands() {
 				SetInfo info = SetInfo::fromJson(setData);
 				if (info.instances.size() > 0) {
 					mDB->setSave(fileName, info);
+					storeSetContent(setData, mDB, fileName);
 					updateSetNames();
-
-					//handle presets
-					if (setData.contains("presets") && setData["presets"].is_object()) {
-						//TODO delete all existing presets?
-						for (const auto& kv: setData["presets"].items()) {
-							std::string presetName = kv.key();
-							mDB->setPresetDestroy(fileName, presetName);
-							if (kv.value().is_array()) {
-								auto& presets = kv.value();
-								for (const auto& entry: presets) {
-									if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
-										std::string patchername = entry["patchername"];
-										std::string patcherPresetName;
-										unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
-										RNBO::Json content = RNBO::Json::object();
-										if (entry.contains("content") && entry["content"].is_object())
-											content = entry["content"];
-										if (entry.contains("presetname") && entry["presetname"].is_string()) {
-											patcherPresetName = entry["presetname"];
-										}
-										mDB->setPresetSave(patchername, presetName, fileName, instanceindex, content.dump(), patcherPresetName);
-									} else {
-										std::cerr << "don't know how to handle set: " << fileName << " preset: " << presetName << " entry" << std::endl;
-									}
-								}
-							}
-						}
-					}
-					if (setData.contains("views") && setData["views"].is_array()) {
-						std::vector<int> sort_order;
-						//sorted
-						for (auto entry: setData["views"]) {
-							if (entry.contains("params") && entry.contains("sort_order") && entry.contains("name") && entry.contains("index")) {
-								auto index = entry["index"].get<int>();
-								auto name = entry["name"].get<std::string>();
-
-	              try {
-	                std::vector<ViewParam> viewParams;
-	                for (auto p: entry["params"]) {
-	                  viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
-	                }
-	                sort_order.push_back(index);
-	                mDB->setViewCreate(fileName, name, viewParams, index);
-	              } catch (const std::exception& e) {
-	                std::cerr << "failed to import param view " << name << std::endl;
-	              }
-							}
-						}
-						mDB->setViewsUpdateSortOrder(fileName, sort_order);
-					}
 				}
 			}
 
@@ -2810,8 +3300,242 @@ void Controller::registerCommands() {
 		}
 	};
 
+	auto file_read = [this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
+		//TODO validate
+		if (!params.contains("size") || !params["size"].is_number()) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "must include size param");
+		}
+
+		int size = params["size"];
+		std::string filetype = params["filetype"];
+		std::string fileName;
+		std::string readContent;
+		std::string rnboVersion;
+		if (params.contains("rnbo_version")) {
+			rnboVersion = params["rnbo_version"];
+		}
+
+		if (params.contains("filename")) {
+			fileName = params["filename"];
+		}
+
+		if (filetype == "presets") {
+			//read in content
+			//filename is actually patcher name
+			std::string patcherName = fileName;
+			readContent.clear();
+
+			std::vector<std::string> names;
+			mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); }, rnboVersion);
+
+			RNBO::Json content = RNBO::Json::object();
+			for (auto name: names) {
+				auto preset = mDB->preset(patcherName, name, rnboVersion);
+				if (preset) {
+					content[name] = RNBO::Json::parse(preset->first);
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
+					return;
+				}
+			}
+
+			readContent = content.dump();
+		} else if (filetype == "sets") {
+			std::vector<std::string> names;
+			mDB->sets([&names](const std::string& n, const std::string&, bool initial) { names.push_back(n); }, rnboVersion);
+
+			RNBO::Json content = RNBO::Json::object();
+			for (auto name: names) {
+				if (name == UNTITLED_SET_NAME || name == LAST_SET_NAME) {
+					continue;
+				}
+				auto setInfo = mDB->setGet(name, rnboVersion);
+				if (setInfo) {
+					RNBO::Json s = setInfo->toJson();
+					addSetContent(s, mDB, name, rnboVersion, true, true);
+					content[name] = s;
+				}
+			}
+
+			readContent = content.dump();
+		} else if (filetype == "patcher" || filetype == "patcherconfig") {
+			//get the latest from this version
+			fs::path libPath;
+			fs::path confName;
+			fs::path patcherName;
+			std::string created_at;
+			if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, created_at, rnboVersion)) {
+				fs::path contentName = filetype == "patcher" ? patcherName : confName;
+				fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
+				RNBO::Json content = RNBO::Json::object();
+				if (fs::exists(filePath)) {
+					std::ifstream i(filePath.string());
+					std::stringstream b;
+					b << i.rdbuf();
+					content["content"] = b.str();
+					content["filename"] = contentName.string();
+					content["created_at"] = created_at;
+					readContent = content.dump();
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
+					return;
+				}
+			} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
+					return;
+			}
+		} else if (filetype == "patchers") {
+			RNBO::Json content = RNBO::Json::array();
+			//get patcher names
+			mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&) {
+					content.push_back(v);
+			}, rnboVersion);
+			readContent = content.dump();
+		} else if (filetype == "versions") {
+			RNBO::Json content = RNBO::Json::array();
+			mDB->rnboVersions([&content](const std::string& v) {
+					content.push_back(v);
+			});
+			readContent = content.dump();
+		} else {
+			auto dir = fileCmdDir(id, filetype, rnboVersion);
+			if (!dir) {
+				reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "invalid directory");
+				return;
+			}
+
+			//read in file
+			if (fileName.size()) {
+				fs::path filePath = dir.get() / fs::path(fileName);
+				if (fs::exists(filePath)) {
+					std::ifstream i(filePath.string());
+					if (method != "file_read64") {
+						std::stringstream b;
+						b << i.rdbuf();
+						readContent = b.str();
+					} else {
+						using boost::uuids::detail::md5;
+
+						const size_t fileBytes = fs::file_size(filePath);
+						const double fileSize = static_cast<double>(fileBytes);
+
+						md5 hash;
+						int seq = 0;
+						size_t remaining = fileBytes;
+
+						auto report = [this, id, &seq, &remaining, fileSize](ssize_t read, const std::vector<char>& out, size_t nout, std::string md5sum = std::string()) {
+							if (nout == 0 && md5sum.size() == 0) //if there is no data, don't report, but we must report if there is a md5
+								return;
+
+							std::string chunk;
+							if (nout > 0) {
+								chunk = std::string(out.begin(), out.begin() + nout);
+							}
+							remaining -= read;
+
+							RNBO::Json resp = {
+								{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
+								{"message", "read"},
+								{"content64", chunk},
+								{"seq", seq++},
+								{"remaining", remaining},
+								{"progress", static_cast<int>(std::clamp(100.0 * ((fileSize - remaining) / fileSize), 0.0, 99.0))}
+							};
+
+							if (md5sum.size() > 0) {
+								resp["md5"] = md5sum;
+								resp["progress"] = 100;
+							}
+
+							reportCommandResult(id, resp);
+						};
+
+						//stream, don't read all into ram
+						std::vector<char> buf(size);
+						std::vector<char> out(size * 4); //what is the correct max encoded size?
+						struct base64_state state;
+
+						// Initialize stream encoder:
+						base64_stream_encode_init(&state, 0);
+
+						size_t nout = 0;
+						while (i.good()) {
+							i.read(buf.data(), size);
+							ssize_t read = i.gcount();
+
+							if (read > 0) {
+								hash.process_bytes(buf.data(), read);
+								base64_stream_encode(&state, buf.data(), read, out.data(), &nout);
+								report(read, out, nout);
+							}
+
+						}
+
+						base64_stream_encode_final(&state, out.data(), &nout);
+
+						//https://stackoverflow.com/questions/55070320/how-to-calculate-md5-of-a-file-using-boost
+						std::string md5sum;
+						{
+							md5::digest_type digest;
+							hash.get_digest(digest);
+							const auto intDigest = reinterpret_cast<const int*>(&digest);
+							boost::algorithm::hex(intDigest, intDigest + (sizeof(md5::digest_type)/sizeof(int)), std::back_inserter(md5sum));
+						}
+
+						report(0, out, nout, md5sum);
+						return;
+					}
+				} else {
+					std::string msg = "file does not exist at path " + filePath.string();
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), msg);
+					return;
+				}
+			} else {
+				fs::path dirPath = dir.get();
+				if (fs::exists(dirPath)) {
+					RNBO::Json content = RNBO::Json::array();
+					for (const auto& entry: fs::directory_iterator(dir.get())) {
+						content.push_back(entry.path().string());
+					}
+					readContent = content.dump();
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
+					return;
+				}
+			}
+		}
+
+		if (readContent.size() == 0) {
+			reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "no content");
+			return;
+		}
+
+		int remaining = 0;
+		double fileSize = readContent.size();
+		double read = 0;
+		int seq = 0;
+
+		//XXX there is probably a more efficient way to do this
+		while (readContent.size()) {
+			std::string chunk = readContent.substr(0, size);
+			readContent.erase(0, size);
+			read += size;
+			remaining = readContent.size();
+			reportCommandResult(id, {
+				{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
+				{"message", "read"},
+				{"content", chunk},
+				{"seq", seq++},
+				{"remaining", remaining},
+				{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(100.0 * read / fileSize, 0.0, 99.0))}
+			});
+		}
+	};
+
 	mCommandHandlers.insert({ "file_write", file_write });
 	mCommandHandlers.insert({ "file_write_extended", file_write });
+	mCommandHandlers.insert({ "file_read", file_read });
+	mCommandHandlers.insert({ "file_read64", file_read });
 
 	mCommandHandlers.insert({
 			"file_exists",
@@ -2830,201 +3554,140 @@ void Controller::registerCommands() {
 	});
 
 	mCommandHandlers.insert({
-			"file_read",
+			"package_create",
 			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
-				//TODO validate
+				std::string packagename;
 
-				int size = params["size"];
-				std::string filetype = params["filetype"];
-				std::string fileName;
-				std::string readContent;
 				std::string rnboVersion;
+				PackageConfig config;
+
+				config.system_pretty_name = mSystemPrettyName;
+
 				if (params.contains("rnbo_version")) {
 					rnboVersion = params["rnbo_version"];
-				}
-
-				if (params.contains("filename")) {
-					fileName = params["filename"];
-				}
-
-				if (filetype == "presets") {
-					//read in content
-					//filename is actually patcher name
-					std::string patcherName = fileName;
-					readContent.clear();
-
-					std::vector<std::string> names;
-					mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); }, rnboVersion);
-
-					RNBO::Json content = RNBO::Json::object();
-					for (auto name: names) {
-						auto preset = mDB->preset(patcherName, name, rnboVersion);
-						if (preset) {
-							content[name] = RNBO::Json::parse(preset->first);
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
-							return;
-						}
-					}
-
-					readContent = content.dump();
-				} else if (filetype == "sets") {
-					std::vector<std::string> names;
-					mDB->sets([&names](const std::string& n, const std::string&, bool initial) { names.push_back(n); }, rnboVersion);
-
-					RNBO::Json content = RNBO::Json::object();
-					for (auto name: names) {
-						if (name == UNTITLED_SET_NAME || name == LAST_SET_NAME) {
-							continue;
-						}
-						auto setInfo = mDB->setGet(name, rnboVersion);
-						if (setInfo) {
-							RNBO::Json s = setInfo->toJson();
-
-							//get presets
-							//XXX could this become too large??
-							RNBO::Json presets;
-							std::vector<std::string> presetNames = mDB->setPresets(name, rnboVersion);
-							for (auto presetName: presetNames) {
-								RNBO::Json preset;
-
-								mDB->setPresets(
-										name, presetName,
-										[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName) {
-											RNBO::Json entry;
-											entry["patchername"] = patcherName;
-											entry["instanceindex"] = static_cast<int>(instanceIndex);
-											if (patcherPresetName.size()) {
-												entry["presetname"] = patcherPresetName;
-											} else {
-												entry["content"] = RNBO::Json::parse(content);
-											}
-											preset.push_back(entry);
-										}, rnboVersion);
-
-								presets[presetName] = preset;
-							}
-							s["presets"] = presets;
-
-							RNBO::Json views = RNBO::Json::array();
-							auto indexes = mDB->setViewIndexes(name, rnboVersion);
-							for (auto index: indexes) {
-								auto data = mDB->setViewGet(name, index, rnboVersion);
-								if (!data)
-									continue;
-								RNBO::Json entry;
-
-								entry["index"] = index;
-								entry["name"] = std::get<0>(data.get());
-								entry["params"] = std::get<1>(data.get());
-								entry["sort_order"] = std::get<2>(data.get());
-
-								views.push_back(entry);
-							}
-
-							s["views"] = views;
-
-							content[name] = s;
-						}
-					}
-
-					readContent = content.dump();
-				} else if (filetype == "patcher" || filetype == "patcherconfig") {
-					//get the latest from this version
-					fs::path libPath;
-					fs::path confName;
-					fs::path patcherName;
-					if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, rnboVersion)) {
-						fs::path contentName = filetype == "patcher" ? patcherName : confName;
-						fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
-						RNBO::Json content = RNBO::Json::object();
-						if (fs::exists(filePath)) {
-							std::ifstream i(filePath.string());
-							std::stringstream b;
-							b << i.rdbuf();
-							content["content"] = b.str();
-							content["filename"] = contentName.string();
-							readContent = content.dump();
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
-							return;
-						}
-					} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find patcher");
-							return;
-					}
-				} else if (filetype == "patchers") {
-					RNBO::Json content = RNBO::Json::array();
-					//get patcher names
-					mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&) {
-							content.push_back(v);
-					}, rnboVersion);
-					readContent = content.dump();
-				} else if (filetype == "versions") {
-					RNBO::Json content = RNBO::Json::array();
-					mDB->rnboVersions([&content](const std::string& v) {
-							content.push_back(v);
-					});
-					readContent = content.dump();
 				} else {
-					auto dir = fileCmdDir(id, filetype);
-					if (!dir) {
-						reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "invalid directory");
+					rnboVersion = rnbo_version;
+				}
+
+				if (params.contains("include_presets")) {
+					config.include_presets = params["include_presets"].get<bool>();
+				}
+				if (params.contains("include_views")) {
+					config.include_views = params["include_views"].get<bool>();
+				}
+				if (params.contains("include_datafiles")) {
+					config.include_datafiles = params["include_datafiles"].get<bool>();
+				}
+				if (params.contains("include_binaries")) {
+					config.include_binaries = params["include_binaries"].get<bool>();
+				}
+
+				std::set<std::string> patchernames;
+				std::set<std::string> setnames;
+				if (params.contains("all")) {
+					packagename = "all";
+					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&) { patchernames.insert(name); }, rnboVersion);
+					mDB->sets([&setnames](const std::string& name, const std::string& /*created*/, bool /*initial*/ ) { setnames.insert(name); }, rnboVersion);
+				} else if (params.contains("set")) {
+					std::string setname = params["set"];
+					setnames.insert(setname);
+
+					auto setInfo = mDB->setGet(setname, rnboVersion);
+					if (!setInfo) {
+						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "set does not exist");
+						return;
+					}
+					packagename = "graph-" + setname;
+
+				} else if (params.contains("patcher")) {
+					std::string name = params["patcher"];
+
+					fs::path libPath;
+					fs::path confPath;
+					fs::path patcherPath;
+					std::string created_at;
+
+					if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, rnboVersion)) {
+						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "patcher does not exist");
 						return;
 					}
 
-					//read in file
-					if (fileName.size()) {
-						fs::path filePath = dir.get() / fs::path(fileName);
-						if (fs::exists(filePath)) {
-							std::ifstream i(filePath.string());
-							std::stringstream b;
-							b << i.rdbuf();
-							readContent = b.str();
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "file doesn't exist");
-							return;
-						}
-					} else {
-						fs::path dirPath = dir.get();
-						if (fs::exists(dirPath)) {
-							RNBO::Json content = RNBO::Json::array();
-							for (const auto& entry: fs::directory_iterator(dir.get())) {
-								content.push_back(entry.path().string());
-							}
-							readContent = content.dump();
-						} else {
-							reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "dir doesn't exist");
-							return;
-						}
-					}
+					patchernames.insert(name);
+					packagename = "patcher-" + name;
+				} else {
+						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "don't know what to package");
+						return;
 				}
 
-				if (readContent.size() == 0) {
-					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "no content");
+				try {
+					auto tarname = createPackage(mDB, packagename, setnames, patchernames, config, rnboVersion);
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+							{"message", "completed"},
+							{"packagename", packagename},
+							{"tarname", tarname.string()},
+							{"progress", 100}
+						});
+				} catch (std::runtime_error& e) {
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::WriteFailed), e.what());
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"package_install",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				//TODO validate
+				std::string filename = params["filename"];
+
+				reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(FileCommandStatus::Received)},
+						{"message", "received"},
+						{"progress", 1}
+					});
+
+				fs::path packagelocation = fs::absolute(packagedir(rnbo_version) / filename);
+				if (!fs::exists(packagelocation)) {
+					std::string msg = "cannot find package file at: " + packagelocation.string();
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), msg);
+				}
+
+				//delete and recreate working directory
+				fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get() / "rnbopackageworking";
+				//remove anything that might already be there
+				boost::system::error_code ec;
+				fs::remove_all(tmpdir, ec);
+				fs::create_directories(tmpdir);
+
+				//extract
+				std::vector<std::string> args { "xf", packagelocation.string() };
+				if (bp::system(bp::search_path("tar"), args, bp::start_dir(tmpdir)) != 0) {
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::Unknown), "failed to unarchive package");
 					return;
 				}
 
-				int remaining = 0;
-				double fileSize = readContent.size();
-				double read = 0;
-				int seq = 0;
-
-				//XXX there is probably a more efficient way to do this
-				while (readContent.size()) {
-					std::string chunk = readContent.substr(0, size);
-					readContent.erase(0, size);
-					read += size;
-					remaining = readContent.size();
+				try {
+					//find content location
+					fs::path contentlocation;
+					for (const auto& entry: fs::directory_iterator(tmpdir)) {
+						if (!contentlocation.empty()) {
+							throw std::runtime_error("cannot find single package directory in extracted data");
+						}
+						contentlocation = fs::absolute(entry.path());
+					}
+					if (contentlocation.empty()) {
+						throw std::runtime_error("cannot find package data in extracted data");
+					}
+					installPackage(contentlocation);
 					reportCommandResult(id, {
-						{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
-						{"message", "read"},
-						{"content", chunk},
-						{"seq", seq++},
-						{"remaining", remaining},
-						{"progress", remaining == 0 ? 100 : static_cast<int>(std::clamp(100.0 * read / fileSize, 0.0, 99.0))}
-					});
+							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
+							{"message", "completed"},
+							{"progress", 100}
+						});
+				} catch (std::runtime_error& e) {
+					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::Unknown), e.what());
 				}
+				fs::remove_all(tmpdir, ec);
 			}
 	});
 
@@ -3049,6 +3712,7 @@ void Controller::registerCommands() {
 			{"progress", 1}
 		});
 		return true;
+
 	};
 
 	//clear all but oscquery
