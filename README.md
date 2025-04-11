@@ -698,6 +698,8 @@ If the runner is running on the same machine as you want to listen on, you can u
 
 ```
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "foo", "params": {"ip": "localhost", "port": 9999}}'
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "package_create", "id": "foo", "params": {"set": "granulator"}}'
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "package_install", "id": "foo", "params": {"filename": "graph-granulator-rnbo-1.4.0-control.11.rnbopack"}}'
 ```
 
 ### Metadata
