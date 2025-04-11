@@ -58,12 +58,12 @@ namespace {
 
 #if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
 	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
-#else 
+#else
 	static const std::string rnbo_compiler_id = "unknown";
 #endif
 #if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
 	static const std::string rnbo_compiler_version = std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION);
-#else 
+#else
 	static const std::string rnbo_compiler_version = "unknown";
 #endif
 
@@ -174,7 +174,7 @@ namespace {
 
 	std::string sanitizeName(std::string n) {
 		n.erase(std::remove_if(n.begin(), n.end(),
-					[](unsigned char x) { 
+					[](unsigned char x) {
 					return !(std::isalnum(x) || x == '-' || x == '_' || x == '.');
 					}), n.end());
 		return n;
@@ -332,13 +332,13 @@ namespace {
 
 	//return tar name
 	fs::path createPackage(
-			std::shared_ptr<DB>& db, 
+			std::shared_ptr<DB>& db,
 			std::string packagename,
-			std::set<std::string>& setnames, 
-			std::set<std::string>& patchernames, 
+			std::set<std::string>& setnames,
+			std::set<std::string>& patchernames,
 			PackageConfig& config,
 			std::string rnboVersion
-			) 
+			)
 	{
 		auto sanitizedPackageName = sanitizeName(packagename + "-rnbo-" + rnboVersion);
 
@@ -512,8 +512,8 @@ namespace {
 
 				std::vector<std::string> presetnames;
 				std::string initialpreset;
-				db->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial) { 
-						presetnames.push_back(n); 
+				db->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial) {
+						presetnames.push_back(n);
 						if (isinitial) {
 						initialpreset = n;
 						}
@@ -3021,7 +3021,7 @@ void Controller::registerCommands() {
 	          for (auto p: params["params"]) {
 	              viewParams.push_back(ViewParam::fromString(p.get<std::string>()));
 	          }
-	        } catch (...) { 
+	        } catch (...) {
 	          std::cerr << "error parsing view params" << std::endl;
 	        }
 
@@ -3434,7 +3434,7 @@ void Controller::registerCommands() {
 							remaining -= read;
 
 							RNBO::Json resp = {
-								{"code", static_cast<unsigned int>(remaining == 0 ? FileCommandStatus::Completed : FileCommandStatus::Received)},
+								{"code", static_cast<unsigned int>(FileCommandStatus::Received)},
 								{"message", "read"},
 								{"content64", chunk},
 								{"seq", seq++},
@@ -3443,6 +3443,7 @@ void Controller::registerCommands() {
 							};
 
 							if (md5sum.size() > 0) {
+								resp["code"] = static_cast<unsigned int>(FileCommandStatus::Completed);
 								resp["md5"] = md5sum;
 								resp["progress"] = 100;
 							}
