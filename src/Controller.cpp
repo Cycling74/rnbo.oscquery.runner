@@ -2402,7 +2402,11 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 			//TODO check for collisions?
 			{
 				fs::path src = fs::path(entry["binaries"][target].get<std::string>());
-				do_copy(src, mCompileCache / src.filename());
+				//don't overwrite an existing lib, we assume they're the same
+				fs::path dst = mCompileCache / src.filename();
+				if (!fs::exists(dst)) {
+					do_copy(src, dst);
+				}
 				libFile = src.filename().string();
 			}
 
