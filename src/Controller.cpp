@@ -3626,7 +3626,7 @@ void Controller::registerCommands() {
 							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
 							{"message", "completed"},
 							{"packagename", packagename},
-							{"tarname", tarname.string()},
+							{"filename", tarname.string()},
 							{"progress", 100}
 						});
 				} catch (std::runtime_error& e) {
