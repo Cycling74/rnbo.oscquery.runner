@@ -166,9 +166,10 @@ namespace config {
 				}
 			}
 			if (k == key::TempDir) {
-				std::string tmpdir(std::getenv("TMPDIR"));
-				if (tmpdir.size() == 0) {
-					tmpdir = "/tmp/"; //TODO windows
+				std::string tmpdir = "/tmp";
+				auto e = std::getenv("TMPDIR");
+				if (e) {
+					tmpdir = std::string(e); //TODO windows
 				}
 				return fs::absolute(fs::path(tmpdir));
 			}
