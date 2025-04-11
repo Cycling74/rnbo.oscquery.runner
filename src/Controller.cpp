@@ -340,10 +340,10 @@ namespace {
 			std::string rnboVersion
 			) 
 	{
-		auto sanitizedPackageName = sanitizeName("rnborunner-" + rnboVersion + "-package-" + packagename);
+		auto sanitizedPackageName = sanitizeName(packagename + "-rnbo-" + rnboVersion);
 
 		auto exportdir = packagedir(rnboVersion);
-		auto tarname = fs::path(sanitizedPackageName + ".tar");
+		auto tarname = fs::path(sanitizedPackageName + ".rnbopack");
 		auto exportlocation = exportdir / tarname;
 
 		if (!config.repackage_existing && fs::exists(exportlocation)) {
@@ -3652,12 +3652,12 @@ void Controller::registerCommands() {
 					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), msg);
 				}
 
-				fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
-				fs::path contentlocation = tmpdir / fs::path(filename).replace_extension();
-
+				//delete and recreate working directory
+				fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get() / "rnbopackageworking";
 				//remove anything that might already be there
 				boost::system::error_code ec;
-				fs::remove_all(contentlocation, ec);
+				fs::remove_all(tmpdir, ec);
+				fs::create_directories(tmpdir);
 
 				//extract
 				std::vector<std::string> args { "xf", packagelocation.string() };
@@ -3665,7 +3665,19 @@ void Controller::registerCommands() {
 					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::Unknown), "failed to unarchive package");
 					return;
 				}
+
 				try {
+					//find content location
+					fs::path contentlocation;
+					for (const auto& entry: fs::directory_iterator(tmpdir)) {
+						if (!contentlocation.empty()) {
+							throw std::runtime_error("cannot find single package directory in extracted data");
+						}
+						contentlocation = fs::absolute(entry.path());
+					}
+					if (contentlocation.empty()) {
+						throw std::runtime_error("cannot find package data in extracted data");
+					}
 					installPackage(contentlocation);
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
@@ -3675,8 +3687,7 @@ void Controller::registerCommands() {
 				} catch (std::runtime_error& e) {
 					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::Unknown), e.what());
 				}
-				fs::remove_all(contentlocation, ec);
-
+				fs::remove_all(tmpdir, ec);
 			}
 	});
 
