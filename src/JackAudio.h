@@ -32,6 +32,8 @@ enum class JackPortChange {
 	Connection
 };
 
+class JackAudioRecord;
+
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
@@ -163,6 +165,8 @@ class ProcessAudioJack : public ProcessAudio {
 		std::unordered_map<jack_uuid_t, std::string> mPortUUIDToName;
 		std::mutex mPortUUIDToNameMutex;
 		std::set<std::string> mPortPropertyUpdates;
+
+		std::unique_ptr<JackAudioRecord> mRecordNode;
 };
 
 //Processing and handling for a specific rnbo instance.

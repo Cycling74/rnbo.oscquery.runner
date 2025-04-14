@@ -1,4 +1,5 @@
 #include "JackAudio.h"
+#include "JackAudioRecord.h"
 #include "Config.h"
 #include "MIDIMap.h"
 
@@ -217,6 +218,8 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 {
 	mPortQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<jack_port_id_t, JackPortChange>, 32>>(32);
 	mProgramChangeQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<ProgramChange, 32>>(32);
+
+	mRecordNode = RNBO::make_unique<JackAudioRecord>(mBuilder);
 
 	//init aliases
 	mJackPortAliases[0] = new char[jack_port_name_size()];
@@ -683,8 +686,12 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 	if (active) {
 		//only force a server if we have done it before or we've never created a client
 		auto createServer = withServer && (mHasCreatedServer || !mHasCreatedClient);
-		return createClient(createServer);
+		auto created = createClient(createServer);
+		if (created)
+			mRecordNode->open();
+		return created;
 	} else {
+		mRecordNode->close();
 		mBuilder([this](ossia::net::node_base * root) {
 			if (mTransportNode) {
 				if (root->remove_child("transport")) {

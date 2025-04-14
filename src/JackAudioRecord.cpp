@@ -1,0 +1,153 @@
+#include "Config.h"
+#include "JackAudioRecord.h"
+
+#include <boost/filesystem.hpp>
+
+#include <jack/metadata.h>
+#include <jack/midiport.h>
+#include <jack/uuid.h>
+
+#include <sndfile.hh>
+
+#include <string>
+#include <cassert>
+
+namespace fs = boost::filesystem;
+
+namespace {
+	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
+	
+	static int recordProcess(jack_nframes_t nframes, void *arg) {
+		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
+		return 0;
+	}
+}
+
+JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder) { }
+JackAudioRecord::~JackAudioRecord() { 
+	close();
+	mDoRecord.store(false);
+	mRun.store(false);
+}
+
+void JackAudioRecord::process(jack_nframes_t nframes) {
+	//TODO read MIDI
+	
+	if (mDoRecord.load() == false) {
+		return;
+	}
+
+	const auto bytesneeded = nframes * sizeof(jack_default_audio_sample_t);
+	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
+		auto rb = mRingBuffers[i];
+		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
+		if (jack_ringbuffer_write_space(rb) < bytesneeded) {
+			//XXX report error?
+			return;
+		}
+		auto towrite = bytesneeded;
+		while (towrite) {
+			auto written = jack_ringbuffer_write(rb, data, towrite);
+			towrite -= written;
+			data += written;
+		}
+	}
+}
+
+bool JackAudioRecord::open() {
+	unsigned int channels = 2; //TODO get from config
+	assert(mJackClient == nullptr);
+
+	jack_status_t status;
+	mJackClient = jack_client_open("rnbo-record", JackOptions::JackNoStartServer, &status);
+	if (status != 0 || mJackClient == nullptr)
+		return false;
+
+	auto buffersize = jack_get_buffer_size(mJackClient) * buffermul;
+	mSampleRate = jack_get_sample_rate(mJackClient);
+
+	for (unsigned int i = 0; i < channels; i++) {
+		auto rb = jack_ringbuffer_create(buffersize);
+		//shouldn't happen
+		if (rb == nullptr) {
+			jack_client_close(mJackClient);
+			mJackClient = nullptr;
+			return false;
+		}
+		jack_ringbuffer_mlock(rb);
+
+		auto port = jack_port_register(mJackClient,
+				("in" + std::to_string(i + 1)).c_str(),
+				JACK_DEFAULT_AUDIO_TYPE,
+				JackPortFlags::JackPortIsInput | JackPortFlags::JackPortIsTerminal,
+				0
+		);
+
+		jack_uuid_t uuid = jack_port_uuid(port);
+		if (!jack_uuid_empty(uuid)) {
+			std::string pretty = "Record In " + std::to_string(i + 1);
+			jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, pretty.c_str(), "text/plain");
+			jack_set_property(mJackClient, uuid, JACK_METADATA_PORT_GROUP, "rnbo-graph-user-sink", "text/plain");
+		}
+
+		mJackAudioPortIn.push_back(port);
+		mRingBuffers.push_back(rb);
+	}
+
+	jack_set_process_callback(mJackClient, recordProcess, this);
+	jack_activate(mJackClient);
+
+	return true;
+}
+
+void JackAudioRecord::close() {
+	if (mJackClient) {
+		mDoRecord.store(false);
+		jack_deactivate(mJackClient);
+		jack_client_close(mJackClient);
+		mJackClient = nullptr;
+		mJackAudioPortIn.clear(); //free??
+															
+		for (auto r: mRingBuffers) {
+			jack_ringbuffer_free(r);
+		}
+		mRingBuffers.clear();
+	}
+}
+
+void JackAudioRecord::write() {
+	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "recording.wav";
+
+	fs::create_directories(tmpfile.parent_path());
+	boost::system::error_code ec;
+	fs::remove(tmpfile, ec);
+
+	{
+		const size_t channels = mRingBuffers.size();
+		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, SF_FORMAT_WAV, channels, mSampleRate);
+
+		while (mRun.load() && sndfile) {
+			//figure out how many bytes we should read
+			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
+			for (size_t i = 1; i < mRingBuffers.size(); i++) {
+				bytes = std::min(bytes, jack_ringbuffer_read_space(mRingBuffers[i]));
+			}
+
+			const size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
+			const size_t samples = frames * channels;
+
+			mInterlaceBuffer.resize(samples);
+
+			size_t index = 0;
+			for (size_t i = 0; i < frames; i++) {
+				for (auto rb: mRingBuffers) {
+					jack_ringbuffer_read(rb, reinterpret_cast<char *>(mInterlaceBuffer.data() + index), sizeof(jack_default_audio_sample_t));
+					index++;
+				}
+			}
+			sndfile.writef(mInterlaceBuffer.data(), frames);
+
+			//TODO sleep
+		}
+	}
+}

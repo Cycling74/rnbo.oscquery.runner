@@ -25,7 +25,7 @@ mark_as_advanced(JACK_CONAN_VERSION)
 mark_as_advanced(JACK_CONAN_TAG)
 
 #find RNBO
-if (RNBO_CONAN_VERSION) 
+if (RNBO_CONAN_VERSION)
 	conan_cmake_configure(
 		REQUIRES rnbo/${RNBO_CONAN_VERSION}@${RNBO_CONAN_TAG}
 		GENERATORS cmake_paths
@@ -40,7 +40,7 @@ if (RNBO_CONAN_VERSION)
 	)
 	include(conan_paths)
 	SET(RNBO_DIR ${CONAN_RNBO_ROOT})
-else() 
+else()
 	find_path(
 		RNBO_DIR
 		NAMES "RNBO.cpp"
@@ -51,7 +51,7 @@ else()
 		NO_DEFAULT_PATH
 		DOC "Location of the RNBO C++ source code"
 	)
-endif() 
+endif()
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -307,7 +307,7 @@ if (USE_JACK)
   endif()
 
 	add_definitions(-DRNBO_USE_JACK)
-	list(APPEND PROJECT_SRC src/JackAudio.cpp)
+	list(APPEND PROJECT_SRC src/JackAudio.cpp src/JackAudioRecord.cpp)
 else()
   add_definitions(-DJACK_SERVER=0)
 endif()
