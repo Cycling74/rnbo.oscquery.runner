@@ -15,6 +15,7 @@
 #include <string>
 #include <cassert>
 #include <iostream>
+#include <chrono>
 
 namespace fs = boost::filesystem;
 
@@ -44,6 +45,7 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 	//does not block
 	std::unique_lock<std::mutex> lock(mMutex, std::try_to_lock);
 	if(!lock.owns_lock()){
+		std::cerr << "cannot get lock " << std::endl;
 		return;
 	}
 
@@ -52,6 +54,7 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 		auto rb = mRingBuffers[i];
 		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
 		if (jack_ringbuffer_write_space(rb) < bytesneeded) {
+			std::cerr << "cannot get bytes needed in " << i << std::endl;
 			//XXX report error?
 			return;
 		}
@@ -116,7 +119,7 @@ bool JackAudioRecord::open() {
 				mChannelsParam = n->create_parameter(ossia::val_type::INT);
 				mChannelsParam->push_value(static_cast<int>(mJackAudioPortIn.size()));
 				mChannelsParam->add_callback([this](const ossia::value& val) {
-					endRecording(false); //let thread complete on its own
+					endRecording(true);
 					if (val.get_type() == ossia::val_type::INT) {
 						resize(std::max(1, val.get<int>()));
 					}
@@ -178,9 +181,9 @@ bool JackAudioRecord::resize(int channels) {
 	}
 
 	unsigned int i = mJackAudioPortIn.size();
-	auto buffersize = mBufferSize * buffermul;
+	auto bufferbytes = mBufferSize * buffermul * sizeof(jack_default_audio_sample_t);
 	for (; i < channels; i++) {
-		auto rb = jack_ringbuffer_create(buffersize);
+		auto rb = jack_ringbuffer_create(bufferbytes);
 		//shouldn't happen
 		if (rb == nullptr) {
 			jack_client_close(mJackClient);
@@ -210,10 +213,24 @@ bool JackAudioRecord::resize(int channels) {
 }
 
 void JackAudioRecord::write() {
-	//TODO clear out buffers
-	mDoRecord.store(true);
+	//clear out buffers (not real time)
+	{
+		std::unique_lock<std::mutex> lock(mMutex);
+		for (auto r: mRingBuffers) {
+			jack_ringbuffer_reset(r);
+		}
+	}
 
-	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "recording.wav";
+	mDoRecord.store(true); //indicate that we should record
+ 
+	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "rnborunner-recording.wav";
+
+	//TODO - make configurable
+	fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+
+	//TODO - make configurable
+	std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+	fs::path dstfile = dstdir / fs::path("recording-" + timeTag + ".wav");
 
 	fs::create_directories(tmpfile.parent_path());
 	boost::system::error_code ec;
@@ -221,7 +238,7 @@ void JackAudioRecord::write() {
 
 	{
 		const size_t channels = mRingBuffers.size();
-		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, SF_FORMAT_WAV, channels, mSampleRate);
+		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, SF_FORMAT_WAV | SF_FORMAT_PCM_16, channels, mSampleRate);
 		if (!sndfile) {
 			std::cerr << "error opening temp sndfile: " << tmpfile.string() << std::endl;
 			//XXX write to param
@@ -238,6 +255,9 @@ void JackAudioRecord::write() {
 			const size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			const size_t samples = frames * channels;
 
+			if (frames == 0)
+				continue;
+
 			mInterlaceBuffer.resize(samples);
 
 			size_t index = 0;
@@ -247,7 +267,7 @@ void JackAudioRecord::write() {
 					index++;
 				}
 			}
-			sndfile.writef(mInterlaceBuffer.data(), frames);
+			auto written = sndfile.writef(mInterlaceBuffer.data(), frames);
 
 			//TODO sleep
 		}
@@ -255,5 +275,8 @@ void JackAudioRecord::write() {
 	//TODO move tmp file
 	mDoRecord.store(false);
 
-	std::cout << "wrote file at " << tmpfile.string() << std::endl;
+	fs::rename(tmpfile, dstfile, ec);
+	if (ec) {
+		std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << std::endl;
+	}
 }
