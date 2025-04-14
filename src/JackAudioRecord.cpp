@@ -7,16 +7,20 @@
 #include <jack/midiport.h>
 #include <jack/uuid.h>
 
+#include <ossia/network/generic/generic_device.hpp>
+#include <ossia/network/generic/generic_parameter.hpp>
+
 #include <sndfile.hh>
 
 #include <string>
 #include <cassert>
+#include <iostream>
 
 namespace fs = boost::filesystem;
 
 namespace {
 	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
-	
+
 	static int recordProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
 		return 0;
@@ -24,16 +28,22 @@ namespace {
 }
 
 JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder) { }
-JackAudioRecord::~JackAudioRecord() { 
+JackAudioRecord::~JackAudioRecord() {
 	close();
-	mDoRecord.store(false);
-	mRun.store(false);
+	endRecording(true);
 }
 
 void JackAudioRecord::process(jack_nframes_t nframes) {
 	//TODO read MIDI
-	
+
 	if (mDoRecord.load() == false) {
+		return;
+	}
+
+	//try to get ports and ringbuffers, if fail, abort
+	//does not block
+	std::unique_lock<std::mutex> lock(mMutex, std::try_to_lock);
+	if(!lock.owns_lock()){
 		return;
 	}
 
@@ -63,10 +73,113 @@ bool JackAudioRecord::open() {
 	if (status != 0 || mJackClient == nullptr)
 		return false;
 
-	auto buffersize = jack_get_buffer_size(mJackClient) * buffermul;
+	mBufferSize = jack_get_buffer_size(mJackClient);
 	mSampleRate = jack_get_sample_rate(mJackClient);
 
-	for (unsigned int i = 0; i < channels; i++) {
+	if (!resize(channels)) {
+		std::cerr << std::string("failed to create ") << channels << " channels" << std::endl;
+		return false;
+	}
+
+	mBuilder([this](ossia::net::node_base * root) {
+		if (mRecordRoot == nullptr) {
+			//root == "jack"
+			mRecordRoot = root->create_child("record");
+
+			{
+				auto n = mRecordRoot->create_child("active");
+				n->set(ossia::net::description_attribute{}, "Toggle to start/stop recording");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				mActiveParam = n->create_parameter(ossia::val_type::BOOL);
+				mActiveParam->push_value(false);
+				mActiveParam->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::BOOL) {
+						if (val.get<bool>()) {
+							startRecording();
+						} else {
+							endRecording(false); //let thread complete on its own
+						}
+					}
+				});
+			}
+
+			{
+				auto n = mRecordRoot->create_child("channels");
+				n->set(ossia::net::description_attribute{}, "The number of channels to provide for recording");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+
+				auto dom = ossia::init_domain(ossia::val_type::INT);
+				dom.set_min(1);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mChannelsParam = n->create_parameter(ossia::val_type::INT);
+				mChannelsParam->push_value(static_cast<int>(mJackAudioPortIn.size()));
+				mChannelsParam->add_callback([this](const ossia::value& val) {
+					endRecording(false); //let thread complete on its own
+					if (val.get_type() == ossia::val_type::INT) {
+						resize(std::max(1, val.get<int>()));
+					}
+				});
+			}
+		}
+	});
+
+	jack_set_process_callback(mJackClient, recordProcess, this);
+	jack_activate(mJackClient);
+
+	return true;
+}
+
+void JackAudioRecord::close() {
+	if (mRecordRoot) {
+		mRecordRoot->clear_children();
+	}
+
+	endRecording(true);
+	if (mJackClient) {
+		jack_deactivate(mJackClient);
+		jack_client_close(mJackClient);
+		mJackClient = nullptr;
+		mJackAudioPortIn.clear(); //free??
+
+		for (auto r: mRingBuffers) {
+			jack_ringbuffer_free(r);
+		}
+		mRingBuffers.clear();
+	}
+}
+
+void JackAudioRecord::startRecording() {
+	endRecording(true);
+
+	//TODO compute timeout
+	mWrite.store(true);
+	mWriteThread = std::thread(&JackAudioRecord::write, this);
+}
+void JackAudioRecord::endRecording(bool wait) {
+	mWrite.store(false);
+	if (wait && mWriteThread.joinable()) {
+		mWriteThread.join();
+	}
+}
+
+bool JackAudioRecord::resize(int channels) {
+	std::unique_lock<std::mutex> lock(mMutex);
+
+	while (mJackAudioPortIn.size() > channels) {
+		auto r = mRingBuffers.back();
+		jack_ringbuffer_free(r);
+		auto p = mJackAudioPortIn.back();
+		jack_port_unregister(mJackClient, p);
+
+		mJackAudioPortIn.pop_back();
+		mRingBuffers.pop_back();
+	}
+
+	unsigned int i = mJackAudioPortIn.size();
+	auto buffersize = mBufferSize * buffermul;
+	for (; i < channels; i++) {
 		auto rb = jack_ringbuffer_create(buffersize);
 		//shouldn't happen
 		if (rb == nullptr) {
@@ -93,29 +206,13 @@ bool JackAudioRecord::open() {
 		mJackAudioPortIn.push_back(port);
 		mRingBuffers.push_back(rb);
 	}
-
-	jack_set_process_callback(mJackClient, recordProcess, this);
-	jack_activate(mJackClient);
-
 	return true;
 }
 
-void JackAudioRecord::close() {
-	if (mJackClient) {
-		mDoRecord.store(false);
-		jack_deactivate(mJackClient);
-		jack_client_close(mJackClient);
-		mJackClient = nullptr;
-		mJackAudioPortIn.clear(); //free??
-															
-		for (auto r: mRingBuffers) {
-			jack_ringbuffer_free(r);
-		}
-		mRingBuffers.clear();
-	}
-}
-
 void JackAudioRecord::write() {
+	//TODO clear out buffers
+	mDoRecord.store(true);
+
 	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "recording.wav";
 
 	fs::create_directories(tmpfile.parent_path());
@@ -125,8 +222,13 @@ void JackAudioRecord::write() {
 	{
 		const size_t channels = mRingBuffers.size();
 		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, SF_FORMAT_WAV, channels, mSampleRate);
+		if (!sndfile) {
+			std::cerr << "error opening temp sndfile: " << tmpfile.string() << std::endl;
+			//XXX write to param
+			return;
+		}
 
-		while (mRun.load() && sndfile) {
+		while (mWrite.load() && sndfile) {
 			//figure out how many bytes we should read
 			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
 			for (size_t i = 1; i < mRingBuffers.size(); i++) {
@@ -150,4 +252,8 @@ void JackAudioRecord::write() {
 			//TODO sleep
 		}
 	}
+	//TODO move tmp file
+	mDoRecord.store(false);
+
+	std::cout << "wrote file at " << tmpfile.string() << std::endl;
 }
