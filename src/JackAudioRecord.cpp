@@ -45,7 +45,6 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 	//does not block
 	std::unique_lock<std::mutex> lock(mMutex, std::try_to_lock);
 	if(!lock.owns_lock()){
-		std::cerr << "cannot get lock " << std::endl;
 		return;
 	}
 
@@ -54,7 +53,9 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 		auto rb = mRingBuffers[i];
 		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
 		if (jack_ringbuffer_write_space(rb) < bytesneeded) {
+#ifdef DEBUG
 			std::cerr << "cannot get bytes needed in " << i << std::endl;
+#endif
 			//XXX report error?
 			return;
 		}
@@ -222,7 +223,7 @@ void JackAudioRecord::write() {
 	}
 
 	mDoRecord.store(true); //indicate that we should record
- 
+
 	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "rnborunner-recording.wav";
 
 	//TODO - make configurable
@@ -244,6 +245,9 @@ void JackAudioRecord::write() {
 			//XXX write to param
 			return;
 		}
+
+		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
+		auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
 
 		while (mWrite.load() && sndfile) {
 			//figure out how many bytes we should read
@@ -269,7 +273,7 @@ void JackAudioRecord::write() {
 			}
 			auto written = sndfile.writef(mInterlaceBuffer.data(), frames);
 
-			//TODO sleep
+			std::this_thread::sleep_for(sleepms);
 		}
 	}
 	//TODO move tmp file
