@@ -25,7 +25,7 @@ namespace {
 	const std::string channels_config_key = "channels";
 	const std::string timeout_config_key = "timeout_seconds";
 
-	const std::string default_filename_templ = "rec-%y-%m-%dT%H%M%S";
+	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
 
 	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
 
