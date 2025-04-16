@@ -69,8 +69,12 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 }
 
 bool JackAudioRecord::open() {
+	//already open
+	if (mJackClient != nullptr) {
+		return true;
+	}
+
 	unsigned int channels = 2; //TODO get from config
-	assert(mJackClient == nullptr);
 
 	jack_status_t status;
 	mJackClient = jack_client_open("rnbo-record", JackOptions::JackNoStartServer, &status);
@@ -170,7 +174,7 @@ void JackAudioRecord::endRecording(bool wait) {
 
 bool JackAudioRecord::resize(int channels) {
 	std::unique_lock<std::mutex> lock(mMutex);
-
+	
 	while (mJackAudioPortIn.size() > channels) {
 		auto r = mRingBuffers.back();
 		jack_ringbuffer_free(r);
@@ -225,6 +229,7 @@ void JackAudioRecord::write() {
 	mDoRecord.store(true); //indicate that we should record
 
 	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "rnborunner-recording.wav";
+	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16; //TODO configure?
 
 	//TODO - make configurable
 	fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
@@ -239,10 +244,10 @@ void JackAudioRecord::write() {
 
 	{
 		const size_t channels = mRingBuffers.size();
-		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, SF_FORMAT_WAV | SF_FORMAT_PCM_16, channels, mSampleRate);
+		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, mSampleRate);
 		if (!sndfile) {
 			std::cerr << "error opening temp sndfile: " << tmpfile.string() << std::endl;
-			//XXX write to param
+			mActiveParam->push_value_quiet(false);
 			return;
 		}
 
@@ -275,6 +280,7 @@ void JackAudioRecord::write() {
 		}
 	}
 	mDoRecord.store(false);
+	mActiveParam->push_value_quiet(false);
 
 	fs::rename(tmpfile, dstfile, ec);
 	if (ec) {
