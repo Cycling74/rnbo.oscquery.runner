@@ -20,12 +20,31 @@
 namespace fs = boost::filesystem;
 
 namespace {
+
+	const std::string channels_config_key = "channels";
+	const std::string timeout_config_key = "timeout_seconds";
+
 	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
 
 	static int recordProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
 		return 0;
 	}
+
+	const boost::optional<std::string> ns("jack_record");
+	template <typename T>
+	boost::optional<T> jconfig_get(const std::string& key) {
+		return config::get<T>(key, ns);
+	}
+
+	template <typename T>
+	void jconfig_set(const T& v, const std::string& key) {
+		return config::set<T>(v, key, ns);
+	}
+
+	template boost::optional<int> jconfig_get(const std::string& key);
+	template boost::optional<double> jconfig_get(const std::string& key);
+	template boost::optional<bool> jconfig_get(const std::string& key);
 }
 
 JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder) { }
@@ -74,7 +93,7 @@ bool JackAudioRecord::open() {
 		return true;
 	}
 
-	unsigned int channels = 2; //TODO get from config
+	int channels = std::max(1, jconfig_get<int>(channels_config_key).value_or(1));
 
 	jack_status_t status;
 	mJackClient = jack_client_open("rnbo-record", JackOptions::JackNoStartServer, &status);
@@ -94,7 +113,7 @@ bool JackAudioRecord::open() {
 			//root == "jack"
 			mRecordRoot = root->create_child("record");
 
-			float timeout = 60.0f * 60.0f; //1 hour
+			float timeout = jconfig_get<double>(timeout_config_key).value_or(60.0f * 60.0f); //1 hour
 
 			{
 				auto n = mRecordRoot->create_child("active");
@@ -118,32 +137,45 @@ bool JackAudioRecord::open() {
 				n->set(ossia::net::description_attribute{}, "The number of channels to provide for recording");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 
-				auto dom = ossia::init_domain(ossia::val_type::INT);
-				dom.set_min(1);
-				n->set(ossia::net::domain_attribute{}, dom);
-				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
-
 				mChannelsParam = n->create_parameter(ossia::val_type::INT);
 				mChannelsParam->push_value(static_cast<int>(mJackAudioPortIn.size()));
 				mChannelsParam->add_callback([this](const ossia::value& val) {
 					endRecording(true);
 					if (val.get_type() == ossia::val_type::INT) {
-						resize(std::max(1, val.get<int>()));
+						int channels = std::max(1, val.get<int>());
+						resize(channels);
+						jconfig_set(channels, channels_config_key);
 					}
 				});
+
+				auto dom = ossia::init_domain(ossia::val_type::INT);
+				dom.set_min(1);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 			}
 			{
 				auto n = mRecordRoot->create_child("timeout");
 				n->set(ossia::net::description_attribute{}, "A timeout in seconds to use for stopping the recording. Set to 0 to disable");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 
+				mTimeoutParam = n->create_parameter(ossia::val_type::FLOAT);
+				mTimeoutParam->push_value(timeout);
+				mTimeoutParam->add_callback([this](const ossia::value& val) {
+					double seconds = 0.0;
+					if (val.get_type() == ossia::val_type::INT) {
+						seconds = static_cast<double>(val.get<int>());
+					} else if (val.get_type() == ossia::val_type::FLOAT) {
+						seconds = static_cast<double>(val.get<float>());
+					} else {
+						return;
+					}
+					jconfig_set(seconds, timeout_config_key);
+				});
+
 				auto dom = ossia::init_domain(ossia::val_type::FLOAT);
 				dom.set_min(0.0);
 				n->set(ossia::net::domain_attribute{}, dom);
 				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
-
-				mTimeoutParam = n->create_parameter(ossia::val_type::FLOAT);
-				mTimeoutParam->push_value(timeout);
 			}
 		}
 	});
