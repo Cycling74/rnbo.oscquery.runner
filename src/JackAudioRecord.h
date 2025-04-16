@@ -17,15 +17,15 @@ class JackAudioRecord {
 		bool open();
 		void close();
 	private:
-    void startRecording();
-    void endRecording(bool wait);
-    bool resize(int channels);
+		void startRecording();
+		void endRecording(bool wait);
+		bool resize(int channels);
 
 		void write();
 
 		jack_client_t * mJackClient = nullptr;
 
-    std::mutex mMutex; //around ring and ports 
+		std::mutex mMutex; //around ring and ports
 		std::vector<jack_port_t *> mJackAudioPortIn;
 		std::vector<jack_ringbuffer_t *> mRingBuffers;
 
@@ -36,14 +36,14 @@ class JackAudioRecord {
 		std::atomic<bool> mWrite = true;
 
 		int mSampleRate = 0;
-    jack_nframes_t mBufferSize = 0;
+		jack_nframes_t mBufferSize = 0;
 		NodeBuilder mBuilder;
 
 		ossia::net::node_base * mRecordRoot = nullptr;
 
-    ossia::net::parameter_base * mActiveParam = nullptr;
-    ossia::net::parameter_base * mChannelsParam = nullptr;
-    ossia::net::parameter_base * mTimeoutParam = nullptr;
+		ossia::net::parameter_base * mActiveParam = nullptr;
+		ossia::net::parameter_base * mChannelsParam = nullptr;
+		ossia::net::parameter_base * mTimeoutParam = nullptr;
 
 		std::thread mWriteThread;
 };
