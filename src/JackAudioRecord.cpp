@@ -16,6 +16,7 @@
 #include <cassert>
 #include <iostream>
 #include <chrono>
+#include <iterator>
 
 namespace fs = boost::filesystem;
 
@@ -23,6 +24,8 @@ namespace {
 
 	const std::string channels_config_key = "channels";
 	const std::string timeout_config_key = "timeout_seconds";
+
+	const std::string default_filename_templ = "rec-%y-%m-%dT%H%M%S";
 
 	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
 
@@ -45,6 +48,7 @@ namespace {
 	template boost::optional<int> jconfig_get(const std::string& key);
 	template boost::optional<double> jconfig_get(const std::string& key);
 	template boost::optional<bool> jconfig_get(const std::string& key);
+	template boost::optional<std::string> jconfig_get(const std::string& key);
 }
 
 JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder) { }
@@ -274,17 +278,28 @@ void JackAudioRecord::write() {
 	}
 
 	mDoRecord.store(true); //indicate that we should record
-
-	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / "rnborunner-recording.wav";
-	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16; //TODO configure?
-
+												 
 	//TODO - make configurable
+	std::string ext = "wav";
+	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
 	fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+	std::string tmpl = default_filename_templ;
 
-	//TODO - make configurable
-	std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-	fs::path dstfile = dstdir / fs::path("recording-" + timeTag + ".wav");
+	fs::path dstfile;
+	{
+		const size_t size = tmpl.size() + 1;
+		std::vector<char> filename(size);
 
+		std::time_t time = std::time({});
+		if (std::strftime(filename.data(), size, tmpl.c_str(), std::gmtime(&time)) == 0) {
+			std::cerr << "failed to render to time template " << tmpl << std::endl;
+			filename[size - 1] = '\0';
+		}
+
+		dstfile = dstdir / fs::path(std::string(filename.data()) + "." + ext);
+	}
+
+	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / fs::path(std::string("rnborunner-recording.") + ext);
 	fs::create_directories(tmpfile.parent_path());
 	boost::system::error_code ec;
 	fs::remove(tmpfile, ec);
