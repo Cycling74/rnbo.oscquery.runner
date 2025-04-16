@@ -352,7 +352,9 @@ void JackAudioRecord::write() {
 		}
 	}
 	mDoRecord.store(false);
-	mActiveParam->push_value_quiet(false);
+	if (mActiveParam->value().get<bool>()) {
+		mActiveParam->push_value_quiet(false);
+	}
 
 	fs::rename(tmpfile, dstfile, ec);
 	if (ec) {
