@@ -1734,7 +1734,7 @@ void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetNa
 			SQLite::Statement query(mDB, R"(
 				INSERT OR IGNORE INTO sets_views_params
 					(set_view_id, sort_order, set_instance_index, param_id, patcher_id) 
-					SELECT (?2, sort_order, set_instance_index, param_id, patcher_id) 
+					SELECT ?2, sort_order, set_instance_index, param_id, patcher_id 
 					FROM sets_views_params WHERE set_view_id = ?1
 				)"
 			);
