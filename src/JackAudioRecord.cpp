@@ -257,26 +257,23 @@ void JackAudioRecord::write() {
 			}
 
 			const size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
-			const size_t samples = frames * channels;
+			if (frames == 0) {
+				std::this_thread::sleep_for(sleepms);
+			} else {
+				const size_t samples = frames * channels;
+				mInterlaceBuffer.resize(samples);
 
-			if (frames == 0)
-				continue;
-
-			mInterlaceBuffer.resize(samples);
-
-			size_t index = 0;
-			for (size_t i = 0; i < frames; i++) {
-				for (auto rb: mRingBuffers) {
-					jack_ringbuffer_read(rb, reinterpret_cast<char *>(mInterlaceBuffer.data() + index), sizeof(jack_default_audio_sample_t));
-					index++;
+				size_t index = 0;
+				for (size_t i = 0; i < frames; i++) {
+					for (auto rb: mRingBuffers) {
+						jack_ringbuffer_read(rb, reinterpret_cast<char *>(mInterlaceBuffer.data() + index), sizeof(jack_default_audio_sample_t));
+						index++;
+					}
 				}
+				sndfile.writef(mInterlaceBuffer.data(), frames);
 			}
-			auto written = sndfile.writef(mInterlaceBuffer.data(), frames);
-
-			std::this_thread::sleep_for(sleepms);
 		}
 	}
-	//TODO move tmp file
 	mDoRecord.store(false);
 
 	fs::rename(tmpfile, dstfile, ec);
