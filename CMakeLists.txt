@@ -107,6 +107,7 @@ set(PROJECT_SRC
 	src/Controller.cpp
 	src/Instance.cpp
 	src/EventHandler.cpp
+	src/DataHandler.cpp
 	src/PatcherFactory.cpp
 	src/MIDIMap.cpp
 	common/RunnerUpdateState.cpp

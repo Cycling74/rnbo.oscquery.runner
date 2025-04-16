@@ -15,6 +15,7 @@
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
+#include "DataHandler.h"
 
 using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
@@ -150,6 +151,8 @@ namespace {
 Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
+	mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>();
+
 	//load up data ref map so we can set the initial value
 	if (conf.contains("datarefs") && conf["datarefs"].is_object()) {
 		auto datarefs = conf["datarefs"];
@@ -268,7 +271,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				n->set(ossia::net::description_attribute{}, "An alias to use when displaying this instance in a graph");
 				auto p = mNameAliasParam = n->create_parameter(ossia::val_type::STRING);
 				p->push_value(namealias);
-				p->add_callback([this](const ossia::value& /*v*/) { 
+				p->add_callback([this](const ossia::value& /*v*/) {
 					//TODO check unique?
 					//TODO set jack pretty name?
 					queueConfigChangeSignal();
@@ -900,7 +903,7 @@ void Instance::processDataRefCommands() {
 		DataRefCommand cmd = cmdOpt.get();
 		if (loadDataRefCleanup(cmd.id, cmd.fileName)) {
 			//TODO loading datarefs is changing dirty status, can we figure out a better way?
-			//DISABLING until then 
+			//DISABLING until then
 			//queueConfigChangeSignal();
 		}
 	}
@@ -1234,7 +1237,7 @@ RNBO::Json Instance::currentConfig() {
 	//mAudio->addConfig(config);
 
 	if (mNameAliasParam) {
-		std::string namealias = mNameAliasParam->value().get<std::string>(); 
+		std::string namealias = mNameAliasParam->value().get<std::string>();
 		if (namealias.size()) {
 			config["namealias"] = namealias;
 		}

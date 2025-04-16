@@ -28,6 +28,7 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+class RunnerExternalDataHandler;
 class ProcessAudio;
 
 class Instance {
@@ -216,7 +217,7 @@ class Instance {
 		std::unordered_map<RNBO::ParameterIndex, uint16_t> mParamMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
 		std::unordered_map<uint16_t, std::set<RNBO::MessageTag>> mInportMIDIMap; //ParamMIDIMap::key() -> [inport tag, inport tag]
 		std::unordered_map<RNBO::MessageTag, uint16_t> mInportMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
-																																						
+
 		ossia::net::parameter_base * mMIDILastParam; //for mapping
 		bool mMIDILastReport = false; //if we publish to the above param, it is pretty noisy otherwise
 
@@ -272,4 +273,6 @@ class Instance {
 		bool mSetPresetPatcherNamed = false;
 
 		ossia::net::parameter_base * mNameAliasParam = nullptr;
+
+		std::unique_ptr<RunnerExternalDataHandler> mDataHandler;
 };
