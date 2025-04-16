@@ -218,6 +218,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance());
 	mParamInterface = mCore->createParameterInterface(RNBO::ParameterEventInterface::MultiProducer, mEventHandler.get());
 
+	mCore->setExternalDataHandler(mDataHandler.get());
+
 	std::string audioName = name + "-" + std::to_string(mIndex);
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mParamMIDIMap, mInportMIDIMap));
 
@@ -929,6 +931,7 @@ void Instance::processEvents() {
 		}
 	}
 	mAudio->processEvents();
+	mDataHandler->processEvents();
 
 	//clear
 	while (mDataRefCleanupQueue->pop()) {
