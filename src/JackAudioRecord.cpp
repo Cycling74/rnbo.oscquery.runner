@@ -277,8 +277,6 @@ void JackAudioRecord::write() {
 		}
 	}
 
-	mDoRecord.store(true); //indicate that we should record
-												 
 	//TODO - make configurable
 	std::string ext = "wav";
 	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
@@ -325,6 +323,7 @@ void JackAudioRecord::write() {
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
 		auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
 
+		mDoRecord.store(true); //indicate that we should record
 		size_t frameswritten = 0;
 		while (mWrite.load() && sndfile && (timeoutframes == 0 || frameswritten < timeoutframes)) {
 			//figure out how many bytes we should read
@@ -348,7 +347,7 @@ void JackAudioRecord::write() {
 					}
 				}
 				sndfile.writef(mInterlaceBuffer.data(), frames);
-				frameswritten += frames; 
+				frameswritten += frames;
 			}
 		}
 	}
