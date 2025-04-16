@@ -94,6 +94,8 @@ bool JackAudioRecord::open() {
 			//root == "jack"
 			mRecordRoot = root->create_child("record");
 
+			float timeout = 60.0f * 60.0f; //1 hour
+
 			{
 				auto n = mRecordRoot->create_child("active");
 				n->set(ossia::net::description_attribute{}, "Toggle to start/stop recording");
@@ -129,6 +131,19 @@ bool JackAudioRecord::open() {
 						resize(std::max(1, val.get<int>()));
 					}
 				});
+			}
+			{
+				auto n = mRecordRoot->create_child("timeout");
+				n->set(ossia::net::description_attribute{}, "A timeout in seconds to use for stopping the recording. Set to 0 to disable");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+
+				auto dom = ossia::init_domain(ossia::val_type::FLOAT);
+				dom.set_min(0.0);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mTimeoutParam = n->create_parameter(ossia::val_type::FLOAT);
+				mTimeoutParam->push_value(timeout);
 			}
 		}
 	});
@@ -174,7 +189,7 @@ void JackAudioRecord::endRecording(bool wait) {
 
 bool JackAudioRecord::resize(int channels) {
 	std::unique_lock<std::mutex> lock(mMutex);
-	
+
 	while (mJackAudioPortIn.size() > channels) {
 		auto r = mRingBuffers.back();
 		jack_ringbuffer_free(r);
@@ -242,6 +257,15 @@ void JackAudioRecord::write() {
 	boost::system::error_code ec;
 	fs::remove(tmpfile, ec);
 
+	//compute timeout
+	size_t timeoutframes = 0;
+	if (mTimeoutParam->get_value_type() == ossia::val_type::FLOAT) {
+		float timeoutseconds = mTimeoutParam->value().get<float>();
+		if (timeoutseconds > 0.0f) {
+			timeoutframes = static_cast<size_t>(static_cast<double>(mSampleRate) * static_cast<double>(timeoutseconds));
+		}
+	}
+
 	{
 		const size_t channels = mRingBuffers.size();
 		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, mSampleRate);
@@ -254,7 +278,8 @@ void JackAudioRecord::write() {
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
 		auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
 
-		while (mWrite.load() && sndfile) {
+		size_t frameswritten = 0;
+		while (mWrite.load() && sndfile && (timeoutframes == 0 || frameswritten < timeoutframes)) {
 			//figure out how many bytes we should read
 			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
 			for (size_t i = 1; i < mRingBuffers.size(); i++) {
@@ -276,6 +301,7 @@ void JackAudioRecord::write() {
 					}
 				}
 				sndfile.writef(mInterlaceBuffer.data(), frames);
+				frameswritten += frames; 
 			}
 		}
 	}
