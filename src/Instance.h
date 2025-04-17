@@ -11,6 +11,7 @@
 #include <set>
 
 #include <boost/optional.hpp>
+#include <boost/filesystem.hpp>
 
 #include <ossia/network/value/value.hpp>
 
@@ -161,6 +162,7 @@ class Instance {
 		};
 
 		void processDataRefCommands();
+
 		void updatePresetEntries();
 		void handleProgramChange(ProgramChange);
 
@@ -170,6 +172,9 @@ class Instance {
 		bool loadDataRef(const std::string& id, const std::string& fileName);
 		//attempts to load the dataref, clears out the oscquery value if it fails
 		bool loadDataRefCleanup(const std::string& id, const std::string& fileName);
+		//serialize dataref to file
+		void saveDataref(std::string id, boost::filesystem::path dir, std::string filenameTempl);
+
 		void handleInportMessage(RNBO::MessageTag tag, const ossia::value& value);
 		void handleOutportMessage(RNBO::MessageEvent e);
 		void handleMidiCallback(RNBO::MidiEvent e);

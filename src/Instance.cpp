@@ -481,6 +481,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
 				});
 
+				//we want to add this before processing meta
+				mDataRefNodes.emplace(name, d);
+
 				//add meta
 				{
 					RNBO::Json meta;
@@ -518,8 +521,6 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					});
 
 				}
-
-				mDataRefNodes.emplace(name, d);
 			}
 		}
 
@@ -1406,6 +1407,10 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 	return false;
 }
 
+void Instance::saveDataref(std::string id, fs::path dir, std::string filenameTempl) {
+	//TOOD
+}
+
 void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val) {
 	if (val.get_type() == ossia::val_type::IMPULSE) {
 		mParamInterface->sendMessage(tag);
@@ -1553,6 +1558,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	bool setDefault = false;
 	bool isParam = false;
 	bool isInport = false;
+	bool isDataref = false;
 	bool usenormalized = false;
 
 	//set default meta if length is zero and there is a default
@@ -1662,6 +1668,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 					name = update.messageTag;
 
 					bool isCustom = !setDefault;
+					isDataref = true;
 					auto it = mDataRefMetaDefault.find(name);
 					if (it != mDataRefMetaDefault.end()) {
 						//push new value but let fall through to unmap meta
@@ -1782,6 +1789,49 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 			//set reverse lookup
 			mInportMIDIMapLookup[tag] = midiKey;
+		}
+	} else if (isDataref) {
+		auto it = mDataRefNodes.find(name);
+		if (it != mDataRefNodes.end()) {
+			ossia::net::node_base& n = it->second->get_node();
+			
+			//save logic
+			{
+				//TODO configure
+				std::string templ = "%y%m%dT%H%M%S-" + name;
+				fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+
+				bool dosave = false;
+				if (meta.is_object() && meta.contains("save")) {
+					RNBO::Json& save = meta["save"];
+					if (save.is_boolean()) {
+						dosave = save.get<bool>();
+					} else if (save.is_string()) {
+						templ = save.get<std::string>();
+						dosave = true;
+					}
+				}
+
+				if (dosave) {
+					ossia::net::node_base * savenode = n.find_child("save");
+					if (savenode == nullptr) {
+						savenode = n.create_child("save");
+					} else {
+						savenode->remove_parameter();
+					}
+					auto p = savenode->create_parameter(ossia::val_type::IMPULSE);
+					savenode->set(ossia::net::description_attribute{}, "Save the contents of the buffer to a file created with the template: " + templ);
+					savenode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					p->add_callback([this, name, templ, dstdir](const ossia::value& val) {
+							saveDataref(name, dstdir, templ);
+					});
+				} else {
+					//might not exist
+					n.remove_child("save");
+				}
+			}
+		} else {
+			std::cerr << "failed to find dataref node with name: " << name << std::endl;
 		}
 	}
 
