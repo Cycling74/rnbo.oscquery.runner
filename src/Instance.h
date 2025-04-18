@@ -11,6 +11,7 @@
 #include <set>
 
 #include <boost/optional.hpp>
+#include <boost/filesystem.hpp>
 
 #include <ossia/network/value/value.hpp>
 
@@ -28,6 +29,7 @@ template<typename T, size_t MAX_BLOCK_SIZE>
 class ReaderWriterQueue;
 }
 
+class RunnerExternalDataHandler;
 class ProcessAudio;
 
 class Instance {
@@ -160,6 +162,7 @@ class Instance {
 		};
 
 		void processDataRefCommands();
+
 		void updatePresetEntries();
 		void handleProgramChange(ProgramChange);
 
@@ -169,6 +172,9 @@ class Instance {
 		bool loadDataRef(const std::string& id, const std::string& fileName);
 		//attempts to load the dataref, clears out the oscquery value if it fails
 		bool loadDataRefCleanup(const std::string& id, const std::string& fileName);
+		//serialize dataref to file
+		void saveDataref(std::string id, boost::filesystem::path dir, std::string filenameTempl);
+
 		void handleInportMessage(RNBO::MessageTag tag, const ossia::value& value);
 		void handleOutportMessage(RNBO::MessageEvent e);
 		void handleMidiCallback(RNBO::MidiEvent e);
@@ -216,7 +222,7 @@ class Instance {
 		std::unordered_map<RNBO::ParameterIndex, uint16_t> mParamMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
 		std::unordered_map<uint16_t, std::set<RNBO::MessageTag>> mInportMIDIMap; //ParamMIDIMap::key() -> [inport tag, inport tag]
 		std::unordered_map<RNBO::MessageTag, uint16_t> mInportMIDIMapLookup; //reverse Lookup of above, no need for mutex as this is only accessed in meta map thread
-																																						
+
 		ossia::net::parameter_base * mMIDILastParam; //for mapping
 		bool mMIDILastReport = false; //if we publish to the above param, it is pretty noisy otherwise
 
@@ -272,4 +278,6 @@ class Instance {
 		bool mSetPresetPatcherNamed = false;
 
 		ossia::net::parameter_base * mNameAliasParam = nullptr;
+
+		std::unique_ptr<RunnerExternalDataHandler> mDataHandler;
 };

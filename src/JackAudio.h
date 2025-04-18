@@ -32,6 +32,8 @@ enum class JackPortChange {
 	Connection
 };
 
+class JackAudioRecord;
+
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
 	public:
@@ -163,6 +165,8 @@ class ProcessAudioJack : public ProcessAudio {
 		std::unordered_map<jack_uuid_t, std::string> mPortUUIDToName;
 		std::mutex mPortUUIDToNameMutex;
 		std::set<std::string> mPortPropertyUpdates;
+
+		std::unique_ptr<JackAudioRecord> mRecordNode;
 };
 
 //Processing and handling for a specific rnbo instance.
@@ -188,6 +192,8 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void start(float fadems=0.0f) override;
 		virtual void stop(float fadems=0.0f) override;
 
+		virtual size_t bufferSize() override { return mBufferSize; }
+
 		virtual uint16_t lastMIDIKey() override;
 
 		virtual void processEvents() override;
@@ -200,6 +206,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
+		size_t mBufferSize = 0;
 		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;

@@ -15,6 +15,8 @@
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
+#include "DataHandler.h"
+#include "Util.h"
 
 using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
@@ -29,6 +31,8 @@ namespace {
 	static const std::string initial_preset_key = "preset_initial";
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
+
+	const size_t dataCaptureBufferSizeMul = 4; //multiplier for how much data we transfer in a chunk when getting data from a buffer
 
 	//referece count nodes created via metadata as they might be shared, this lets us cleanup
 	std::unordered_map<std::string, unsigned int> node_reference_count;
@@ -215,8 +219,16 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance());
 	mParamInterface = mCore->createParameterInterface(RNBO::ParameterEventInterface::MultiProducer, mEventHandler.get());
 
+
 	std::string audioName = name + "-" + std::to_string(mIndex);
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mParamMIDIMap, mInportMIDIMap));
+
+	//setup data handler only if we have datarefs
+	if (mCore->getNumExternalDataRefs()) {
+		mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>();
+		mDataHandler->chunkSize(mAudio->bufferSize() * sizeof(float) * dataCaptureBufferSizeMul);
+		mCore->setExternalDataHandler(mDataHandler.get());
+	}
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
@@ -268,7 +280,7 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 				n->set(ossia::net::description_attribute{}, "An alias to use when displaying this instance in a graph");
 				auto p = mNameAliasParam = n->create_parameter(ossia::val_type::STRING);
 				p->push_value(namealias);
-				p->add_callback([this](const ossia::value& /*v*/) { 
+				p->add_callback([this](const ossia::value& /*v*/) {
 					//TODO check unique?
 					//TODO set jack pretty name?
 					queueConfigChangeSignal();
@@ -476,6 +488,9 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 							mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
 				});
 
+				//we want to add this before processing meta
+				mDataRefNodes.emplace(name, d);
+
 				//add meta
 				{
 					RNBO::Json meta;
@@ -513,8 +528,6 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 					});
 
 				}
-
-				mDataRefNodes.emplace(name, d);
 			}
 		}
 
@@ -900,7 +913,7 @@ void Instance::processDataRefCommands() {
 		DataRefCommand cmd = cmdOpt.get();
 		if (loadDataRefCleanup(cmd.id, cmd.fileName)) {
 			//TODO loading datarefs is changing dirty status, can we figure out a better way?
-			//DISABLING until then 
+			//DISABLING until then
 			//queueConfigChangeSignal();
 		}
 	}
@@ -926,6 +939,9 @@ void Instance::processEvents() {
 		}
 	}
 	mAudio->processEvents();
+	if (mDataHandler) {
+		mDataHandler->processEvents();
+	}
 
 	//clear
 	while (mDataRefCleanupQueue->pop()) {
@@ -1234,7 +1250,7 @@ RNBO::Json Instance::currentConfig() {
 	//mAudio->addConfig(config);
 
 	if (mNameAliasParam) {
-		std::string namealias = mNameAliasParam->value().get<std::string>(); 
+		std::string namealias = mNameAliasParam->value().get<std::string>();
 		if (namealias.size()) {
 			config["namealias"] = namealias;
 		}
@@ -1400,6 +1416,88 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 	return false;
 }
 
+//both of these happen in the processEvents callback
+void Instance::saveDataref(std::string id, fs::path dir, std::string filenameTempl) {
+	if (!mDataHandler) {
+		assert(false); //this shouldn't ever happen
+		return;
+	}
+
+	//TODO - make configurable
+	std::string ext = "wav";
+	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
+
+	fs::path dstfile = dir / fs::path(runner::render_time_template(filenameTempl) + "." + ext);
+	mDataHandler->capture(id, [this, dstfile, format](std::string datarefId, RNBO::DataType datatype, std::vector<char>&& data) {
+			size_t bitdepth = 32;
+			switch (datatype.type) {
+				case RNBO::DataType::Type::Float32AudioBuffer:
+					bitdepth = 32;
+					break;
+				case RNBO::DataType::Type::Float64AudioBuffer:
+					bitdepth = 64;
+					break;
+				case RNBO::DataType::Type::SampleAudioBuffer:
+					bitdepth = sizeof(RNBO::SampleValue) * 8;
+					break;
+				case RNBO::DataType::Type::Untyped:
+				case RNBO::DataType::Type::TypedArray:
+				default:
+					std::cerr << "don't know how to handle buffer datatype " << (int)datatype.type << std::endl;
+					return;
+			};
+			assert(bitdepth == 32 || bitdepth == 64);
+			int channels = static_cast<int>(datatype.audioBufferInfo.channels);
+			int samplerate = static_cast<int>(datatype.audioBufferInfo.samplerate);
+
+			if (channels == 0) {
+				std::cerr << "buffer channels zero, aborting" << std::endl;
+				return;
+			}
+			if (samplerate == 0) {
+				std::cerr << "buffer samplerate zero, aborting" << std::endl;
+				return;
+			}
+
+			size_t frames = data.size() / ((bitdepth / 8) * channels);
+			if (frames == 0) {
+				std::cerr << "buffer frames zero, aborting" << std::endl;
+				return;
+			}
+
+#ifdef DEBUG
+			std::cout << "writing buffer: " << datarefId << " frames: " << frames << " channels: " << channels << " samplerate: " << samplerate << std::endl;
+#endif
+
+			auto t = std::thread([d = std::move(data), dstfile, format, bitdepth, channels, samplerate, frames]() {
+
+					fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / dstfile.filename();
+					fs::create_directories(tmpfile.parent_path());
+
+					SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, samplerate);
+					if (!sndfile) {
+						std::cerr << "cannot open sound file to write buffer data to: " << tmpfile.string() << std::endl;
+						return;
+					}
+					if (bitdepth == 32) {
+						const float * ptr = reinterpret_cast<const float *>(d.data());
+						sndfile.writef(ptr, frames);
+					} else {
+						const double * ptr = reinterpret_cast<const double *>(d.data());
+						sndfile.writef(ptr, frames);
+					}
+
+					boost::system::error_code ec;
+					fs::create_directories(dstfile.parent_path());
+					fs::rename(tmpfile, dstfile, ec);
+					if (ec) {
+						std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << std::endl;
+					}
+			});
+			t.detach();
+	});
+}
+
 void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val) {
 	if (val.get_type() == ossia::val_type::IMPULSE) {
 		mParamInterface->sendMessage(tag);
@@ -1547,6 +1645,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	bool setDefault = false;
 	bool isParam = false;
 	bool isInport = false;
+	bool isDataref = false;
 	bool usenormalized = false;
 
 	//set default meta if length is zero and there is a default
@@ -1656,6 +1755,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 					name = update.messageTag;
 
 					bool isCustom = !setDefault;
+					isDataref = true;
 					auto it = mDataRefMetaDefault.find(name);
 					if (it != mDataRefMetaDefault.end()) {
 						//push new value but let fall through to unmap meta
@@ -1776,6 +1876,49 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 			//set reverse lookup
 			mInportMIDIMapLookup[tag] = midiKey;
+		}
+	} else if (isDataref) {
+		auto it = mDataRefNodes.find(name);
+		if (it != mDataRefNodes.end()) {
+			ossia::net::node_base& n = it->second->get_node();
+			
+			//save logic
+			{
+				//TODO configure
+				std::string templ = "%y%m%dT%H%M%S-" + name;
+				fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+
+				bool dosave = false;
+				if (meta.is_object() && meta.contains("save")) {
+					RNBO::Json& save = meta["save"];
+					if (save.is_boolean()) {
+						dosave = save.get<bool>();
+					} else if (save.is_string()) {
+						templ = save.get<std::string>();
+						dosave = true;
+					}
+				}
+
+				if (dosave) {
+					ossia::net::node_base * savenode = n.find_child("save");
+					if (savenode == nullptr) {
+						savenode = n.create_child("save");
+					} else {
+						savenode->remove_parameter();
+					}
+					auto p = savenode->create_parameter(ossia::val_type::IMPULSE);
+					savenode->set(ossia::net::description_attribute{}, "Save the contents of the buffer to a file created with the template: " + templ);
+					savenode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					p->add_callback([this, name, templ, dstdir](const ossia::value& val) {
+							saveDataref(name, dstdir, templ);
+					});
+				} else {
+					//might not exist
+					n.remove_child("save");
+				}
+			}
+		} else {
+			std::cerr << "failed to find dataref node with name: " << name << std::endl;
 		}
 	}
 
