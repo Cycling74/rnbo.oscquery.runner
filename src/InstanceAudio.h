@@ -33,6 +33,8 @@ class InstanceAudio {
 		virtual void processEvents() {}
 
 		virtual void registerConfigChangeCallback(std::function<void()> cb) { };
+
+		virtual size_t bufferSize() = 0;
 	protected:
 		std::atomic<AudioState> mAudioState = AudioState::Idle;
 };

@@ -192,6 +192,8 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void start(float fadems=0.0f) override;
 		virtual void stop(float fadems=0.0f) override;
 
+		virtual size_t bufferSize() override { return mBufferSize; }
+
 		virtual uint16_t lastMIDIKey() override;
 
 		virtual void processEvents() override;
@@ -204,6 +206,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
+		size_t mBufferSize = 0;
 		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;

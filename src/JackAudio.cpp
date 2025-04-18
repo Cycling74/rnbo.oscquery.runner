@@ -2044,8 +2044,8 @@ InstanceAudioJack::InstanceAudioJack(
 	});
 
 	double sr = jack_get_sample_rate(mJackClient);
-	jack_nframes_t bs = jack_get_buffer_size(mJackClient);
-	mCore->prepareToProcess(sr, bs);
+	mBufferSize = jack_get_buffer_size(mJackClient);
+	mCore->prepareToProcess(sr, mBufferSize);
 	mFrameMillis = 1000.0 / sr;
 	mMilliFrame = sr / 1000.0;
 }
