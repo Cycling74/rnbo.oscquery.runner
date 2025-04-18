@@ -154,8 +154,6 @@ namespace {
 Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
-	mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>();
-
 	//load up data ref map so we can set the initial value
 	if (conf.contains("datarefs") && conf["datarefs"].is_object()) {
 		auto datarefs = conf["datarefs"];
@@ -221,12 +219,16 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 	mCore = std::make_shared<RNBO::CoreObject>(mPatcherFactory->createInstance());
 	mParamInterface = mCore->createParameterInterface(RNBO::ParameterEventInterface::MultiProducer, mEventHandler.get());
 
-	mCore->setExternalDataHandler(mDataHandler.get());
 
 	std::string audioName = name + "-" + std::to_string(mIndex);
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mParamMIDIMap, mInportMIDIMap));
 
-	mDataHandler->chunkSize(mAudio->bufferSize() * sizeof(float) * dataCaptureBufferSizeMul);
+	//setup data handler only if we have datarefs
+	if (mCore->getNumExternalDataRefs()) {
+		mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>();
+		mDataHandler->chunkSize(mAudio->bufferSize() * sizeof(float) * dataCaptureBufferSizeMul);
+		mCore->setExternalDataHandler(mDataHandler.get());
+	}
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
@@ -937,7 +939,9 @@ void Instance::processEvents() {
 		}
 	}
 	mAudio->processEvents();
-	mDataHandler->processEvents();
+	if (mDataHandler) {
+		mDataHandler->processEvents();
+	}
 
 	//clear
 	while (mDataRefCleanupQueue->pop()) {
@@ -1414,6 +1418,11 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 
 //both of these happen in the processEvents callback
 void Instance::saveDataref(std::string id, fs::path dir, std::string filenameTempl) {
+	if (!mDataHandler) {
+		assert(false); //this shouldn't ever happen
+		return;
+	}
+
 	//TODO - make configurable
 	std::string ext = "wav";
 	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
