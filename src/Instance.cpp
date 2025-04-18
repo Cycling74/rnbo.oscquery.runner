@@ -16,6 +16,7 @@
 #include "JackAudio.h"
 #include "PatcherFactory.h"
 #include "DataHandler.h"
+#include "Util.h"
 
 using RNBO::ParameterIndex;
 using RNBO::ParameterInfo;
@@ -30,6 +31,8 @@ namespace {
 	static const std::string initial_preset_key = "preset_initial";
 	static const std::string last_preset_key = "preset_last";
 	static const std::string preset_midi_channel_key = "preset_midi_channel";
+
+	const size_t dataCaptureBufferSizeMul = 4; //multiplier for how much data we transfer in a chunk when getting data from a buffer
 
 	//referece count nodes created via metadata as they might be shared, this lets us cleanup
 	std::unordered_map<std::string, unsigned int> node_reference_count;
@@ -222,6 +225,8 @@ Instance::Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> facto
 
 	std::string audioName = name + "-" + std::to_string(mIndex);
 	mAudio = std::unique_ptr<InstanceAudioJack>(new InstanceAudioJack(mCore, conf, mIndex, audioName, builder, std::bind(&Instance::handleProgramChange, this, std::placeholders::_1), mMIDIMapMutex, mParamMIDIMap, mInportMIDIMap));
+
+	mDataHandler->chunkSize(mAudio->bufferSize() * sizeof(float) * dataCaptureBufferSizeMul);
 
 	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
@@ -1407,8 +1412,81 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 	return false;
 }
 
+//both of these happen in the processEvents callback
 void Instance::saveDataref(std::string id, fs::path dir, std::string filenameTempl) {
-	//TOOD
+	//TODO - make configurable
+	std::string ext = "wav";
+	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
+
+	fs::path dstfile = dir / fs::path(runner::render_time_template(filenameTempl) + "." + ext);
+	mDataHandler->capture(id, [this, dstfile, format](std::string datarefId, RNBO::DataType datatype, std::vector<char>&& data) {
+			size_t bitdepth = 32;
+			switch (datatype.type) {
+				case RNBO::DataType::Type::Float32AudioBuffer:
+					bitdepth = 32;
+					break;
+				case RNBO::DataType::Type::Float64AudioBuffer:
+					bitdepth = 64;
+					break;
+				case RNBO::DataType::Type::SampleAudioBuffer:
+					bitdepth = sizeof(RNBO::SampleValue) * 8;
+					break;
+				case RNBO::DataType::Type::Untyped:
+				case RNBO::DataType::Type::TypedArray:
+				default:
+					std::cerr << "don't know how to handle buffer datatype " << (int)datatype.type << std::endl;
+					return;
+			};
+			assert(bitdepth == 32 || bitdepth == 64);
+			int channels = static_cast<int>(datatype.audioBufferInfo.channels);
+			int samplerate = static_cast<int>(datatype.audioBufferInfo.samplerate);
+
+			if (channels == 0) {
+				std::cerr << "buffer channels zero, aborting" << std::endl;
+				return;
+			}
+			if (samplerate == 0) {
+				std::cerr << "buffer samplerate zero, aborting" << std::endl;
+				return;
+			}
+
+			size_t frames = data.size() / ((bitdepth / 8) * channels);
+			if (frames == 0) {
+				std::cerr << "buffer frames zero, aborting" << std::endl;
+				return;
+			}
+
+#ifdef DEBUG
+			std::cout << "writing buffer: " << datarefId << " frames: " << frames << " channels: " << channels << " samplerate: " << samplerate << std::endl;
+#endif
+
+			auto t = std::thread([d = std::move(data), dstfile, format, bitdepth, channels, samplerate, frames]() {
+
+					fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / dstfile.filename();
+					fs::create_directories(tmpfile.parent_path());
+
+					SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, samplerate);
+					if (!sndfile) {
+						std::cerr << "cannot open sound file to write buffer data to: " << tmpfile.string() << std::endl;
+						return;
+					}
+					if (bitdepth == 32) {
+						const float * ptr = reinterpret_cast<const float *>(d.data());
+						sndfile.writef(ptr, frames);
+					} else {
+						const double * ptr = reinterpret_cast<const double *>(d.data());
+						sndfile.writef(ptr, frames);
+					}
+
+					boost::system::error_code ec;
+					fs::create_directories(dstfile.parent_path());
+					fs::rename(tmpfile, dstfile, ec);
+					if (ec) {
+						std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << std::endl;
+					}
+			});
+			t.detach();
+	});
 }
 
 void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val) {
