@@ -27,6 +27,7 @@ namespace {
 	const std::string timeout_config_key = "timeout_seconds";
 
 	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
+	const double remain_report_period_s = 0.1; //only report every 100ms
 
 	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
 
@@ -122,9 +123,10 @@ bool JackAudioRecord::open() {
 
 			{
 				auto n = mRecordRoot->create_child("active");
+				mActiveParam = n->create_parameter(ossia::val_type::BOOL);
+
 				n->set(ossia::net::description_attribute{}, "Toggle to start/stop recording");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-				mActiveParam = n->create_parameter(ossia::val_type::BOOL);
 				mActiveParam->push_value(false);
 				mActiveParam->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::BOOL) {
@@ -139,10 +141,10 @@ bool JackAudioRecord::open() {
 
 			{
 				auto n = mRecordRoot->create_child("channels");
+				mChannelsParam = n->create_parameter(ossia::val_type::INT);
+
 				n->set(ossia::net::description_attribute{}, "The number of channels to provide for recording");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-
-				mChannelsParam = n->create_parameter(ossia::val_type::INT);
 				mChannelsParam->push_value(static_cast<int>(mJackAudioPortIn.size()));
 				mChannelsParam->add_callback([this](const ossia::value& val) {
 					endRecording(true);
@@ -160,10 +162,10 @@ bool JackAudioRecord::open() {
 			}
 			{
 				auto n = mRecordRoot->create_child("timeout");
+				mTimeoutParam = n->create_parameter(ossia::val_type::FLOAT);
+
 				n->set(ossia::net::description_attribute{}, "A timeout in seconds to use for stopping the recording. Set to 0 to disable");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-
-				mTimeoutParam = n->create_parameter(ossia::val_type::FLOAT);
 				mTimeoutParam->push_value(timeout);
 				mTimeoutParam->add_callback([this](const ossia::value& val) {
 					double seconds = 0.0;
@@ -181,6 +183,14 @@ bool JackAudioRecord::open() {
 				dom.set_min(0.0);
 				n->set(ossia::net::domain_attribute{}, dom);
 				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+			}
+			{
+				auto n = mRecordRoot->create_child("seconds_remaining");
+				mSecondsRemainParam = n->create_parameter(ossia::val_type::FLOAT);
+
+				n->set(ossia::net::description_attribute{}, "The number of seconds of record time remaining, negative means infinite.");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				mSecondsRemainParam->push_value(0.0);
 			}
 		}
 	});
@@ -297,10 +307,13 @@ void JackAudioRecord::write() {
 
 	//compute timeout
 	size_t timeoutframes = 0;
+	double remainlast = -1.0;
 	if (mTimeoutParam->get_value_type() == ossia::val_type::FLOAT) {
 		float timeoutseconds = mTimeoutParam->value().get<float>();
 		if (timeoutseconds > 0.0f) {
 			timeoutframes = static_cast<size_t>(static_cast<double>(mSampleRate) * static_cast<double>(timeoutseconds));
+		} else {
+			mSecondsRemainParam->push_value(-1.0);
 		}
 	}
 
@@ -310,11 +323,14 @@ void JackAudioRecord::write() {
 		if (!sndfile) {
 			std::cerr << "error opening temp sndfile: " << tmpfile.string() << std::endl;
 			mActiveParam->push_value_quiet(false);
+			mSecondsRemainParam->push_value(0.0);
 			return;
 		}
 
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
 		auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
+		double sampleratef = static_cast<double>(mSampleRate);
+		double timeoutframesf = static_cast<double>(timeoutframes);
 
 		mDoRecord.store(true); //indicate that we should record
 		size_t frameswritten = 0;
@@ -341,6 +357,14 @@ void JackAudioRecord::write() {
 				}
 				sndfile.writef(mInterlaceBuffer.data(), frames);
 				frameswritten += frames;
+
+				if (timeoutframes) {
+					double remain = std::max((timeoutframesf - static_cast<double>(frameswritten)) / sampleratef, 0.0);
+					if (std::abs(remainlast - remain) >= remain_report_period_s) {
+						mSecondsRemainParam->push_value(static_cast<float>(remain));
+						remainlast = remain;
+					}
+				}
 			}
 		}
 	}
@@ -348,6 +372,7 @@ void JackAudioRecord::write() {
 	if (mActiveParam->value().get<bool>()) {
 		mActiveParam->push_value_quiet(false);
 	}
+	mSecondsRemainParam->push_value(0.0);
 
 	fs::rename(tmpfile, dstfile, ec);
 	if (ec) {
