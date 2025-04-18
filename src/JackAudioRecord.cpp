@@ -1,5 +1,6 @@
 #include "Config.h"
 #include "JackAudioRecord.h"
+#include "Util.h"
 
 #include <boost/filesystem.hpp>
 
@@ -285,16 +286,8 @@ void JackAudioRecord::write() {
 
 	fs::path dstfile;
 	{
-		const size_t size = tmpl.size() + 1;
-		std::vector<char> filename(size);
-
-		std::time_t time = std::time({});
-		if (std::strftime(filename.data(), size, tmpl.c_str(), std::gmtime(&time)) == 0) {
-			std::cerr << "failed to render to time template " << tmpl << std::endl;
-			filename[size - 1] = '\0';
-		}
-
-		dstfile = dstdir / fs::path(std::string(filename.data()) + "." + ext);
+		std::string filename = runner::render_time_template(tmpl);
+		dstfile = dstdir / fs::path(filename + "." + ext);
 	}
 
 	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / fs::path(std::string("rnborunner-recording.") + ext);
