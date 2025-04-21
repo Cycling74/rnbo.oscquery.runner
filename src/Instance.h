@@ -32,9 +32,22 @@ class ReaderWriterQueue;
 class RunnerExternalDataHandler;
 class ProcessAudio;
 
+using OSCCallback = std::function<void(const std::string& addr, const ossia::value& v)>;
+using OSCRegisterCallback = std::function<void(bool doregister, const std::string& oscaddr, const std::string& localaddr)>;
+
 class Instance {
 	public:
-		Instance(std::shared_ptr<DB> db, std::shared_ptr<PatcherFactory> factory, std::string name, NodeBuilder builder, RNBO::Json conf, std::shared_ptr<ProcessAudio> processAudio, unsigned int index);
+    Instance(
+        std::shared_ptr<DB> db, 
+        std::shared_ptr<PatcherFactory> factory, 
+        std::string name, 
+        NodeBuilder builder, 
+        RNBO::Json conf, 
+        std::shared_ptr<ProcessAudio> processAudio, 
+        unsigned int index,
+        OSCCallback oscCallback,
+        OSCRegisterCallback oscRegisterCallback
+        );
 		~Instance();
 
 		unsigned int index() const { return mIndex; }
@@ -148,7 +161,7 @@ class Instance {
 			std::shared_ptr<std::mutex> oscmutex;
 			ossia::net::parameter_base * param = nullptr;
 			ossia::net::parameter_base * normparam = nullptr;
-			ossia::net::parameter_base * oscparam = nullptr;
+      std::string oscaddr;
 
 			//map between string enum value and numeric values, only used for enum params
 			std::unordered_map<std::string, RNBO::ParameterValue> nameToVal;
@@ -158,7 +171,7 @@ class Instance {
 			bool usenormalized = false;
 
 			ParamOSCUpdateData();
-			void push_osc(ossia::value val, float normval);
+			void push_osc(ossia::value val, float normval, OSCCallback cb);
 		};
 
 		void processDataRefCommands();
@@ -241,6 +254,9 @@ class Instance {
 		std::unordered_map<std::string, std::string> mDataRefMetaMapped;
 
 		ossia::net::node_base * mOSCRoot = nullptr;
+    OSCCallback mOSCCallback; //for outgoing osc messages
+    OSCRegisterCallback mOSCRegisterCallback; //for incoming osc messages
+
 		//functions to run when we clear out OSC mapping
 		//cleanupKey -> function
 		std::unordered_map<std::string, std::function<void()>> mMetaCleanup;
@@ -267,6 +283,7 @@ class Instance {
 		//simply the names of outports, for building up OSCQuery
 		//the first in the vector is always the standard outport
 		std::unordered_map<std::string, std::vector<ossia::net::parameter_base *>> mOutportParams;
+		std::unordered_map<std::string, std::string> mOutportOSCMap; //outport tag -> osc addr that should get sent
 
 		RNBO::Json mConfig;
 		unsigned int mIndex = 0;

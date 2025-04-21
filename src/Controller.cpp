@@ -31,7 +31,9 @@
 
 #include <ossia/network/context.hpp>
 #include <ossia/network/local/local.hpp>
+#include <ossia/network/base/parameter_data.hpp>
 #include <ossia/network/generic/generic_device.hpp>
+#include <ossia/network/generic/generic_parameter.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
 #include <sys/types.h>
@@ -1751,7 +1753,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			f(instNode);
 		};
 
-		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex);
+		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex, std::bind(&Controller::dispatchOSC, this, std::placeholders::_1, std::placeholders::_2), std::bind(&Controller::registerOSCMapping, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
@@ -2615,6 +2617,60 @@ bool Controller::tryActivateAudio(bool startServer) {
 	if (!mProcessAudio->isActive())
 		mProcessAudio->setActive(true, startServer);
 	return mProcessAudio->isActive();
+}
+
+void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
+	//based on code example from jcelerier
+	//
+	// 1. Find if there's any matching node on the device
+	auto nodes = ossia::net::find_nodes(mServer->get_root_node(), addr);
+	bool message_sent = false;
+	for (auto& n : nodes) { 
+		if (auto param = n->get_parameter()) {
+			//TODO what about param type??
+			param->push_value(v);
+			message_sent = true;
+		}
+	}
+	if (!message_sent) {
+		mProtocol->push_raw({addr, v});
+	}
+}
+
+void Controller::processOSC(const std::string& addr, const ossia::value& value) {
+	auto it = mOSCToParam.find(addr);
+	if (it == mOSCToParam.end()) {
+		return;
+	}
+
+	for (auto localaddr: it->second) {
+		auto node = ossia::net::find_node(mServer->get_root_node(), localaddr);
+		if (node != nullptr) {
+			auto param = node->get_parameter();
+			if (param) {
+				//TODO
+			}
+		}
+	}
+}
+
+
+void Controller::registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr) {
+	auto it = mOSCToParam.find(oscaddr);
+	if (doregister) {
+		if (it != mOSCToParam.end()) {
+			it->second.insert(localaddr);
+		} else {
+			mOSCToParam.insert({oscaddr, {localaddr}});
+		}
+	} else {
+		if (it != mOSCToParam.end()) {
+			it->second.erase(localaddr);
+			if (it->second.size() == 0) {
+				mOSCToParam.erase(it);
+			}
+		}
+	}
 }
 
 void Controller::reportActive() {

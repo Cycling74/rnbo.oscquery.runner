@@ -8,6 +8,7 @@
 #include <set>
 #include <memory>
 #include <functional>
+#include <unordered_map>
 
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -50,6 +51,16 @@ class Controller {
 		bool tryActivateAudio(bool startServer = true);
 
 	private:
+
+		//for calling back from mapped params and ports
+		void dispatchOSC(const std::string& addr, const ossia::value& value);
+		void processOSC(const std::string& addr, const ossia::value& value);
+
+		void registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr);
+
+		//for OSC listeners (params and inports)
+		//OSC addr -> local addresss eg [/rnbo/inst/0/params/foo/normalized]
+		std::unordered_map<std::string, std::set<std::string>> mOSCToParam;
 
 		void doLoadSet(std::string name);
 
