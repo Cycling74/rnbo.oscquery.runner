@@ -158,7 +158,7 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 
 	int lastmigration = 1;
 	bool backupdone = curversion <= 1; //don't need to backup the initial version
-	auto do_migration = [curversion, &lastmigration, &backupdone, this](int version, std::function<void(SQLite::Database&)> func) {
+	auto do_migration = [curversion, &lastmigration, &backupdone, this](int version, std::function<void(SQLite::Database&)> func, bool intransaction = true) {
 		//verify that our migrations are increasing by 1 each time
 		assert(version == lastmigration + 1);
 		lastmigration = version;
@@ -180,13 +180,21 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 				backupdone = true;
 			}
 
-			func(mDB);
+			auto incr = [this, &version]() {
+					SQLite::Statement query(mDB, "INSERT INTO migrations (id, rnbo_version) VALUES (?, ?)");
+					query.bind(1, version);
+					query.bind(2, cur_rnbo_version);
+					query.exec();
+			};
 
-			{
-				SQLite::Statement query(mDB, "INSERT INTO migrations (id, rnbo_version) VALUES (?, ?)");
-				query.bind(1, version);
-				query.bind(2, cur_rnbo_version);
-				query.exec();
+			if (intransaction) {
+				SQLite::Transaction transaction(mDB);
+				func(mDB);
+				incr();
+				transaction.commit();
+			} else {
+				func(mDB);
+				incr();
 			}
 		}
 	};
@@ -274,7 +282,7 @@ COMMIT;
 PRAGMA foreign_keys=on;
 			)"
 			);
-	});
+	}, false);
 	do_migration(8, [](SQLite::Database& db) {
 			db.exec("ALTER TABLE patchers ADD COLUMN rnbo_patch_name TEXT");
 	});
@@ -1506,7 +1514,7 @@ boost::optional<std::tuple<
 	//get params
 	if (id > 0) {
 		SQLite::Statement query(mDB, R"(
-		SELECT FORMAT("%i:%s", set_instance_index, param_id) FROM sets_views_params 
+		SELECT FORMAT("%i:%s", set_instance_index, param_id) FROM sets_views_params
 		WHERE set_view_id = ?1 ORDER BY sort_order)");
 		query.bind(1, id);
 
@@ -1514,7 +1522,7 @@ boost::optional<std::tuple<
 		while (query.executeStep()) {
 			params.push_back(getStringColumn(query, 0));
 		}
-	
+
 		item = {{ name, params, sortOrder }};
 	}
 
@@ -1733,8 +1741,8 @@ void DB::setViewsCopy(const std::string& srcSetName, const std::string& dstSetNa
 		{
 			SQLite::Statement query(mDB, R"(
 				INSERT OR IGNORE INTO sets_views_params
-					(set_view_id, sort_order, set_instance_index, param_id, patcher_id) 
-					SELECT ?2, sort_order, set_instance_index, param_id, patcher_id 
+					(set_view_id, sort_order, set_instance_index, param_id, patcher_id)
+					SELECT ?2, sort_order, set_instance_index, param_id, patcher_id
 					FROM sets_views_params WHERE set_view_id = ?1
 				)"
 			);
