@@ -1999,7 +1999,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						//clear out the associated oscaddr
 						auto it = mIndexToParam.find(index);
 						if (it != mIndexToParam.end()) {
-							//this might already be null, but there is no issue setting it null again
+							//this might already be empty but no issue doing that again
 							it->second.oscaddr.clear();
 						}
 						//remove callbacks
@@ -2017,8 +2017,6 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 				break;
 			case MetaUpdateCommand::Subject::Outport:
 				{
-					//TODO need more than just oscaddr
-					//need a mutex to avoid recursion
 					mOutportOSCMap[name] = oscAddr;
 					cleanup = [name, this]() {
 						mOutportOSCMap.erase(name);
