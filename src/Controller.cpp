@@ -31,7 +31,9 @@
 
 #include <ossia/network/context.hpp>
 #include <ossia/network/local/local.hpp>
+#include <ossia/network/base/parameter_data.hpp>
 #include <ossia/network/generic/generic_device.hpp>
+#include <ossia/network/generic/generic_parameter.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
 #include <sys/types.h>
@@ -585,6 +587,7 @@ namespace {
 		fs::remove_all(tmppath, ec);
 		return tarname;
 	}
+
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
@@ -611,6 +614,7 @@ Controller::Controller(std::string server_name) {
 	mServer->set_echo(true);
 
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
+	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
 
 	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	mCompileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
@@ -1751,7 +1755,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			f(instNode);
 		};
 
-		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex);
+		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex, std::bind(&Controller::dispatchOSC, this, std::placeholders::_1, std::placeholders::_2), std::bind(&Controller::registerOSCMapping, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
@@ -2615,6 +2619,67 @@ bool Controller::tryActivateAudio(bool startServer) {
 	if (!mProcessAudio->isActive())
 		mProcessAudio->setActive(true, startServer);
 	return mProcessAudio->isActive();
+}
+
+void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
+	//based on code example from jcelerier
+	auto nodes = ossia::net::find_nodes(mServer->get_root_node(), addr);
+	bool message_sent = false;
+	for (auto& n : nodes) {
+		if (auto param = n->get_parameter()) {
+			param->push_value(v);
+			message_sent = true;
+		}
+	}
+
+	//send out but also callback into any local osc listeners
+	if (!message_sent) {
+		mProtocol->push_raw({addr, v});
+		onUnhandledOSC(addr, v);
+	}
+}
+
+
+void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value& val) {
+	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+
+	//c++17 can't use string_view for lookup: https://www.cppstories.com/2021/heterogeneous-access-cpp20/
+	std::string addr(addrview.begin(), addrview.end());
+	auto it = mOSCToParam.find(addr);
+	if (it == mOSCToParam.end()) {
+		return;
+	}
+
+	auto& root = mServer->get_root_node();
+	for (auto localaddr: it->second) {
+		auto node = ossia::net::find_node(root, localaddr);
+		if (node != nullptr) {
+			auto param = node->get_parameter();
+			if (param) {
+				param->push_value(val);
+			}
+		}
+	}
+}
+
+
+void Controller::registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr) {
+	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+	auto it = mOSCToParam.find(oscaddr);
+	if (doregister) {
+		if (it != mOSCToParam.end()) {
+			it->second.insert(localaddr);
+		} else {
+			mOSCToParam.insert({oscaddr, {localaddr}});
+		}
+	} else {
+		if (it != mOSCToParam.end()) {
+			it->second.erase(localaddr);
+			if (it->second.size() == 0) {
+				mOSCToParam.erase(it);
+			}
+		}
+	}
 }
 
 void Controller::reportActive() {
