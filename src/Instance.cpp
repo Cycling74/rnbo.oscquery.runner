@@ -109,14 +109,14 @@ namespace {
 }
 
 Instance::Instance(
-    std::shared_ptr<DB> db,
-    std::shared_ptr<PatcherFactory> factory,
-    std::string name, NodeBuilder builder,
-    RNBO::Json conf,
-    std::shared_ptr<ProcessAudio> processAudio,
-    unsigned int index,
-    OSCCallback oscCallback,
-    OSCRegisterCallback oscRegisterCallback
+		std::shared_ptr<DB> db,
+		std::shared_ptr<PatcherFactory> factory,
+		std::string name, NodeBuilder builder,
+		RNBO::Json conf,
+		std::shared_ptr<ProcessAudio> processAudio,
+		unsigned int index,
+		OSCCallback oscCallback,
+		OSCRegisterCallback oscRegisterCallback
 ) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db), mOSCCallback(oscCallback), mOSCRegisterCallback(oscRegisterCallback) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
@@ -1506,54 +1506,54 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 
 void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 	auto tag = std::string(mCore->resolveTag(e.getTag()));
-  ossia::value val;
-  {
-    auto it = mOutportParams.find(tag);
-    if (it == mOutportParams.end()) {
-      std::cerr << "couldn't find outport node with tag " << tag << std::endl;
-      return;
-    }
+	ossia::value val;
+	{
+		auto it = mOutportParams.find(tag);
+		if (it == mOutportParams.end()) {
+			std::cerr << "couldn't find outport node with tag " << tag << std::endl;
+			return;
+		}
 
-    //TODO send to other OSC endpoints if we have an associated OSC addr
+		//TODO send to other OSC endpoints if we have an associated OSC addr
 
-    switch(e.getType()) {
-      case MessageEvent::Type::Number:
-        val = static_cast<float>(e.getNumValue());
-        for (auto p: it->second) {
-          p->push_value(val);
-        }
-        break;
-      case MessageEvent::Type::Bang:
-        val = ossia::impulse {};
-        for (auto p: it->second) {
-          p->push_value(val);
-        }
-        break;
-      case MessageEvent::Type::List:
-        {
-          std::vector<ossia::value> values;
-          std::shared_ptr<const RNBO::list> elist = e.getListValue();
-          for (size_t i = 0; i < elist->length; i++) {
-            values.push_back(ossia::value(elist->operator[](i)));
-          }
-          val = values;
-          for (auto p: it->second) {
-            p->push_value(val);
-          }
-        }
-        break;
-      case MessageEvent::Type::Invalid:
-      case MessageEvent::Type::Max_Type:
-      default:
-        return; //TODO warning message?
-    }
-  }
-  {
-    auto it = mOutportOSCMap.find(tag);
-    if (it != mOutportOSCMap.end()) {
-      mOSCCallback(it->second, val);
-    }
-  }
+		switch(e.getType()) {
+			case MessageEvent::Type::Number:
+				val = static_cast<float>(e.getNumValue());
+				for (auto p: it->second) {
+					p->push_value(val);
+				}
+				break;
+			case MessageEvent::Type::Bang:
+				val = ossia::impulse {};
+				for (auto p: it->second) {
+					p->push_value(val);
+				}
+				break;
+			case MessageEvent::Type::List:
+				{
+					std::vector<ossia::value> values;
+					std::shared_ptr<const RNBO::list> elist = e.getListValue();
+					for (size_t i = 0; i < elist->length; i++) {
+						values.push_back(ossia::value(elist->operator[](i)));
+					}
+					val = values;
+					for (auto p: it->second) {
+						p->push_value(val);
+					}
+				}
+				break;
+			case MessageEvent::Type::Invalid:
+			case MessageEvent::Type::Max_Type:
+			default:
+				return; //TODO warning message?
+		}
+	}
+	{
+		auto it = mOutportOSCMap.find(tag);
+		if (it != mOutportOSCMap.end()) {
+			mOSCCallback(it->second, val);
+		}
+	}
 }
 
 //from RNBO, report via OSCQuery
@@ -1612,7 +1612,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 	//do we default ports named with "/" prefixes to become top level OSC messages?
 	const bool portToOSC = config::get<bool>(config::key::InstancePortToOSC).value_or(true);
-  const std::string paramAddr = update.param->get_node().osc_address();
+	std::string paramAddr = update.param->get_node().get_parent()->osc_address(); //assumes `/meta` is always just above param
 
 	//default access mode of a new param if we make one
 	ossia::access_mode oscAccessMode = ossia::access_mode::BI;
@@ -1992,7 +1992,10 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 				{
 					auto index = update.paramIndex;
 
-					//TODO what about normalized?
+					if (usenormalized) {
+						paramAddr = paramAddr + "/normalized";
+					}
+
 					//TODO remapping values?
 					//can we do both remapping and noramlization with an input and output std::func<float(float)> ?
 
@@ -2009,40 +2012,40 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 							it->second.oscaddr = oscAddr;
 						} else {
 							it->second.oscaddr.clear();
-            }
+						}
 
 						if (oscAccessMode == ossia::access_mode::BI || oscAccessMode == ossia::access_mode::SET) {
-              mOSCRegisterCallback(true, oscAddr, paramAddr);
-            }
+							mOSCRegisterCallback(true, oscAddr, paramAddr);
+						}
 					}
 
-          cleanup = [this, index, oscAddr, paramAddr]() {
-            //clear out the associated oscaddr
-            auto it = mIndexToParam.find(index);
-            if (it != mIndexToParam.end()) {
-              //this might already be null, but there is no issue setting it null again
-              it->second.oscaddr.clear();
-            }
-            //remove callbacks
-            mOSCRegisterCallback(false, oscAddr, paramAddr);
-          };
+					cleanup = [this, index, oscAddr, paramAddr]() {
+						//clear out the associated oscaddr
+						auto it = mIndexToParam.find(index);
+						if (it != mIndexToParam.end()) {
+							//this might already be null, but there is no issue setting it null again
+							it->second.oscaddr.clear();
+						}
+						//remove callbacks
+						mOSCRegisterCallback(false, oscAddr, paramAddr);
+					};
 				}
 				break;
 			case MetaUpdateCommand::Subject::Inport:
 				{
-          mOSCRegisterCallback(true, oscAddr, paramAddr);
+					mOSCRegisterCallback(true, oscAddr, paramAddr);
 					cleanup = [this, oscAddr, paramAddr]() {
-            mOSCRegisterCallback(false, oscAddr, paramAddr);
+						mOSCRegisterCallback(false, oscAddr, paramAddr);
 					};
 				}
 				break;
 			case MetaUpdateCommand::Subject::Outport:
 				{
-          //TODO need more than just oscaddr
-          //need a mutex to avoid recursion
-          mOutportOSCMap[name] = oscAddr;
+					//TODO need more than just oscaddr
+					//need a mutex to avoid recursion
+					mOutportOSCMap[name] = oscAddr;
 					cleanup = [name, this]() {
-            mOutportOSCMap.erase(name);
+						mOutportOSCMap.erase(name);
 					};
 				}
 				break;
@@ -2151,9 +2154,9 @@ Instance::ParamOSCUpdateData::ParamOSCUpdateData() {
 }
 
 void Instance::ParamOSCUpdateData::push_osc(ossia::value val, float normval, OSCCallback cb) {
-  if (oscaddr.size()) {
-    if (auto _olock = std::unique_lock<std::mutex> (*oscmutex, std::try_to_lock)) {
-      cb(oscaddr, usenormalized ? ossia::value(normval) : val);
-    }
-  }
+	if (oscaddr.size()) {
+		if (auto _olock = std::unique_lock<std::mutex> (*oscmutex, std::try_to_lock)) {
+			cb(oscaddr, usenormalized ? ossia::value(normval) : val);
+		}
+	}
 }

@@ -587,6 +587,7 @@ namespace {
 		fs::remove_all(tmppath, ec);
 		return tarname;
 	}
+
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
@@ -613,6 +614,7 @@ Controller::Controller(std::string server_name) {
 	mServer->set_echo(true);
 
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
+	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
 
 	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	mCompileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
@@ -2625,30 +2627,39 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	// 1. Find if there's any matching node on the device
 	auto nodes = ossia::net::find_nodes(mServer->get_root_node(), addr);
 	bool message_sent = false;
-	for (auto& n : nodes) { 
+	for (auto& n : nodes) {
 		if (auto param = n->get_parameter()) {
 			//TODO what about param type??
 			param->push_value(v);
 			message_sent = true;
 		}
 	}
+
+	//send out but also callback into any local osc listeners
 	if (!message_sent) {
 		mProtocol->push_raw({addr, v});
+		onUnhandledOSC(addr, v);
 	}
 }
 
-void Controller::processOSC(const std::string& addr, const ossia::value& value) {
+
+void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value& val) {
+	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+
+	//c++17 can't use string_view for lookup: https://www.cppstories.com/2021/heterogeneous-access-cpp20/
+	std::string addr(addrview.begin(), addrview.end());
 	auto it = mOSCToParam.find(addr);
 	if (it == mOSCToParam.end()) {
 		return;
 	}
 
+	auto& root = mServer->get_root_node();
 	for (auto localaddr: it->second) {
-		auto node = ossia::net::find_node(mServer->get_root_node(), localaddr);
+		auto node = ossia::net::find_node(root, localaddr);
 		if (node != nullptr) {
 			auto param = node->get_parameter();
 			if (param) {
-				//TODO
+				param->push_value(val);
 			}
 		}
 	}
@@ -2656,6 +2667,7 @@ void Controller::processOSC(const std::string& addr, const ossia::value& value) 
 
 
 void Controller::registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr) {
+	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
 	auto it = mOSCToParam.find(oscaddr);
 	if (doregister) {
 		if (it != mOSCToParam.end()) {

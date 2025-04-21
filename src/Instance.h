@@ -37,17 +37,17 @@ using OSCRegisterCallback = std::function<void(bool doregister, const std::strin
 
 class Instance {
 	public:
-    Instance(
-        std::shared_ptr<DB> db, 
-        std::shared_ptr<PatcherFactory> factory, 
-        std::string name, 
-        NodeBuilder builder, 
-        RNBO::Json conf, 
-        std::shared_ptr<ProcessAudio> processAudio, 
-        unsigned int index,
-        OSCCallback oscCallback,
-        OSCRegisterCallback oscRegisterCallback
-        );
+		Instance(
+				std::shared_ptr<DB> db, 
+				std::shared_ptr<PatcherFactory> factory, 
+				std::string name, 
+				NodeBuilder builder, 
+				RNBO::Json conf, 
+				std::shared_ptr<ProcessAudio> processAudio, 
+				unsigned int index,
+				OSCCallback oscCallback,
+				OSCRegisterCallback oscRegisterCallback
+				);
 		~Instance();
 
 		unsigned int index() const { return mIndex; }
@@ -161,7 +161,7 @@ class Instance {
 			std::shared_ptr<std::mutex> oscmutex;
 			ossia::net::parameter_base * param = nullptr;
 			ossia::net::parameter_base * normparam = nullptr;
-      std::string oscaddr;
+			std::string oscaddr;
 
 			//map between string enum value and numeric values, only used for enum params
 			std::unordered_map<std::string, RNBO::ParameterValue> nameToVal;
@@ -254,8 +254,8 @@ class Instance {
 		std::unordered_map<std::string, std::string> mDataRefMetaMapped;
 
 		ossia::net::node_base * mOSCRoot = nullptr;
-    OSCCallback mOSCCallback; //for outgoing osc messages
-    OSCRegisterCallback mOSCRegisterCallback; //for incoming osc messages
+		OSCCallback mOSCCallback; //for outgoing osc messages
+		OSCRegisterCallback mOSCRegisterCallback; //for incoming osc messages
 
 		//functions to run when we clear out OSC mapping
 		//cleanupKey -> function
