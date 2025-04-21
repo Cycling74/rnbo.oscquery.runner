@@ -2623,13 +2623,10 @@ bool Controller::tryActivateAudio(bool startServer) {
 
 void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	//based on code example from jcelerier
-	//
-	// 1. Find if there's any matching node on the device
 	auto nodes = ossia::net::find_nodes(mServer->get_root_node(), addr);
 	bool message_sent = false;
 	for (auto& n : nodes) {
 		if (auto param = n->get_parameter()) {
-			//TODO what about param type??
 			param->push_value(v);
 			message_sent = true;
 		}
