@@ -704,8 +704,7 @@ Instance::Instance(
 							auto p = n.create_parameter(ossia::val_type::LIST);
 							n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 
-							//we may have another param associated with this outport but the default outport is at the front of the list
-							mOutportParams[name] = { p };
+							mOutportParam.emplace(name, p);
 
 							//add meta
 							{
@@ -1507,52 +1506,43 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 	auto tag = std::string(mCore->resolveTag(e.getTag()));
 	ossia::value val;
-	{
-		auto it = mOutportParams.find(tag);
-		if (it == mOutportParams.end()) {
-			std::cerr << "couldn't find outport node with tag " << tag << std::endl;
-			return;
-		}
 
-		//TODO send to other OSC endpoints if we have an associated OSC addr
-
-		switch(e.getType()) {
-			case MessageEvent::Type::Number:
-				val = static_cast<float>(e.getNumValue());
-				for (auto p: it->second) {
-					p->push_value(val);
-				}
-				break;
-			case MessageEvent::Type::Bang:
-				val = ossia::impulse {};
-				for (auto p: it->second) {
-					p->push_value(val);
-				}
-				break;
-			case MessageEvent::Type::List:
-				{
-					std::vector<ossia::value> values;
-					std::shared_ptr<const RNBO::list> elist = e.getListValue();
-					for (size_t i = 0; i < elist->length; i++) {
-						values.push_back(ossia::value(elist->operator[](i)));
-					}
-					val = values;
-					for (auto p: it->second) {
-						p->push_value(val);
-					}
-				}
-				break;
-			case MessageEvent::Type::Invalid:
-			case MessageEvent::Type::Max_Type:
-			default:
-				return; //TODO warning message?
-		}
+	auto it = mOutportParam.find(tag);
+	if (it == mOutportParam.end()) {
+		std::cerr << "couldn't find outport node with tag " << tag << std::endl;
+		return;
 	}
-	{
-		auto it = mOutportOSCMap.find(tag);
-		if (it != mOutportOSCMap.end()) {
-			mOSCCallback(it->second, val);
-		}
+
+
+	switch(e.getType()) {
+		case MessageEvent::Type::Number:
+			val = static_cast<float>(e.getNumValue());
+			it->second->push_value(val);
+			break;
+		case MessageEvent::Type::Bang:
+			val = ossia::impulse {};
+			it->second->push_value(val);
+			break;
+		case MessageEvent::Type::List:
+			{
+				std::vector<ossia::value> values;
+				std::shared_ptr<const RNBO::list> elist = e.getListValue();
+				for (size_t i = 0; i < elist->length; i++) {
+					values.push_back(ossia::value(elist->operator[](i)));
+				}
+				val = values;
+				it->second->push_value(val);
+			}
+			break;
+		case MessageEvent::Type::Invalid:
+		case MessageEvent::Type::Max_Type:
+		default:
+			return; //TODO warning message?
+	}
+
+	auto oit = mOutportOSCMap.find(tag);
+	if (oit != mOutportOSCMap.end()) {
+		mOSCCallback(oit->second, val);
 	}
 }
 
@@ -1970,20 +1960,6 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 	}
 
 	if (oscAddr.starts_with('/')) {
-		//disallow /rnbo/prefix
-		if (oscAddr.starts_with("/rnbo/")) {
-			std::cerr << "OSC address with /rnbo/ prefix isn't allowed, setting osc: false" << std::endl;
-
-			//cleanup meta
-			if (!meta.is_object()) {
-				meta = RNBO::Json::object();
-			}
-			meta["osc"] = false;
-			update.param->push_value(meta.dump());
-
-			return;
-		}
-
 		//hook up OSC
 		std::function<void()> cleanup;
 

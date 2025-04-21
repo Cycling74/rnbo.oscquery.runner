@@ -280,9 +280,7 @@ class Instance {
 
 		Queue<PresetCommand> mPresetCommandQueue;
 
-		//simply the names of outports, for building up OSCQuery
-		//the first in the vector is always the standard outport
-		std::unordered_map<std::string, std::vector<ossia::net::parameter_base *>> mOutportParams;
+		std::unordered_map<std::string, ossia::net::parameter_base *> mOutportParam;
 		std::unordered_map<std::string, std::string> mOutportOSCMap; //outport tag -> osc addr that should get sent
 
 		RNBO::Json mConfig;
