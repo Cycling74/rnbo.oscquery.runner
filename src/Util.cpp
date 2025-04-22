@@ -1,5 +1,6 @@
 #include "Util.h"
 
+#include <vector>
 #include <iostream>
 #include <chrono>
 #include <iterator>
