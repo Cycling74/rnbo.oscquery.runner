@@ -763,6 +763,21 @@ now helps automate setting this value but you can set it explicitly if you prefe
 As an example, a parameter might have meta with: `{"midi": {"ctrl": 4, "chan": 16}}`.
 This would map controller change 4 on channel 16's value, scaled to 0..1 to the parameter's normalized value.
 
+#### Buffers
+
+Buffers support the `meta` entry. Below are details about the entries the
+runner supports but feel free to create your own for your own use if you have
+them.
+
+* `{"save": true}`
+  * This will create a `/save` endpoint below your buffer OSCQuery endpoint.
+    Sending an message to this endpoint will tell the runner to serialize the buffer data to an audio file with a default format.
+    The format should be visible in the OSCQuery http/json description of that endpoint.
+    You can set the value to `false` or simply remove the `"save"` entry to disable this and remove the `/save` endpoint.
+* `{"save": "foo-%y%m%dT%H%M%S"}`
+  * This will create a `/save` endpoint as above but lets you set your own file name template.
+    See the [c++ chrono strftime](https://en.cppreference.com/w/cpp/chrono/c/strftime) documentation for formatting.
+
 ### Testing out discovery
 
 `dns-sd` can show you available services:
