@@ -94,8 +94,9 @@ void RunnerExternalDataHandler::processEvents()
 				cleanup = true;
 				break;
 			case DataCaptureState::GetInfo:
-				if (resp->sizeinbytes == 0) {
-					cleanup = true; //should this happen?
+				if (resp->sizeinbytes == 0 || resp->srcData == nullptr) {
+					cleanup = true;
+					std::cout << "capture requested buffer " << resp->datarefId << " is empty, ignoring" << std::endl;
 				} else {
 					//alloc data needed to copy
 					resp->data.resize(resp->sizeinbytes);
@@ -106,12 +107,14 @@ void RunnerExternalDataHandler::processEvents()
 			case DataCaptureState::Read:
 				if (resp->bytesread >= resp->data.size()) {
 					cleanup = true;
-					//do callback
-					std::unique_lock<std::mutex> lock(mMutex);
-					auto it = mCallbacks.find(resp->datarefId);
-					if (it != mCallbacks.end()) {
-						it->second(resp->datarefId, resp->datatype, std::move(resp->data));
-						mCallbacks.erase(it);
+					if (resp->bytesread > 0) {
+						//do callback
+						std::unique_lock<std::mutex> lock(mMutex);
+						auto it = mCallbacks.find(resp->datarefId);
+						if (it != mCallbacks.end()) {
+							it->second(resp->datarefId, resp->datatype, std::move(resp->data));
+							mCallbacks.erase(it);
+						}
 					}
 				}
 				//otherwise keep reading
