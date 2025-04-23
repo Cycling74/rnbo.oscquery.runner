@@ -44,7 +44,7 @@ class JackAudioRecord {
 		ossia::net::parameter_base * mActiveParam = nullptr;
 		ossia::net::parameter_base * mChannelsParam = nullptr;
 		ossia::net::parameter_base * mTimeoutParam = nullptr;
-		ossia::net::parameter_base * mSecondsRemainParam = nullptr;
+		ossia::net::parameter_base * mSecondsCapturedParam = nullptr;
 
 		std::thread mWriteThread;
 };
