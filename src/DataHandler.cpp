@@ -6,9 +6,9 @@ using RNBO::ConstRefList;
 using RNBO::UpdateRefCallback;
 using RNBO::ReleaseRefCallback;
 
-RunnerExternalDataHandler::RunnerExternalDataHandler() : 
-	mDataRequest(DataCaptureQueueLength), 
-	mDataResponse(DataCaptureQueueLength) 
+RunnerExternalDataHandler::RunnerExternalDataHandler() :
+	mDataRequest(DataCaptureQueueLength),
+	mDataResponse(DataCaptureQueueLength)
 {
 }
 
@@ -41,7 +41,7 @@ void RunnerExternalDataHandler::processEndCallback(DataRefIndex numRefs, ConstRe
 				found = true;
 				switch (req->state) {
 					case DataCaptureState::Read:
-						if (req->srcData == ref->getData()) {
+						if (req->srcData == ref->getData() && req->data.size() == req->sizeinbytes && req->datatype == ref->getType()) {
 							size_t offset = req->bytesread;
 							size_t read = std::min(mChunkBytes, req->data.size() - offset);
 							std::memcpy(req->data.data() + offset, ref->getData() + offset, read);
