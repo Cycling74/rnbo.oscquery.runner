@@ -25,6 +25,7 @@ namespace {
 
 	const std::string channels_config_key = "channels";
 	const std::string timeout_config_key = "timeout_seconds";
+	const char * record_port_group = "rnbo-graph-record-sink";
 
 	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
 	const double seconds_report_period_s = 0.1; //only report every 100ms
@@ -270,7 +271,7 @@ bool JackAudioRecord::resize(int channels) {
 		if (!jack_uuid_empty(uuid)) {
 			std::string pretty = "Record In " + std::to_string(i + 1);
 			jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, pretty.c_str(), "text/plain");
-			jack_set_property(mJackClient, uuid, JACK_METADATA_PORT_GROUP, "rnbo-graph-user-sink", "text/plain");
+			jack_set_property(mJackClient, uuid, JACK_METADATA_PORT_GROUP, record_port_group, "text/plain");
 		}
 
 		mJackAudioPortIn.push_back(port);
