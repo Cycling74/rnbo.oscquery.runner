@@ -340,7 +340,7 @@ void JackAudioRecord::write() {
 				bytes = std::min(bytes, jack_ringbuffer_read_space(mRingBuffers[i]));
 			}
 
-			const size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
+			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
 				std::this_thread::sleep_for(sleepms);
 			} else {
@@ -354,6 +354,12 @@ void JackAudioRecord::write() {
 						index++;
 					}
 				}
+
+				//don't read more frames than requested
+				if (timeoutframes > 0) {
+					frames = std::min(frames, timeoutframes - frameswritten);
+				}
+
 				sndfile.writef(mInterlaceBuffer.data(), frames);
 				frameswritten += frames;
 
