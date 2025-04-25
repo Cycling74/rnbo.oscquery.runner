@@ -14,7 +14,6 @@
 #include "Defines.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
-#include "RNBO_Version.h"
 #include "RNBO_LoggerImpl.h"
 
 #include <boost/process.hpp>
@@ -54,9 +53,13 @@ namespace bp = boost::process;
 
 namespace {
 	static const std::string runner_version(RUNNER_VERSION);
-	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
+
+	std::string rnbo_version() {
+		static std::string version = std::string(RNBO::getversion());
+		return version;
+	}
 
 #if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
 	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
@@ -71,7 +74,10 @@ namespace {
 
 	static std::string build_program("rnbo-compile-so");
 
-	static const std::string rnbo_dylib_suffix(RNBO_DYLIB_SUFFIX);
+	const std::string rnbo_dylib_suffix() {
+		static std::string suffix = std::string(RNBO::getversion()) + "-" + std::string(RNBO_DYLIB_SUFFIX);
+		return suffix;
+	}
 
 	static const std::chrono::milliseconds save_debounce_timeout(500);
 
@@ -100,7 +106,7 @@ namespace {
 		return std::regex_replace(name, re, "");
 	}
 
-	fs::path saveFilePath(std::string file_name = std::string(), std::string version = std::string(RNBO::version)) {
+	fs::path saveFilePath(std::string file_name = std::string(), std::string version = rnbo_version()) {
 		if (file_name.size() == 0) {
 			file_name = last_file_name;
 		} else { //for creation, we add a tag
@@ -731,7 +737,7 @@ Controller::Controller(std::string server_name) {
 	info->set(ossia::net::description_attribute{}, "information about RNBO and the running system");
 
 	for (auto it: {
-			std::make_pair("version", rnbo_version),
+			std::make_pair("version", std::string(RNBO::getversion())),
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			std::make_pair("runner_version", runner_version),
@@ -1715,8 +1721,8 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 	auto fname = fs::path(path).filename().string();
 	try {
 		//make sure that the version numbers match in the name of the library
-		if (!boost::algorithm::ends_with(fname, rnbo_dylib_suffix)) {
-			std::string errs("the requested library: " + fname + " doesn't match version suffix " + rnbo_dylib_suffix);
+		if (!boost::algorithm::ends_with(fname, rnbo_dylib_suffix())) {
+			std::string errs("the requested library: " + fname + " doesn't match version suffix " + rnbo_dylib_suffix());
 			cerr << errs << endl;
 			//we should never really have an ID here because we would have just built it, but just in case.
 			if (cmdId.size()) {
@@ -2360,8 +2366,8 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 
 	std::string package_rnbo_version = info["rnbo_version"].get<std::string>();
 
-	if (package_rnbo_version != rnbo_version) {
-		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_version: " + rnbo_version;
+	if (package_rnbo_version != rnbo_version()) {
+		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_version: " + rnbo_version();
 		throw std::runtime_error(msg);
 	}
 
@@ -3224,7 +3230,7 @@ void Controller::registerCommands() {
 	//helper to validate and report as there are 2 different commands
 	auto fileCmdDir = [this](const std::string& id, std::string filetype, std::string rnboVersion = std::string()) -> boost::optional<fs::path> {
 		if (rnboVersion.size() == 0) {
-			rnboVersion = rnbo_version;
+			rnboVersion = rnbo_version();
 		}
 		boost::optional<fs::path> r;
 		if (filetype == "datafile") {
@@ -3253,7 +3259,7 @@ void Controller::registerCommands() {
 				if (!validateFileCmd(id, params, false))
 					return;
 				std::string filetype = params["filetype"];
-				std::string rnboVersion = rnbo_version;
+				std::string rnboVersion = rnbo_version();
 				if (params.contains("rnbo_version")) {
 					rnboVersion = params["rnbo_version"];
 				}
@@ -3636,7 +3642,7 @@ void Controller::registerCommands() {
 				if (params.contains("rnbo_version")) {
 					rnboVersion = params["rnbo_version"];
 				} else {
-					rnboVersion = rnbo_version;
+					rnboVersion = rnbo_version();
 				}
 
 				if (params.contains("include_presets")) {
@@ -3716,7 +3722,7 @@ void Controller::registerCommands() {
 						{"progress", 1}
 					});
 
-				fs::path packagelocation = fs::absolute(packagedir(rnbo_version) / filename);
+				fs::path packagelocation = fs::absolute(packagedir(rnbo_version()) / filename);
 				if (!fs::exists(packagelocation)) {
 					std::string msg = "cannot find package file at: " + packagelocation.string();
 					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), msg);
@@ -4052,7 +4058,7 @@ void Controller::processCommands() {
 				}
 
 				std::string libName = fs::path(fileName).replace_extension().string();
-				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix));
+				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix()));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::vector<std::string> args = {
 					sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()

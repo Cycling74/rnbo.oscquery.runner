@@ -87,8 +87,8 @@ int main(int argc, const char * argv[]) {
 	}
 
 	if (options.get("version")) {
-		std::string rnbo_version(RNBO_VERSION);
-		cout << "runner rnbo version: " << rnbo_version << std::endl;
+		cout << "runner rnbo version: " << RNBO::getversion() << std::endl;
+		cout << "runner version: " << std::string(RUNNER_VERSION) << std::endl;
 		return 0;
 	}
 

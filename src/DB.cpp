@@ -18,7 +18,7 @@
 namespace fs = boost::filesystem;
 
 namespace {
-	const std::string cur_rnbo_version(RNBO_VERSION);
+	const std::string cur_rnbo_version(RNBO::getversion());
 
 	std::string getStringColumn(SQLite::Statement& query, int col) {
 		const char * s = query.getColumn(col);
