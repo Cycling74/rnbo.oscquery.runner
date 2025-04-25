@@ -1,9 +1,11 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
+project(rnbooscquery LANGUAGES CXX C)
+set(PROJECT_VERSION "2.0.0-beta.0")
+set(PROJECT_APP "rnbooscquery")
+
 #libossia requires 20 and sdbus c++17
 set(CMAKE_CXX_STANDARD 20)
-
-project(rnbooscquery LANGUAGES CXX C)
 
 set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
 include("${CMAKE_CURRENT_LIST_DIR}/common/conan.cmake")
@@ -64,6 +66,9 @@ set(USE_JACK ON)
 set(JACK_DIR "" CACHE FILEPATH "optional path to specify location for JACK libs/includes")
 mark_as_advanced(JACK_DIR)
 
+set(USE_LIBRNBO FALSE CACHE BOOL "link against librnbo instead of building RNBO.cpp into the project")
+mark_as_advanced(LIBRNBO_DIR)
+
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
 
@@ -97,9 +102,6 @@ execute_process(
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-set(PROJECT_VERSION "${RNBO_VERSION}-${GIT_COMMIT_HASH}")
-set(PROJECT_APP "rnbooscquery")
-
 set(PROJECT_SRC
 	src/main.cpp
 	src/DB.cpp
@@ -112,7 +114,6 @@ set(PROJECT_SRC
 	src/MIDIMap.cpp
 	src/Util.cpp
 	common/RunnerUpdateState.cpp
-	${RNBO_DIR}/RNBO.cpp
 )
 
 #debugging
@@ -314,6 +315,13 @@ else()
   add_definitions(-DJACK_SERVER=0)
 endif()
 
+set(LIBRNBO_LIBRARIES)
+if (USE_LIBRNBO)
+	set(LIBRNBO_LIBRARIES rnbo)
+else()
+	list(APPEND PROJECT_SRC ${RNBO_DIR}/RNBO.cpp)
+endif()
+
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
@@ -340,7 +348,6 @@ if (CCACHE_PROGRAM)
 	set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
 endif()
 
-add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
 add_definitions(-DRUNNER_VERSION="${PROJECT_VERSION}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
 add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
@@ -355,9 +362,9 @@ if (UNIX)
 	add_definitions(-DRNBO_CACHE_BASE_DIR="~/.local/share/rnbo/")
 	add_definitions(-DRNBO_SO_BUILD_DIR="~/.local/share/rnbo/sobuild/")
 	if (APPLE)
-		add_definitions(-DRNBO_DYLIB_SUFFIX="${RNBO_VERSION}.dylib")
+		add_definitions(-DRNBO_DYLIB_SUFFIX=".dylib")
 	else() # for Linux, BSD, Solaris, Minix
-		add_definitions(-DRNBO_DYLIB_SUFFIX="${RNBO_VERSION}.so")
+		add_definitions(-DRNBO_DYLIB_SUFFIX=".so")
 	endif()
 else()
 	message(FATAL_ERROR "platform not supported (yet)")
@@ -385,6 +392,7 @@ FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 add_executable(${PROJECT_APP} ${PROJECT_SRC})
 
 target_link_libraries(${PROJECT_APP}
+	${LIBRNBO_LIBRARIES}
 	${Boost_LIBRARIES}
 	${libossia_LIBRARIES}
 	${base64_LIBRARIES}
@@ -474,12 +482,12 @@ if (LINUX)
 		SET(CPACK_PACKAGE_CONTACT "xnor@cycling74.com")
 		set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/Cycling74/rnbo.oscquery.runner")
 
-		SET(CPACK_PACKAGE_VERSION_MAJOR "${RNBO_VERSION_MAJOR}")
-		SET(CPACK_PACKAGE_VERSION_MINOR "${RNBO_VERSION_MINOR}")
-		SET(CPACK_PACKAGE_VERSION_PATCH "${RNBO_VERSION_PATCH}")
+		#SET(CPACK_PACKAGE_VERSION_MAJOR "${RNBO_VERSION_MAJOR}")
+		#SET(CPACK_PACKAGE_VERSION_MINOR "${RNBO_VERSION_MINOR}")
+		#SET(CPACK_PACKAGE_VERSION_PATCH "${RNBO_VERSION_PATCH}")
 
 		#rnbo version might have a 'prerelease' or 'channel' version in it
-		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
+		SET(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}")
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
 		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
