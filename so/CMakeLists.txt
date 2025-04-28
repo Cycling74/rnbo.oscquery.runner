@@ -63,11 +63,12 @@ else()
 		"${RNBO_INCLUDE_DIR}/common"
 		"${RNBO_INCLUDE_DIR}/src"
 	)
-	if (RNBO_LINK_SHARED)
-		target_link_libraries(RNBOso -lrnbo.${RNBO_VERSION})
-	else()
-		target_link_libraries(RNBOso librnbo.a)
-	endif()
+
+	#	if (RNBO_LINK_SHARED)
+	#		target_link_libraries(RNBOso -lrnbo.${RNBO_VERSION})
+	#	else()
+	#		target_link_libraries(RNBOso librnbo.a)
+	#	endif()
 endif()
 
 set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${RNBO_VERSION}")
