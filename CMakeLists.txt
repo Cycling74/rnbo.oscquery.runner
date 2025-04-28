@@ -16,7 +16,7 @@ endif()
 
 set(RNBO_CONAN_VERSION "1.4.0-dev.0" CACHE STRING "Set a librnbo version to get from Conan")
 set(RNBO_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting RNBO from Conan")
-set(RNBO_LINK_SHARED False CACHE BOOL "Should we link to a shared library for rnbo (otherwise static)")
+set(RNBO_LINK_SHARED True CACHE BOOL "Should we link to a shared library for rnbo (otherwise static)")
 
 set(JACK_CONAN_NAME "jack" CACHE STRING "Optionally set a JACK package name to get from Conan")
 set(JACK_CONAN_VERSION "" CACHE STRING "Optionally set a JACK version to get from Conan")
@@ -416,9 +416,8 @@ INSTALL(FILES
 		WORLD_READ WORLD_EXECUTE
 )
 
-#shared, src
+#shared
 install(DIRECTORY ${CMAKE_BINARY_DIR}/share/rnbo DESTINATION share)
-install(DIRECTORY ${CMAKE_BINARY_DIR}/src/rnbo DESTINATION src)
 
 if (LINUX)
 	install(FILES
