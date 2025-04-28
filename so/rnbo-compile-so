@@ -13,7 +13,6 @@ CMAKE = ARGV[4] || "cmake"
 ENV["CONAN_NON_INTERACTIVE"] = "1"
 
 #validate
-#raise "#{RNBO_INCLUDE_DIR} is not a valid directory" unless Dir.exist?(RNBO_INCLUDE_DIR)
 raise "#{OUTPUT_DIR} is not a valid directory" unless Dir.exist?(OUTPUT_DIR)
 
 so_build_dir = nil
@@ -25,13 +24,21 @@ so_build_dir = nil
 end
 raise "cannot find CMakeLists.txt" unless so_build_dir
 
-#if running from the build directory, use conan
+#if we're running from the build directory
+use_conan = File.exist?(File.join(File.expand_path(__dir__), "../CMakeCache.txt")) ? "True" : "False"
+
+ARGS = [
+	"-DRNBO_CLASS_FILE=#{FILE_PATH}", 
+	"-DRNBO_VERSION=#{RNBO_VERSION}", 
+	"-DLIBRARY_NAME_PREFIX=#{LIB_NAME}",
+	"-DUSE_CONAN=#{use_conan}"
+]
 
 #compile in a temp directory, then move the shared object to the OUTPUT_DIR
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
     [
-      "#{CMAKE} -DRNBO_CLASS_FILE=#{FILE_PATH} -DRNBO_VERSION=#{RNBO_VERSION} -DLIBRARY_NAME_PREFIX=#{LIB_NAME} #{so_build_dir}",
+			"#{CMAKE} #{ARGS.join(" ")} #{so_build_dir}",
       "#{CMAKE} --build ."
     ].each do |cmd|
       raise "#{cmd} failed" unless system(cmd)
