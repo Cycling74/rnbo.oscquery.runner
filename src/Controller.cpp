@@ -75,7 +75,7 @@ namespace {
 	static std::string build_program("rnbo-compile-so");
 
 	const std::string rnbo_dylib_suffix() {
-		static std::string suffix = std::string(RNBO::getversion()) + "-" + std::string(RNBO_DYLIB_SUFFIX);
+		static std::string suffix = std::string(RNBO::getversion()) + std::string(RNBO_DYLIB_SUFFIX);
 		return suffix;
 	}
 
@@ -4061,7 +4061,8 @@ void Controller::processCommands() {
 				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix()));
 				//program path_to_generated.cpp libraryName pathToConfigFile
 				std::vector<std::string> args = {
-					sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
+					sourceFile.string(), libName, RNBO::getversion(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
+					//sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
 				};
 				auto cmake = config::get<fs::path>(config::key::CMakePath);
 				if (cmake) {
