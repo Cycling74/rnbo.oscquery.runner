@@ -14,10 +14,9 @@ if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
 endif()
 
-set(RNBO_CONAN_VERSION "" CACHE STRING "Optionally set a RNBO version to get from Conan")
+set(RNBO_CONAN_VERSION "1.4.0-dev.0" CACHE STRING "Set a librnbo version to get from Conan")
 set(RNBO_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting RNBO from Conan")
-mark_as_advanced(RNBO_CONAN_VERSION)
-mark_as_advanced(RNBO_CONAN_TAG)
+set(RNBO_LINK_SHARED False CACHE BOOL "Should we link to a shared library for rnbo (otherwise static)")
 
 set(JACK_CONAN_NAME "jack" CACHE STRING "Optionally set a JACK package name to get from Conan")
 set(JACK_CONAN_VERSION "" CACHE STRING "Optionally set a JACK version to get from Conan")
@@ -27,33 +26,21 @@ mark_as_advanced(JACK_CONAN_VERSION)
 mark_as_advanced(JACK_CONAN_TAG)
 
 #find RNBO
-if (RNBO_CONAN_VERSION)
-	conan_cmake_configure(
-		REQUIRES rnbo/${RNBO_CONAN_VERSION}@${RNBO_CONAN_TAG}
-		GENERATORS cmake_paths
-	)
-	conan_cmake_install(
-		PATH_OR_REFERENCE .
-		BUILD missing
-		SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
-		SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
-		PROFILE_HOST ${CONAN_PROFILE}
-		PROFILE_BUILD default
-	)
-	include(conan_paths)
-	SET(RNBO_DIR ${CONAN_RNBO_ROOT})
-else()
-	find_path(
-		RNBO_DIR
-		NAMES "RNBO.cpp"
-		PATHS
-			${CMAKE_CURRENT_SOURCE_DIR}/../../src/cpp/
-			${CMAKE_CURRENT_SOURCE_DIR}/../rnbo/
-			${CMAKE_CURRENT_SOURCE_DIR}/rnbo/
-		NO_DEFAULT_PATH
-		DOC "Location of the RNBO C++ source code"
-	)
-endif()
+conan_cmake_configure(
+	REQUIRES librnbo/${RNBO_CONAN_VERSION}@${RNBO_CONAN_TAG}
+	GENERATORS cmake_find_package
+		OPTIONS
+		librnbo:shared=${RNBO_LINK_SHARED}
+)
+conan_cmake_install(
+	PATH_OR_REFERENCE .
+	BUILD missing
+	SETTINGS_HOST build_type=${CMAKE_BUILD_TYPE}
+	SETTINGS_BUILD build_type=${CMAKE_BUILD_TYPE}
+	PROFILE_HOST ${CONAN_PROFILE}
+	PROFILE_BUILD default
+)
+find_package(librnbo REQUIRED)
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -65,9 +52,6 @@ option(WITH_JACKSERVER "include jackserver library so we can create an internal 
 set(USE_JACK ON)
 set(JACK_DIR "" CACHE FILEPATH "optional path to specify location for JACK libs/includes")
 mark_as_advanced(JACK_DIR)
-
-set(USE_LIBRNBO FALSE CACHE BOOL "link against librnbo instead of building RNBO.cpp into the project")
-mark_as_advanced(LIBRNBO_DIR)
 
 set(BUILTIN_PATCHER_PATH "" CACHE FILEPATH "path to a rnbo export to build into this runner, useful for debugging")
 mark_as_advanced(BUILTIN_PATCHER_PATH)
@@ -87,11 +71,6 @@ set(USE_SNDFILE_CONAN ${SNDFILECONAN_DEFAULT} CACHE BOOL "should we use libsndfi
 set(USE_MPEG_CONAN ${MPEG_DEFAULT} CACHE BOOL "should we build sndfile with libmpeg when building with conan? Fails in cross compiles")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-
-include("${RNBO_DIR}/version.cmake")
-if (NOT RNBO_VERSION)
-	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
-endif()
 
 #https://stackoverflow.com/questions/1435953/how-can-i-pass-git-sha1-to-compiler-as-definition-using-cmake
 # git commit hash macro
@@ -315,13 +294,6 @@ else()
   add_definitions(-DJACK_SERVER=0)
 endif()
 
-set(LIBRNBO_LIBRARIES)
-if (USE_LIBRNBO)
-	set(LIBRNBO_LIBRARIES rnbo)
-else()
-	list(APPEND PROJECT_SRC ${RNBO_DIR}/RNBO.cpp)
-endif()
-
 find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
 find_package(base64 REQUIRED)
@@ -330,10 +302,7 @@ find_package(SQLiteCpp REQUIRED)
 include_directories(
 	./3rdparty/
 	./common/
-	${RNBO_DIR}
-	"${RNBO_DIR}/common"
-	"${RNBO_DIR}/src"
-	"${RNBO_DIR}/src/3rdparty"
+	${librnbo_INCLUDE_DIRS}
 	${Boost_INCLUDE_DIRS}
 	${cpp-optparse_INCLUDE_DIRS}
 	${libossia_INCLUDE_DIRS}
@@ -386,13 +355,13 @@ FILE(COPY
 )
 
 #package rnbo c++ directory
-FILE(GLOB RNBO_CPP_FILES ${RNBO_DIR}/*)
-FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
+#FILE(GLOB RNBO_CPP_FILES ${RNBO_DIR}/*)
+#FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 
 add_executable(${PROJECT_APP} ${PROJECT_SRC})
 
 target_link_libraries(${PROJECT_APP}
-	${LIBRNBO_LIBRARIES}
+	librnbo::librnbo
 	${Boost_LIBRARIES}
 	${libossia_LIBRARIES}
 	${base64_LIBRARIES}
