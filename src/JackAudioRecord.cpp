@@ -23,6 +23,8 @@ namespace fs = boost::filesystem;
 
 namespace {
 
+	const std::uintmax_t free_bytes_threshold = 104857600; //100MB
+
 	const std::string channels_config_key = "channels";
 	const std::string timeout_config_key = "timeout_seconds";
 	const char * record_port_group = "rnbo-graph-record-sink";
@@ -328,7 +330,8 @@ void JackAudioRecord::write() {
 		}
 
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
-		auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
+		//disabling this for now
+		// auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
 		double sampleratef = static_cast<double>(mSampleRate);
 
 		mDoRecord.store(true); //indicate that we should record
@@ -343,7 +346,8 @@ void JackAudioRecord::write() {
 
 			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
-				std::this_thread::sleep_for(sleepms);
+				//TODO do we want to sleep? we definitely don't want to fill up the buffer..
+				//std::this_thread::sleep_for(sleepms);
 			} else {
 				const size_t samples = frames * channels;
 				mInterlaceBuffer.resize(samples);
@@ -368,6 +372,14 @@ void JackAudioRecord::write() {
 				if (std::abs(secondslast - secondswritten) >= seconds_report_period_s) {
 					mSecondsCapturedParam->push_value(static_cast<float>(secondswritten));
 					secondslast = secondswritten;
+				}
+
+				//TODO how often do we actually want to do this??
+				//exit if we go over our free space threshold
+				fs::space_info space = fs::space(dstdir);
+				if (space.available < free_bytes_threshold) {
+					std::cerr << "available storage space less than byte threshold " << free_bytes_threshold << " ending recording" << std::endl;
+					break;
 				}
 			}
 		}
