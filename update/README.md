@@ -32,11 +32,22 @@ mkdir build && cd build && cmake .. && make && cpack && sudo dpkg -i rnbo-update
 
 ## How to generate the glue files
 
-I do this all on the pi.  Build the project, in the build directory there
-should be an exeuctable called `sdbus-c++-xml2cpp`
+I do this all on the pi. Build the sdbus-cpp project from git.
+
+```
+git checkout https://github.com/Kistler-Group/sdbus-cpp.git
+cd sdbus-cpp
+git checkout v0.8.3
+mkdir build
+cmake .. -DBUILD_CODE_GEN=On && cmake --build . --parallel 8
+```
+
+Should be an exeuctable called `sdbus-c++-xml2cpp` in tools.
+
+From the update directory, run
 
 ```shell
-./sdbus-c++-xml2cpp ../../config/rnbo-update-service-bindings.xml --adaptor=../src/UpdateServiceServerGlue.h --proxy=../../src/UpdateServiceProxyGlue.h
+~/local/src/sdbus-cpp/build/tools/sdbus-c++-xml2cpp ../config/rnbo-update-service-bindings.xml --adaptor=./src/UpdateServiceServerGlue.h --proxy=../src/UpdateServiceProxyGlue.h
 ```
 
 Copy those .h files back to your computer and copy them into their appropriate places
