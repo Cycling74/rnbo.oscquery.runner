@@ -28,7 +28,7 @@ set(RNBO_VERSION "" CACHE STRING "The version of librnbo to link against")
 set(RNBO_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting RNBO from Conan")
 set(RNBO_LINK_SHARED True CACHE BOOL "Should we link to a shared library for rnbo (otherwise static)")
 
-set(USE_CONAN True CACHE BOOL "Optionally use conan for RNBO")
+set(USE_CONAN False CACHE BOOL "Optionally use conan for RNBO")
 
 if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "You must provide a RNBO_VERSION")
@@ -57,7 +57,7 @@ if (USE_CONAN)
 	)
 	find_package(librnbo REQUIRED)
 	include_directories(${librnbo_INCLUDE_DIRS})
-	#target_link_libraries(RNBOso librnbo::librnbo)
+	target_link_libraries(RNBOso librnbo::librnbo)
 else()
 	include_directories(
 		${RNBO_CPP_DIR}

@@ -4059,15 +4059,20 @@ void Controller::processCommands() {
 
 				std::string libName = fs::path(fileName).replace_extension().string();
 				fs::path libPath = fs::absolute(mCompileCache / fs::path(std::string(RNBO_DYLIB_PREFIX) + libName + "." + rnbo_dylib_suffix()));
-				//program path_to_generated.cpp libraryName pathToConfigFile
+				//program path_to_generated.cpp libraryName rnbo_version pathToConfigFile
 				std::vector<std::string> args = {
-					sourceFile.string(), libName, RNBO::getversion(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
-					//sourceFile.string(), libName, config::get<fs::path>(config::key::RnboCPPDir).get().string(), config::get<fs::path>(config::key::CompileCacheDir).get().string()
+					sourceFile.string(),
+					libName,
+					RNBO::getversion(),
+					config::file_path().string(),
 				};
+				//optionally add cmake file
 				auto cmake = config::get<fs::path>(config::key::CMakePath);
 				if (cmake) {
 					args.push_back(cmake.get().string());
 				}
+
+				config::write_file();
 
 				//start compile
 				{

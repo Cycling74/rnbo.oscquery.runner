@@ -7,13 +7,16 @@ require 'fileutils'
 FILE_PATH = File.expand_path(ARGV[0])
 LIB_NAME = ARGV[1]
 RNBO_VERSION = ARGV[2]
-OUTPUT_DIR = File.expand_path(ARGV[3])
+CONFIG_PATH = File.expand_path(ARGV[3])
 CMAKE = ARGV[4] || "cmake"
 
 ENV["CONAN_NON_INTERACTIVE"] = "1"
 
-#validate
-raise "#{OUTPUT_DIR} is not a valid directory" unless Dir.exist?(OUTPUT_DIR)
+raise "#{CONFIG_PATH} is not a valid json file" unless File.exist?(CONFIG_PATH)
+config = JSON.parse(File.read(CONFIG_PATH))
+
+output_dir = config["compile_cache_dir"]
+raise "#{output_dir} is not a valid directory" unless Dir.exist?(output_dir)
 
 so_build_dir = nil
 [File.join(File.expand_path(__dir__), "../share/rnbo/so/"), File.join(File.expand_path(__dir__), "/")].each do |p|
@@ -28,13 +31,21 @@ raise "cannot find CMakeLists.txt" unless so_build_dir
 use_conan = File.exist?(File.join(File.expand_path(__dir__), "../CMakeCache.txt")) ? "True" : "False"
 
 ARGS = [
-	"-DRNBO_CLASS_FILE=#{FILE_PATH}", 
-	"-DRNBO_VERSION=#{RNBO_VERSION}", 
+	"-DRNBO_CLASS_FILE=#{FILE_PATH}",
+	"-DRNBO_VERSION=#{RNBO_VERSION}",
 	"-DLIBRARY_NAME_PREFIX=#{LIB_NAME}",
 	"-DUSE_CONAN=#{use_conan}"
 ]
 
-#compile in a temp directory, then move the shared object to the OUTPUT_DIR
+#setup cpp include dir
+unless use_conan
+	cpp_dir = config["rnbo_cpp_dir"]
+	cpp_dir = "/usr/include/rnbo" unless cpp_dir
+	raise "#{cpp_dir} is not a valid directory" unless Dir.exist?(cpp_dir)
+	ARGS << "-DRNBO_CPP_DIR=#{cpp_dir}"
+end
+
+#compile in a temp directory, then move the shared object to the output_dir
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
     [
@@ -43,6 +54,6 @@ Dir.mktmpdir do |dir|
     ].each do |cmd|
       raise "#{cmd} failed" unless system(cmd)
     end
-    FileUtils.mv(Dir['*.{so,dll,dylib}'], OUTPUT_DIR)
+    FileUtils.mv(Dir['*.{so,dll,dylib}'], output_dir)
   end
 end
