@@ -1305,18 +1305,12 @@ void Instance::queueConfigChangeSignal() {
 	mConfigChanged = true;
 }
 
-bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
+bool Instance::loadDataRef(const std::string& id, const fs::path& filePath) {
 	mCore->releaseExternalData(id.c_str());
 	mDataRefs.erase(id);
-	if (fileName.empty())
+	if (filePath.empty())
 		return true;
 	try {
-		auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
-		if (!dataFileDir) {
-			std::cerr << config::key::DataFileDir << " not in config" << std::endl;
-			return false;
-		}
-		auto filePath = dataFileDir.get() / fs::path(fileName);
 		if (!fs::exists(filePath)) {
 			std::cerr << "no file at " << filePath << std::endl;
 			//TODO clear node value?
@@ -1331,7 +1325,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 
 		//sanity check
 		if (sndfile.channels() < 1 || sndfile.samplerate() < 1.0 || sndfile.frames() < 1) {
-			std::cerr << "sound file needs to have samplerate, frames and channels greater than zero " << fileName <<
+			std::cerr << "sound file needs to have samplerate, frames and channels greater than zero " << filePath.string() <<
 				" samplerate: " << sndfile.samplerate() <<
 				" channels: " << sndfile.channels() <<
 				" frames: " << sndfile.frames() <<
@@ -1365,7 +1359,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 		}
 
 		if (framesRead == 0) {
-			std::cerr << "read zero frames from " << fileName << std::endl;
+			std::cerr << "read zero frames from " << filePath.string() << std::endl;
 			return false;
 		}
 
@@ -1374,7 +1368,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 		//store the mapping so we can persist
 		{
 			std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-			mDataRefFileNameMap[id] = fileName;
+			mDataRefFileNameMap[id] = filePath.filename().string();
 		}
 
 		//set the dataref data
@@ -1384,7 +1378,7 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 				mDataRefCleanupQueue->try_enqueue(data);
 				data.reset();
 				});
-		//std::cout << "loading: " << fileName << " into: " << id << std::endl;
+		//std::cout << "loading: " << filePath.filename().string() << " into: " << id << std::endl;
 		return true;
 	} catch (std::exception& e) {
 		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
@@ -1393,15 +1387,36 @@ bool Instance::loadDataRef(const std::string& id, const std::string& fileName) {
 }
 
 bool Instance::loadDataRefCleanup(const std::string& id, const std::string& fileName) {
-	if (loadDataRef(id, fileName)) {
-		return true;
-	}
 	auto it = mDataRefNodes.find(id);
 	if (it == mDataRefNodes.end()) {
 		std::cerr << "cannot find dataref node with id: " << id << std::endl;
 		return false;
 	}
-	it->second->push_value("");
+
+	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+	if (dataFileDir) {
+		fs::path filePath; 
+		if (fileName.size()) {
+			filePath = dataFileDir.get() / fs::path(fileName);
+			if (!fs::exists(filePath)) {
+				//see about adding ".wav" so users can send 1234 and get 1234.wav
+				filePath = dataFileDir.get() / fs::path(fileName + ".wav");
+				if (fs::exists(filePath)) {
+					it->second->push_value_quiet(filePath.filename().string());
+				} else {
+					it->second->push_value_quiet("");
+					return false;
+				}
+			}
+		}
+		if (loadDataRef(id, filePath)) {
+			return true;
+		}
+	} else {
+		std::cerr << config::key::DataFileDir << " not in config" << std::endl;
+	}
+
+	it->second->push_value_quiet("");
 	return false;
 }
 

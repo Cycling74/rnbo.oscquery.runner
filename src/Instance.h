@@ -182,7 +182,7 @@ class Instance {
 		//called from various threads
 		void queueConfigChangeSignal();
 		//only called at startup or in the processDataRefCommands thread
-		bool loadDataRef(const std::string& id, const std::string& fileName);
+		bool loadDataRef(const std::string& id, const boost::filesystem::path& filePath);
 		//attempts to load the dataref, clears out the oscquery value if it fails
 		bool loadDataRefCleanup(const std::string& id, const std::string& fileName);
 		//serialize dataref to file
