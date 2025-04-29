@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbooscquery LANGUAGES CXX C)
-set(PROJECT_VERSION "2.0.0-beta.0")
+set(RUNNER_VERSION 2) #monotonically increasing release version number, unrelated to librnbo version number but combined to create runner version number
+
 set(PROJECT_APP "rnbooscquery")
 
 #libossia requires 20 and sdbus c++17
@@ -24,6 +25,8 @@ set(JACK_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting JACK from C
 mark_as_advanced(JACK_CONAN_NAME)
 mark_as_advanced(JACK_CONAN_VERSION)
 mark_as_advanced(JACK_CONAN_TAG)
+
+set(PROJECT_VERSION "${RNBO_CONAN_VERSION}-${RUNNER_VERSION}")
 
 #find RNBO
 conan_cmake_configure(
@@ -457,7 +460,8 @@ if (LINUX)
 		#SET(CPACK_PACKAGE_VERSION_PATCH "${RNBO_VERSION_PATCH}")
 
 		#rnbo version might have a 'prerelease' or 'channel' version in it
-		SET(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}")
+		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_CONAN_VERSION}")
+		SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
 		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
@@ -472,10 +476,10 @@ if (LINUX)
 				)
 		endif()
 
-		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+    SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "librnbo (= ${RNBO_CONAN_VERSION}), libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
 
 		if (WITH_DBUS)
 			SET(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libsdbus-c++0 (>= 0.8.3)")
