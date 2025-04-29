@@ -35,6 +35,8 @@ class JackAudioRecord {
 		std::atomic<bool> mRun = true;
 		std::atomic<bool> mWrite = true;
 
+		std::string mFileNameTmpl;
+
 		int mSampleRate = 0;
 		jack_nframes_t mBufferSize = 0;
 		NodeBuilder mBuilder;

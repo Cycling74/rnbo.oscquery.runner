@@ -56,7 +56,7 @@ namespace {
 	template boost::optional<std::string> jconfig_get(const std::string& key);
 }
 
-JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder) { }
+JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder), mFileNameTmpl(default_filename_templ) { }
 JackAudioRecord::~JackAudioRecord() {
 	close();
 	endRecording(true);
@@ -138,6 +138,27 @@ bool JackAudioRecord::open() {
 						} else {
 							endRecording(false); //let thread complete on its own
 						}
+					}
+				});
+			}
+
+			{
+				auto n = mRecordRoot->create_child("capture");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+
+				n->set(ossia::net::description_attribute{}, "Start capturing with the given string as the file name template, empty string gives the default: " + default_filename_templ);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				p->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::STRING) {
+						//stop recording, set template (one shot) and start recording
+						endRecording(true);
+						auto tmpl = val.get<std::string>();
+						if (tmpl.size() == 0) {
+							tmpl = default_filename_templ;
+						}
+						mFileNameTmpl = tmpl;
+						mActiveParam->push_value_quiet(true);
+						startRecording();
 					}
 				});
 			}
@@ -295,7 +316,8 @@ void JackAudioRecord::write() {
 	std::string ext = "wav";
 	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
 	fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
-	std::string tmpl = default_filename_templ;
+	std::string tmpl = mFileNameTmpl;
+	mFileNameTmpl = default_filename_templ; //reset
 
 	fs::path dstfile;
 	{
