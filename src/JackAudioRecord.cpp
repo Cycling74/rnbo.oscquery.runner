@@ -120,7 +120,7 @@ bool JackAudioRecord::open() {
 			//root == "jack"
 			mRecordRoot = root->create_child("record");
 
-			float timeout = jconfig_get<double>(timeout_config_key).value_or(60.0f * 60.0f); //1 hour
+			float timeout = jconfig_get<double>(timeout_config_key).value_or(0.0f); //disabled
 
 			{
 				auto n = mRecordRoot->create_child("active");
