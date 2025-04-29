@@ -19,6 +19,8 @@ endif()
 
 set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
 
+#default to path setup for cloud compiler, the runner appliaction will set this explicitly
+set(RNBO_CPP_DIR ${CMAKE_CURRENT_LIST_DIR}/../../../ CACHE FILEPATH "Location of the RNBO C++ source code")
 set(LIBRARY_NAME_PREFIX "RNBOso" CACHE STRING "A string to use when constructing the library file name")
 set(RNBO_CLASS_FILE "" CACHE FILEPATH "The RNBO generated class file to encapsulate in this library")
 
@@ -26,7 +28,6 @@ set(RNBO_VERSION "" CACHE STRING "The version of librnbo to link against")
 set(RNBO_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting RNBO from Conan")
 set(RNBO_LINK_SHARED True CACHE BOOL "Should we link to a shared library for rnbo (otherwise static)")
 
-set(RNBO_INCLUDE_DIR "/usr/include/rnbo/" CACHE FILEPATH "The location of the rnbo headers")
 set(USE_CONAN True CACHE BOOL "Optionally use conan for RNBO")
 
 if (NOT RNBO_VERSION)
@@ -56,12 +57,12 @@ if (USE_CONAN)
 	)
 	find_package(librnbo REQUIRED)
 	include_directories(${librnbo_INCLUDE_DIRS})
-	target_link_libraries(RNBOso librnbo::librnbo)
+	#target_link_libraries(RNBOso librnbo::librnbo)
 else()
 	include_directories(
-		${RNBO_INCLUDE_DIR}
-		"${RNBO_INCLUDE_DIR}/common"
-		"${RNBO_INCLUDE_DIR}/src"
+		${RNBO_CPP_DIR}
+		"${RNBO_CPP_DIR}/common"
+		"${RNBO_CPP_DIR}/src"
 	)
 
 	#	if (RNBO_LINK_SHARED)
