@@ -454,6 +454,30 @@ Instance::Instance(
 							mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
 				});
 
+				//save logic
+				{
+					//TODO allow configuration
+					std::string templ = "%y%m%dT%H%M%S-" + name;
+					fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+
+					auto savenode = n->create_child("save");
+
+					auto p = savenode->create_parameter(ossia::val_type::STRING);
+					savenode->set(ossia::net::description_attribute{}, "Save the contents of the buffer to a file created given by the string param, empty string will use the template: " + templ);
+					savenode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					p->add_callback([this, name, templ, dstdir](const ossia::value& val) {
+							std::string t;
+							if (val.get_type() == ossia::val_type::STRING) {
+								t = val.get<std::string>();
+							}
+							if (t.size() == 0) {
+								t = templ;
+							}
+							saveDataref(name, dstdir, t);
+					});
+				}
+
+
 				//we want to add this before processing meta
 				mDataRefNodes.emplace(name, d);
 
@@ -1853,41 +1877,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 		if (it != mDataRefNodes.end()) {
 			ossia::net::node_base& n = it->second->get_node();
 
-			//save logic
-			{
-				//TODO configure
-				std::string templ = "%y%m%dT%H%M%S-" + name;
-				fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
-
-				bool dosave = false;
-				if (meta.is_object() && meta.contains("save")) {
-					RNBO::Json& save = meta["save"];
-					if (save.is_boolean()) {
-						dosave = save.get<bool>();
-					} else if (save.is_string()) {
-						templ = save.get<std::string>();
-						dosave = true;
-					}
-				}
-
-				if (dosave) {
-					ossia::net::node_base * savenode = n.find_child("save");
-					if (savenode == nullptr) {
-						savenode = n.create_child("save");
-					} else {
-						savenode->remove_parameter();
-					}
-					auto p = savenode->create_parameter(ossia::val_type::IMPULSE);
-					savenode->set(ossia::net::description_attribute{}, "Save the contents of the buffer to a file created with the template: " + templ);
-					savenode->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
-					p->add_callback([this, name, templ, dstdir](const ossia::value& val) {
-							saveDataref(name, dstdir, templ);
-					});
-				} else {
-					//might not exist
-					n.remove_child("save");
-				}
-			}
+			//TODO update save template??
 		} else {
 			std::cerr << "failed to find dataref node with name: " << name << std::endl;
 		}
