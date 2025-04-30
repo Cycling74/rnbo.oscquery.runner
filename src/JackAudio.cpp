@@ -686,10 +686,7 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 	if (active) {
 		//only force a server if we have done it before or we've never created a client
 		auto createServer = withServer && (mHasCreatedServer || !mHasCreatedClient);
-		auto created = createClient(createServer);
-		if (created)
-			mRecordNode->open();
-		return created;
+		return createClient(createServer);
 	} else {
 		mRecordNode->close();
 		mBuilder([this](ossia::net::node_base * root) {
@@ -1338,6 +1335,9 @@ bool ProcessAudioJack::createClient(bool startServer) {
 	}
 	bool active = mJackClient != nullptr;
 	mAudioActiveParam->push_value(active);
+	if (active) {
+		mRecordNode->open();
+	}
 	return active;
 }
 
