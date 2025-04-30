@@ -6,7 +6,7 @@
 #include <boost/algorithm/string/join.hpp>
 
 namespace {
-	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
+	const std::string LIBRARY_PACKAGE_NAME = "librnbo";
 
 	//https://stackoverflow.com/questions/478898/how-do-i-execute-a-command-and-get-the-output-of-the-command-within-c-using-po
 	bool execLineFunc(const std::string cmd, std::function<void(std::string)> lineFunc) {
@@ -78,18 +78,18 @@ void RnboUpdateService::evaluateCommands() {
 		updateState(RunnerUpdateState::Idle, "querying outdated package count complete");
 		mUpdateOutdated = false;
 	}
-	auto o = mRunnerInstallQueue.tryPop();
+	auto o = mInstallQueue.tryPop();
 	if (o) {
-		std::string packageVersion = RUNNER_PACKAGE_NAME + "=" + o.get();
+		std::string packageVersion = LIBRARY_PACKAGE_NAME + "=" + o.get();
 		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to install anyway");
 		}
 		updateStatus("installing " + packageVersion);
 		auto r = exec("apt-get install -y --install-recommends --install-suggests --allow-change-held-packages --allow-downgrades " + packageVersion);
 		bool success = r.first;
-		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
+		updateStatus("marking " + LIBRARY_PACKAGE_NAME + "hold");
 		//always mark hold
-		exec("apt-mark hold " + RUNNER_PACKAGE_NAME);
+		exec("apt-mark hold " + LIBRARY_PACKAGE_NAME);
 
 		std::string msg = "install of " + packageVersion;
 		if (success) {
@@ -115,8 +115,14 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 	//make sure the version string is valid (so we don't allow injection)
 	if (!validation::version(version))
 		return false;
-	mRunnerInstallQueue.push(version);
+	mInstallQueue.push(version);
 	return true;
+}
+
+bool RnboUpdateService::QueueLibraryInstall(const std::string& version) {
+	if (!validation::version(version))
+		return false;
+	return true; //TODO
 }
 
 void RnboUpdateService::UpdateOutdated() {
@@ -126,6 +132,7 @@ void RnboUpdateService::UpdateOutdated() {
 uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }
 std::string RnboUpdateService::Status() { return mStatus; }
 uint32_t RnboUpdateService::OutdatedPackages() { return mOutdatedPackages; }
+std::string RnboUpdateService::NewRunner() { return mNewRunnerVersion; }
 
 void RnboUpdateService::updateState(RunnerUpdateState state, const std::string status) {
 	mState = state;
