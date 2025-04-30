@@ -366,7 +366,7 @@ void JackAudioRecord::write() {
 		}
 
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
-		auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
+		//auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
 		double sampleratef = static_cast<double>(mSampleRate);
 
 		mDoRecord.store(true); //indicate that we should record
@@ -383,7 +383,8 @@ void JackAudioRecord::write() {
 			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
 				//TODO do we want to sleep? we definitely don't want to fill up the buffer..
-				std::this_thread::sleep_for(sleeptime);
+				//std::this_thread::sleep_for(sleeptime);
+				std::this_thread::yield();
 			} else {
 				const size_t samples = frames * channels;
 				mInterlaceBuffer.resize(samples);
