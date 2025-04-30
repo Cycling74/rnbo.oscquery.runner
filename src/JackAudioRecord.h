@@ -29,8 +29,6 @@ class JackAudioRecord {
 		std::vector<jack_port_t *> mJackAudioPortIn;
 		std::vector<jack_ringbuffer_t *> mRingBuffers;
 
-		std::vector<jack_default_audio_sample_t> mInterlaceBuffer;
-
 		std::atomic<bool> mDoRecord = false;
 		std::atomic<bool> mRun = true;
 		std::atomic<bool> mWrite = true;

@@ -77,6 +77,23 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 	}
 
 	const auto bytesneeded = nframes * sizeof(jack_default_audio_sample_t);
+
+	/*
+	//make sure we have enough space
+	size_t have = SIZE_T_MAX;
+	int retry = 10;
+	do {
+		for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
+			have = std::min(have, jack_ringbuffer_write_space(mRingBuffers[i]));
+		}
+	} while (have < bytesneeded && --retry > 0);
+
+	if (have < bytesneeded) {
+		mBufferFullCount.fetch_add(1);
+		return;
+	}
+	*/
+
 	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
 		auto rb = mRingBuffers[i];
 		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
@@ -322,6 +339,9 @@ void JackAudioRecord::write() {
 		}
 	}
 
+	std::vector<jack_default_audio_sample_t> readBuffer; //read non-interlaced data
+	std::vector<jack_default_audio_sample_t> interlaceBuffer;
+
 	//TODO - make configurable
 	std::string ext = "wav";
 	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
@@ -387,13 +407,26 @@ void JackAudioRecord::write() {
 				std::this_thread::yield();
 			} else {
 				const size_t samples = frames * channels;
-				mInterlaceBuffer.resize(samples);
+				readBuffer.resize(samples);
+				interlaceBuffer.resize(samples);
 
+				//quickly read in the data
+				{
+					const size_t readbytes = frames * sizeof(jack_default_audio_sample_t);
+					size_t offset = 0;
+					for (size_t i = 0; i < channels; i++) {
+						//TODO assert that we've read the bytes we expect?
+						jack_ringbuffer_read(mRingBuffers[i], reinterpret_cast<char *>(readBuffer.data() + offset), readbytes);
+						offset += frames;
+					}
+				}
+
+				//interlace
 				size_t index = 0;
 				for (size_t i = 0; i < frames; i++) {
-					for (auto rb: mRingBuffers) {
-						jack_ringbuffer_read(rb, reinterpret_cast<char *>(mInterlaceBuffer.data() + index), sizeof(jack_default_audio_sample_t));
-						index++;
+					auto offset = i * channels;
+					for (size_t c = 0; c < channels; c++) {
+						interlaceBuffer[offset + c] = readBuffer[i + c * frames];
 					}
 				}
 
@@ -402,7 +435,7 @@ void JackAudioRecord::write() {
 					frames = std::min(frames, timeoutframes - frameswritten);
 				}
 
-				sndfile.writef(mInterlaceBuffer.data(), frames);
+				sndfile.writef(interlaceBuffer.data(), frames);
 				frameswritten += frames;
 
 				secondswritten = static_cast<double>(frameswritten) / sampleratef;
