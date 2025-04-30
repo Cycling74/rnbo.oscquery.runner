@@ -79,23 +79,6 @@ int main(int argc, const char * argv[]) {
 	//initialize the config
 	config::init();
 
-	{
-		auto e = std::getenv("TMPDIR");
-		if (e) {
-			std::cout << "TMPDIR == " << e << std::endl;
-		} else {
-			std::cout << "NO TMPDIR" << std::endl;
-		}
-	}
-	{
-		auto e = std::getenv("SQLITE_TMPDIR");
-		if (e) {
-			std::cout << "SQLITE_TMPDIR == " << e << std::endl;
-		} else {
-			std::cout << "NO SQLITE_TMPDIR" << std::endl;
-		}
-	}
-
 	//write config file and exit
 	if (options.get("write_config")) {
 		config::write_file();
