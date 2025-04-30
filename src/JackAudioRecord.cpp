@@ -99,7 +99,7 @@ bool JackAudioRecord::open() {
 		return true;
 	}
 
-	int channels = std::max(1, jconfig_get<int>(channels_config_key).value_or(1));
+	int channels = std::max(1, jconfig_get<int>(channels_config_key).value_or(2));
 
 	jack_status_t status;
 	mJackClient = jack_client_open("rnbo-record", JackOptions::JackNoStartServer, &status);
