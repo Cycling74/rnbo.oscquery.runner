@@ -32,7 +32,7 @@ namespace {
 	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
 	const double seconds_report_period_s = 0.1; //only report every 100ms
 
-	const jack_nframes_t buffermul = 4; //how many buffers do we store to transfer?
+	const jack_nframes_t buffermul = 8; //how many buffers do we store to transfer?
 
 	static int recordProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
@@ -81,10 +81,7 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 		auto rb = mRingBuffers[i];
 		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
 		if (jack_ringbuffer_write_space(rb) < bytesneeded) {
-#ifdef DEBUG
-			std::cerr << "cannot get bytes needed in " << i << std::endl;
-#endif
-			//XXX report error?
+			mBufferFullCount.fetch_add(1);
 			return;
 		}
 		auto towrite = bytesneeded;
@@ -216,6 +213,14 @@ bool JackAudioRecord::open() {
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 				mSecondsCapturedParam->push_value(0.0);
 			}
+			{
+				auto n = mRecordRoot->create_child("full_count");
+				mBufferFullCountParam = n->create_parameter(ossia::val_type::INT);
+
+				n->set(ossia::net::description_attribute{}, "A count of times that the disk serialization buffer was full while trying to write from the audio thread");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				mBufferFullCountParam->push_value(0);
+			}
 		}
 	});
 
@@ -247,7 +252,12 @@ void JackAudioRecord::close() {
 void JackAudioRecord::startRecording() {
 	endRecording(true);
 
-	//TODO compute timeout
+	//update full count
+	mBufferFullCount.store(0);
+	if (mBufferFullCountParam->value().get<int>() != 0) {
+		mBufferFullCountParam->push_value(0);
+	}
+
 	mWrite.store(true);
 	mWriteThread = std::thread(&JackAudioRecord::write, this);
 }
@@ -316,6 +326,8 @@ void JackAudioRecord::write() {
 	std::string ext = "wav";
 	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
 	fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+	fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
+
 	std::string tmpl = mFileNameTmpl;
 	mFileNameTmpl = default_filename_templ; //reset
 
@@ -325,8 +337,10 @@ void JackAudioRecord::write() {
 		dstfile = dstdir / fs::path(filename + "." + ext);
 	}
 
-	fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / fs::path(std::string("rnborunner-recording.") + ext);
+	fs::path tmpfile = tmpdir / fs::path(std::string("rnborunner-recording.") + ext);
 	fs::create_directories(tmpfile.parent_path());
+	fs::create_directories(dstfile.parent_path());
+
 	boost::system::error_code ec;
 	fs::remove(tmpfile, ec);
 
@@ -352,13 +366,13 @@ void JackAudioRecord::write() {
 		}
 
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
-		//disabling this for now
-		// auto sleepms = std::chrono::milliseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000.0))));
+		auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
 		double sampleratef = static_cast<double>(mSampleRate);
 
 		mDoRecord.store(true); //indicate that we should record
 		size_t frameswritten = 0;
 		double secondswritten = 0.0;
+		int fullreported = 0;
 		while (mWrite.load() && sndfile && (timeoutframes == 0 || frameswritten < timeoutframes)) {
 			//figure out how many bytes we should read
 			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
@@ -369,7 +383,7 @@ void JackAudioRecord::write() {
 			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
 				//TODO do we want to sleep? we definitely don't want to fill up the buffer..
-				//std::this_thread::sleep_for(sleepms);
+				std::this_thread::sleep_for(sleeptime);
 			} else {
 				const size_t samples = frames * channels;
 				mInterlaceBuffer.resize(samples);
@@ -398,11 +412,19 @@ void JackAudioRecord::write() {
 
 				//TODO how often do we actually want to do this??
 				//exit if we go over our free space threshold
-				fs::space_info space = fs::space(dstdir);
-				if (space.available < free_bytes_threshold) {
+				fs::space_info dstspace = fs::space(dstdir);
+				fs::space_info tmpspace = fs::space(tmpdir);
+				if (dstspace.available < free_bytes_threshold || tmpspace.available < free_bytes_threshold) {
 					std::cerr << "available storage space less than byte threshold " << free_bytes_threshold << " ending recording" << std::endl;
 					break;
 				}
+			}
+
+			//update full count
+			int full = mBufferFullCount.load();
+			if (full != fullreported) {
+				fullreported = full;
+				mBufferFullCountParam->push_value(full);
 			}
 		}
 		mSecondsCapturedParam->push_value(static_cast<float>(secondswritten));
@@ -414,6 +436,6 @@ void JackAudioRecord::write() {
 
 	fs::rename(tmpfile, dstfile, ec);
 	if (ec) {
-		std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << std::endl;
+		std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << " with error " << ec.message() << std::endl;
 	}
 }

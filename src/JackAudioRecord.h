@@ -47,6 +47,9 @@ class JackAudioRecord {
 		ossia::net::parameter_base * mChannelsParam = nullptr;
 		ossia::net::parameter_base * mTimeoutParam = nullptr;
 		ossia::net::parameter_base * mSecondsCapturedParam = nullptr;
+		ossia::net::parameter_base * mBufferFullCountParam = nullptr;
+
+		std::atomic<int> mBufferFullCount;
 
 		std::thread mWriteThread;
 };
