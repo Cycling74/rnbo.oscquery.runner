@@ -19,6 +19,8 @@
 #include <chrono>
 #include <iterator>
 
+//#define RNBO_RECORD_SLEEP
+
 namespace fs = boost::filesystem;
 
 namespace {
@@ -78,29 +80,17 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 
 	const auto bytesneeded = nframes * sizeof(jack_default_audio_sample_t);
 
-	/*
-	//make sure we have enough space
-	size_t have = SIZE_T_MAX;
-	int retry = 10;
-	do {
-		for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
-			have = std::min(have, jack_ringbuffer_write_space(mRingBuffers[i]));
+	//first, make sure we have enough space to send a full frame
+	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
+		if (jack_ringbuffer_write_space(mRingBuffers[i]) < bytesneeded) {
+			mBufferFullCount.fetch_add(1);
+			return;
 		}
-	} while (have < bytesneeded && --retry > 0);
-
-	if (have < bytesneeded) {
-		mBufferFullCount.fetch_add(1);
-		return;
 	}
-	*/
 
 	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
 		auto rb = mRingBuffers[i];
 		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
-		if (jack_ringbuffer_write_space(rb) < bytesneeded) {
-			mBufferFullCount.fetch_add(1);
-			return;
-		}
 		auto towrite = bytesneeded;
 		while (towrite) {
 			auto written = jack_ringbuffer_write(rb, data, towrite);
@@ -385,8 +375,10 @@ void JackAudioRecord::write() {
 			return;
 		}
 
+#ifdef RNBO_RECORD_SLEEP
 		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
-		//auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
+		auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
+#endif
 		double sampleratef = static_cast<double>(mSampleRate);
 
 		mDoRecord.store(true); //indicate that we should record
@@ -402,9 +394,12 @@ void JackAudioRecord::write() {
 
 			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
+#ifdef RNBO_RECORD_SLEEP
 				//TODO do we want to sleep? we definitely don't want to fill up the buffer..
-				//std::this_thread::sleep_for(sleeptime);
+				std::this_thread::sleep_for(sleeptime);
+#else
 				std::this_thread::yield();
+#endif
 			} else {
 				const size_t samples = frames * channels;
 				readBuffer.resize(samples);
@@ -415,8 +410,13 @@ void JackAudioRecord::write() {
 					const size_t readbytes = frames * sizeof(jack_default_audio_sample_t);
 					size_t offset = 0;
 					for (size_t i = 0; i < channels; i++) {
-						//TODO assert that we've read the bytes we expect?
-						jack_ringbuffer_read(mRingBuffers[i], reinterpret_cast<char *>(readBuffer.data() + offset), readbytes);
+						char * dst = reinterpret_cast<char *>(readBuffer.data() + offset);
+						size_t toread = readbytes;
+						while (toread) {
+							size_t read = jack_ringbuffer_read(mRingBuffers[i], dst, toread);
+							dst += read;
+							toread -= read;
+						}
 						offset += frames;
 					}
 				}
