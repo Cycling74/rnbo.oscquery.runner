@@ -19,8 +19,6 @@
 #include <chrono>
 #include <iterator>
 
-//#define RNBO_RECORD_SLEEP
-
 namespace fs = boost::filesystem;
 
 namespace {
@@ -96,6 +94,15 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 			auto written = jack_ringbuffer_write(rb, data, towrite);
 			towrite -= written;
 			data += written;
+		}
+	}
+
+	{
+		//signal data ready, non blocking try lock
+		std::unique_lock<std::mutex> writeLock(mDataWriteMutex, std::try_to_lock);
+		if (writeLock.owns_lock()){
+			writeLock.unlock();
+			mDataAvailable.notify_one();
 		}
 	}
 }
@@ -367,6 +374,8 @@ void JackAudioRecord::write() {
 	mSecondsCapturedParam->push_value(0.0);
 
 	{
+		std::unique_lock<std::mutex> writeLock(mDataWriteMutex); //for condition var
+
 		const size_t channels = mRingBuffers.size();
 		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, mSampleRate);
 		if (!sndfile) {
@@ -375,10 +384,6 @@ void JackAudioRecord::write() {
 			return;
 		}
 
-#ifdef RNBO_RECORD_SLEEP
-		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
-		auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
-#endif
 		double sampleratef = static_cast<double>(mSampleRate);
 
 		mDoRecord.store(true); //indicate that we should record
@@ -394,12 +399,7 @@ void JackAudioRecord::write() {
 
 			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
-#ifdef RNBO_RECORD_SLEEP
-				//TODO do we want to sleep? we definitely don't want to fill up the buffer..
-				std::this_thread::sleep_for(sleeptime);
-#else
-				std::this_thread::yield();
-#endif
+				mDataAvailable.wait(writeLock);
 			} else {
 				const size_t samples = frames * channels;
 				readBuffer.resize(samples);
