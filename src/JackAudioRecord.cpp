@@ -18,10 +18,14 @@
 #include <iostream>
 #include <chrono>
 #include <iterator>
+#include <pthread.h>
 
 namespace fs = boost::filesystem;
 
 namespace {
+
+	const int disk_thread_policy = SCHED_FIFO;
+	const int disk_thread_priority = 9; //jack uses 10 for relatime priority
 
 	const std::uintmax_t free_bytes_threshold = 104857600; //100MB
 
@@ -328,6 +332,17 @@ bool JackAudioRecord::resize(int channels) {
 }
 
 void JackAudioRecord::write() {
+	//setup thread priority
+	//TODO what about windows?
+	{
+		sched_param param;
+		param.sched_priority = disk_thread_priority;
+
+		if (pthread_setschedparam(pthread_self(), disk_thread_policy, &param) != 0) {
+			std::cerr << "JackAudioRecord failed to set disk thread priority " << disk_thread_priority << " and policy " << disk_thread_policy << std::endl;
+		}
+	}
+
 	//clear out buffers (not real time)
 	{
 		std::unique_lock<std::mutex> lock(mMutex);
