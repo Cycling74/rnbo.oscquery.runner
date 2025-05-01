@@ -8,7 +8,6 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
-#include <condition_variable>
 
 class JackAudioRecord {
 	public:
@@ -51,7 +50,4 @@ class JackAudioRecord {
 		std::atomic<int> mBufferFullCount;
 
 		std::thread mWriteThread;
-
-		std::mutex mDataWriteMutex;
-		std::condition_variable mDataAvailable;
 };
