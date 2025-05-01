@@ -25,10 +25,12 @@ namespace fs = boost::filesystem;
 namespace {
 
 	const int disk_thread_policy = SCHED_FIFO;
-	const int disk_thread_priority = 9; //jack uses 10 for relatime priority
+	//jack uses 10 for realtime priority
+	const int default_disk_thread_priority = 9;
 
 	const std::uintmax_t free_bytes_threshold = 104857600; //100MB
 
+	const std::string priority_config_key = "read_thread_priority";
 	const std::string channels_config_key = "channels";
 	const std::string timeout_config_key = "timeout_seconds";
 	const char * record_port_group = "rnbo-graph-record-sink";
@@ -335,11 +337,12 @@ void JackAudioRecord::write() {
 	//setup thread priority
 	//TODO what about windows?
 	{
-		sched_param param;
-		param.sched_priority = disk_thread_priority;
+		struct sched_param param;
+		memset(&param, 0, sizeof(param));
+		param.sched_priority = jconfig_get<int>(priority_config_key).value_or(default_disk_thread_priority);
 
 		if (pthread_setschedparam(pthread_self(), disk_thread_policy, &param) != 0) {
-			std::cerr << "JackAudioRecord failed to set disk thread priority " << disk_thread_priority << " and policy " << disk_thread_policy << std::endl;
+			std::cerr << "JackAudioRecord failed to set disk thread priority " << param.sched_priority << " and policy " << disk_thread_policy << std::endl;
 		}
 	}
 
