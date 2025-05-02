@@ -4,6 +4,8 @@ mkdir -p build-rpi && cd build-rpi && rm -fr *
 mkdir -p ~/.conan/profiles/ && cp ../docker/conan-rpi-xcompile-host ~/.conan/profiles/host && cp ../docker/conan-rpi-xcompile-build ~/.conan/profiles/default
 PATH=/opt/cross-pi-gcc/bin:$PATH \
 	cmake -DRNBO_DIR=/build/src/cpp/ \
+	-DRNBO_CONAN_VERSION=${RNBO_CONAN_VERSION} \
+	-DRNBO_CONAN_TAG=${RNBO_CONAN_TAG} \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCONAN_PROFILE=host \
 	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/bookworm-toolchain.cmake \
