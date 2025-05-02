@@ -89,3 +89,7 @@ Discover the details of the service
 ```shell
 dbus-send --system --dest=com.cycling74.rnbo --type=method_call --print-reply /com/cycling74/rnbo org.freedesktop.DBus.Introspectable.Introspect
 ```
+
+## Notes
+
+apt rdepends librnbo=1.4.0-dev.0
