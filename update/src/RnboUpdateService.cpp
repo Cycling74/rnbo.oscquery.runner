@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <functional>
 #include <boost/algorithm/string/join.hpp>
+#include <boost/algorithm/string.hpp>
 
 namespace {
 	const std::string LIBRARY_PACKAGE_NAME = "librnbo";
@@ -65,13 +66,70 @@ void RnboUpdateService::computeOutdated() {
 	}
 }
 
+void RnboUpdateService::findLatestRunner() {
+	int newest = 0;
+
+	//simply list all the versions of rnbooscquery and find versions that start with mLibVersion
+	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
+	execLineFunc("apt-cache madison rnbooscquery", [&newest, this](std::string line) {
+			//example line
+			//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
+			//the first part matches the library version and -2 represents that application version
+			std::vector<std::string> entries;
+			boost::algorithm::split(entries, line, boost::is_any_of(" | "));
+			if (entries.size() > 1 && entries[0] == "rnbooscquery") {
+				std::vector<std::string> versionentries;
+				boost::algorithm::split(versionentries, entries[1], boost::is_any_of("-"));
+				if (versionentries.size() > 1) {
+					std::string appversion = versionentries.back();
+					versionentries.pop_back();
+					std::string version = boost::algorithm::join(versionentries, "-");
+					if (version == mLibVersion) {
+						newest = std::max(newest, std::stoi(appversion));
+					}
+				}
+			}
+	});
+
+	std::string latest = mLibVersion; //fall back to exact match
+	if (newest != 0) {
+		latest = mLibVersion + "-" + std::to_string(newest);
+	} else {
+		std::cerr << "failed to find runner version with version prefix " << mLibVersion << std::endl;
+	}
+
+	if (latest != mLatestRunnerVersion) {
+		mLatestRunnerVersion = latest;
+		emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"LatestRunnerVersion"});
+	}
+}
+
 void RnboUpdateService::evaluateCommands() {
+	bool searchlatest = false; //TODO should this happen every so often anyway?
 	if (mInit) {
 		updateState(RunnerUpdateState::Active, "update service init starting");
 		updatePackages();
 		updateState(RunnerUpdateState::Idle, "update service init complete");
 		mInit = false;
 	}
+
+	{
+		std::unique_lock<std::mutex> guard(mVersionMutex);
+		if (mUseLibVersion != mLibVersion) {
+			mLibVersion = mUseLibVersion;
+			searchlatest = true;
+		}
+	}
+
+	if (searchlatest) {
+		updateState(RunnerUpdateState::Active, "searching for latest runner for librnbo=" + mLibVersion);
+		if (!updatePackages()) {
+			updateStatus("apt-get update failed, attempting to search anyway");
+		}
+		findLatestRunner();
+		updateState(RunnerUpdateState::Idle, "runner search complete");
+	}
+
 	if (mUpdateOutdated) {
 		updateState(RunnerUpdateState::Active, "querying outdated package count");
 		computeOutdated();
@@ -119,10 +177,12 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 	return true;
 }
 
-bool RnboUpdateService::QueueLibraryInstall(const std::string& version) {
+bool RnboUpdateService::UseLibraryVersion(const std::string& version) {
+	std::unique_lock<std::mutex> guard(mVersionMutex);
 	if (!validation::version(version))
 		return false;
-	return true; //TODO
+	mUseLibVersion = version;
+	return true;
 }
 
 void RnboUpdateService::UpdateOutdated() {
@@ -132,7 +192,7 @@ void RnboUpdateService::UpdateOutdated() {
 uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }
 std::string RnboUpdateService::Status() { return mStatus; }
 uint32_t RnboUpdateService::OutdatedPackages() { return mOutdatedPackages; }
-std::string RnboUpdateService::NewRunner() { return mNewRunnerVersion; }
+std::string RnboUpdateService::LatestRunnerVersion() { return mLatestRunnerVersion; }
 
 void RnboUpdateService::updateState(RunnerUpdateState state, const std::string status) {
 	mState = state;

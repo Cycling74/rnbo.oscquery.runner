@@ -6,6 +6,7 @@
 #include "Queue.h"
 #include "RunnerUpdateState.h"
 #include <cstdint>
+#include <mutex>
 
 class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_adaptor, sdbus::Properties_adaptor>
 {
@@ -22,23 +23,28 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		//return true on success
 		bool updatePackages();
 		void computeOutdated();
+		void findLatestRunner();
 
 		//methods
-		virtual bool QueueRunnerInstall(const std::string& version);
-		virtual bool QueueLibraryInstall(const std::string& version);
-		virtual void UpdateOutdated();
+		virtual bool QueueRunnerInstall(const std::string& version) override;
+		virtual bool UseLibraryVersion(const std::string& version) override;
+		virtual void UpdateOutdated() override;
 
 		//properties
-		virtual uint32_t State();
-		virtual std::string Status();
-		virtual uint32_t OutdatedPackages();
-		virtual std::string NewRunner();
+		virtual uint32_t State() override;
+		virtual std::string Status() override;
+		virtual uint32_t OutdatedPackages() override;
+		virtual std::string LatestRunnerVersion() override;
 
 		void updateState(RunnerUpdateState state, const std::string status);
 		void updateStatus(const std::string status);
 
 		RunnerUpdateState mState = RunnerUpdateState::Idle;
 		std::string mStatus = "waiting";
-		std::string mNewRunnerVersion;
+		std::string mLatestRunnerVersion;
 		uint32_t mOutdatedPackages = 0;
+
+		std::mutex mVersionMutex;
+		std::string mUseLibVersion;
+		std::string mLibVersion;
 };
