@@ -27,10 +27,10 @@ protected:
     ~rnbo_proxy() = default;
 
 public:
-    bool QueueLibraryInstall(const std::string& version)
+    bool UseLibraryVersion(const std::string& version)
     {
         bool result;
-        proxy_.callMethod("QueueLibraryInstall").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
+        proxy_.callMethod("UseLibraryVersion").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
         return result;
     }
 
@@ -62,9 +62,9 @@ public:
         return proxy_.getProperty("OutdatedPackages").onInterface(INTERFACE_NAME);
     }
 
-    std::string NewRunner()
+    std::string LatestRunnerVersion()
     {
-        return proxy_.getProperty("NewRunner").onInterface(INTERFACE_NAME);
+        return proxy_.getProperty("LatestRunnerVersion").onInterface(INTERFACE_NAME);
     }
 
 private:
