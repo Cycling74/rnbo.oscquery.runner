@@ -62,15 +62,13 @@ namespace {
 	template boost::optional<std::string> jconfig_get(const std::string& key);
 }
 
-JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder), mFileNameTmpl(default_filename_templ) { }
+JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder), mFileNameTmpl(default_filename_templ), mDataAvailable(0) { }
 JackAudioRecord::~JackAudioRecord() {
 	close();
 	endRecording(true);
 }
 
 void JackAudioRecord::process(jack_nframes_t nframes) {
-	//TODO read MIDI
-
 	if (mDoRecord.load() == false) {
 		return;
 	}
@@ -78,21 +76,22 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 	//try to get ports and ringbuffers, if fail, abort
 	//does not block
 	std::unique_lock<std::mutex> lock(mMutex, std::try_to_lock);
-	if(!lock.owns_lock()){
+	if (!lock.owns_lock()) {
 		return;
 	}
 
 	const auto bytesneeded = nframes * sizeof(jack_default_audio_sample_t);
+	const size_t channels = mJackAudioPortIn.size();
 
 	//first, make sure we have enough space to send a full frame
-	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
+	for (size_t i = 0; i < channels; i++) {
 		if (jack_ringbuffer_write_space(mRingBuffers[i]) < bytesneeded) {
 			mBufferFullCount.fetch_add(1);
 			return;
 		}
 	}
 
-	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
+	for (size_t i = 0; i < channels; i++) {
 		auto rb = mRingBuffers[i];
 		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
 		auto towrite = bytesneeded;
@@ -102,15 +101,7 @@ void JackAudioRecord::process(jack_nframes_t nframes) {
 			data += written;
 		}
 	}
-
-	{
-		//signal data ready, non blocking try lock
-		std::unique_lock<std::mutex> writeLock(mDataWriteMutex, std::try_to_lock);
-		if (writeLock.owns_lock()){
-			writeLock.unlock();
-			mDataAvailable.notify_one();
-		}
-	}
+	mDataAvailable.release();
 }
 
 bool JackAudioRecord::open() {
@@ -392,8 +383,6 @@ void JackAudioRecord::write() {
 	mSecondsCapturedParam->push_value(0.0);
 
 	{
-		std::unique_lock<std::mutex> writeLock(mDataWriteMutex); //for condition var
-
 		const size_t channels = mRingBuffers.size();
 		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, mSampleRate);
 		if (!sndfile) {
@@ -417,7 +406,7 @@ void JackAudioRecord::write() {
 
 			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
 			if (frames == 0) {
-				mDataAvailable.wait(writeLock);
+				mDataAvailable.acquire();
 			} else {
 				const size_t samples = frames * channels;
 				readBuffer.resize(samples);

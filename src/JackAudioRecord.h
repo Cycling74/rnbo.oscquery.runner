@@ -8,7 +8,8 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
-#include <condition_variable>
+
+#include <semaphore>
 
 class JackAudioRecord {
 	public:
@@ -52,6 +53,5 @@ class JackAudioRecord {
 
 		std::thread mWriteThread;
 
-		std::mutex mDataWriteMutex;
-		std::condition_variable mDataAvailable;
+		std::binary_semaphore mDataAvailable;
 };
