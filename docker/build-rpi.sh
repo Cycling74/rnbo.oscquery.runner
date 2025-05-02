@@ -10,3 +10,5 @@ PATH=/opt/cross-pi-gcc/bin:$PATH \
 	-DCONAN_PROFILE=host \
 	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/bookworm-toolchain.cmake \
 	..  && make && cpack
+#install librnbo, which should copy deb to this directory
+#conan install librnbo/${RNBO_CONAN_VERSION}@${RNBO_CONAN_TAG}
