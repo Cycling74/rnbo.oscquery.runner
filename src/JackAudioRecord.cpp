@@ -56,6 +56,10 @@ namespace {
 		return config::set<T>(v, key, ns);
 	}
 
+	std::string inname(int index) {
+		return std::string("in") + std::to_string(index + 1);
+	}
+
 	template boost::optional<int> jconfig_get(const std::string& key);
 	template boost::optional<double> jconfig_get(const std::string& key);
 	template boost::optional<bool> jconfig_get(const std::string& key);
@@ -70,13 +74,6 @@ JackAudioRecord::~JackAudioRecord() {
 
 void JackAudioRecord::process(jack_nframes_t nframes) {
 	if (mDoRecord.load() == false) {
-		return;
-	}
-
-	//try to get ports and ringbuffers, if fail, abort
-	//does not block
-	std::unique_lock<std::mutex> lock(mMutex, std::try_to_lock);
-	if (!lock.owns_lock()) {
 		return;
 	}
 
@@ -120,7 +117,7 @@ bool JackAudioRecord::open() {
 	mBufferSize = jack_get_buffer_size(mJackClient);
 	mSampleRate = jack_get_sample_rate(mJackClient);
 
-	if (!resize(channels)) {
+	if (!resize(channels, false)) {
 		std::cerr << std::string("failed to create ") << channels << " channels" << std::endl;
 		return false;
 	}
@@ -182,7 +179,7 @@ bool JackAudioRecord::open() {
 					endRecording(true);
 					if (val.get_type() == ossia::val_type::INT) {
 						int channels = std::max(1, val.get<int>());
-						resize(channels);
+						resize(channels, true);
 						jconfig_set(channels, channels_config_key);
 					}
 				});
@@ -272,6 +269,7 @@ void JackAudioRecord::startRecording() {
 	mWrite.store(true);
 	mWriteThread = std::thread(&JackAudioRecord::write, this);
 }
+
 void JackAudioRecord::endRecording(bool wait) {
 	mWrite.store(false);
 	if (wait && mWriteThread.joinable()) {
@@ -279,8 +277,30 @@ void JackAudioRecord::endRecording(bool wait) {
 	}
 }
 
-bool JackAudioRecord::resize(int channels) {
-	std::unique_lock<std::mutex> lock(mMutex);
+bool JackAudioRecord::resize(int channels, bool toggleactive) {
+	//dst <- list of sources
+	std::unordered_map<int, std::vector<std::string>> connections;
+	if (toggleactive) {
+		endRecording(true);
+
+		for (auto i = 0; i < mJackAudioPortIn.size(); i++) {
+			std::string n = inname(i);
+			auto port = mJackAudioPortIn[i];
+
+			const char ** names = jack_port_get_connections(port);
+
+			if (names != nullptr) {
+				std::vector<std::string> namelist;
+				for (auto j = 0; names[j] != nullptr; j++) {
+					namelist.push_back(std::string(names[j]));
+				}
+				jack_free(names);
+				connections.emplace(i, namelist);
+			}
+		}
+
+		jack_deactivate(mJackClient);
+	}
 
 	while (mJackAudioPortIn.size() > channels) {
 		auto r = mRingBuffers.back();
@@ -304,8 +324,9 @@ bool JackAudioRecord::resize(int channels) {
 		}
 		jack_ringbuffer_mlock(rb);
 
+		std::string n = inname(i);
 		auto port = jack_port_register(mJackClient,
-				("in" + std::to_string(i + 1)).c_str(),
+				n.c_str(),
 				JACK_DEFAULT_AUDIO_TYPE,
 				JackPortFlags::JackPortIsInput | JackPortFlags::JackPortIsTerminal,
 				0
@@ -321,6 +342,25 @@ bool JackAudioRecord::resize(int channels) {
 		mJackAudioPortIn.push_back(port);
 		mRingBuffers.push_back(rb);
 	}
+
+	//make sure they all have the same amount of space
+	for (i = 0; i < channels; i++) {
+		jack_ringbuffer_reset(mRingBuffers[i]);
+	}
+
+	if (toggleactive) {
+		jack_activate(mJackClient);
+		for (i = 0; i < channels; i++) {
+			auto it = connections.find(i);
+			if (it != connections.end()) {
+				const char * n = jack_port_name(mJackAudioPortIn[i]);
+				for (auto src: it->second) {
+					jack_connect(mJackClient, src.c_str(), n);
+				}
+			}
+		}
+	}
+
 	return true;
 }
 
@@ -337,13 +377,14 @@ void JackAudioRecord::write() {
 		}
 	}
 
+#if 0
 	//clear out buffers (not real time)
 	{
-		std::unique_lock<std::mutex> lock(mMutex);
 		for (auto r: mRingBuffers) {
 			jack_ringbuffer_reset(r);
 		}
 	}
+#endif
 
 	std::vector<jack_default_audio_sample_t> readBuffer; //read non-interlaced data
 	std::vector<jack_default_audio_sample_t> interlaceBuffer;
