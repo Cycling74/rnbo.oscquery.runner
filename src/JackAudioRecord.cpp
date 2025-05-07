@@ -18,7 +18,6 @@
 #include <iostream>
 #include <chrono>
 #include <iterator>
-#include <pthread.h>
 
 namespace fs = boost::filesystem;
 
@@ -38,7 +37,11 @@ namespace {
 	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
 	const double seconds_report_period_s = 0.1; //only report every 100ms
 
-	const jack_nframes_t buffermul = 8; //how many buffers do we store to transfer?
+	//(bytes in float) * number of channels * buffermul * buffer size ~= bytes used for ringbuffer
+	//10 channels with a large buffer size (1024)
+	//4 * 10 * 64 * 1024 = 2.6M of ram.. that isn't much at all so large buffer mul seems fine
+	//32 chans is only ~ 8.4M of ram..
+	const jack_nframes_t buffermul = 64; //how many buffers do we store to transfer?
 
 	static int recordProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
@@ -271,6 +274,7 @@ void JackAudioRecord::startRecording() {
 }
 
 void JackAudioRecord::endRecording(bool wait) {
+	mDoRecord.store(false);
 	mWrite.store(false);
 	if (wait && mWriteThread.joinable()) {
 		mWriteThread.join();
@@ -365,26 +369,19 @@ bool JackAudioRecord::resize(int channels, bool toggleactive) {
 }
 
 void JackAudioRecord::write() {
-	//setup thread priority
-	//TODO what about windows?
 	{
-		struct sched_param param;
-		memset(&param, 0, sizeof(param));
-		param.sched_priority = jconfig_get<int>(priority_config_key).value_or(default_disk_thread_priority);
-
-		if (pthread_setschedparam(pthread_self(), disk_thread_policy, &param) != 0) {
-			std::cerr << "JackAudioRecord failed to set disk thread priority " << param.sched_priority << " and policy " << disk_thread_policy << std::endl;
+		//clear out buffers
+		size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
+		for (size_t i = 1; i < mRingBuffers.size(); i++) {
+			//really these should all be the same value
+			bytes = std::min(bytes, jack_ringbuffer_read_space(mRingBuffers[i]));
 		}
-	}
 
-#if 0
-	//clear out buffers (not real time)
-	{
+		bytes = bytes - (bytes % sizeof(jack_default_audio_sample_t));
 		for (auto r: mRingBuffers) {
-			jack_ringbuffer_reset(r);
+			jack_ringbuffer_read_advance(r, bytes);
 		}
 	}
-#endif
 
 	std::vector<jack_default_audio_sample_t> readBuffer; //read non-interlaced data
 	std::vector<jack_default_audio_sample_t> interlaceBuffer;
