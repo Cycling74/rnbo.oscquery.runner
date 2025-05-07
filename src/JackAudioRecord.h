@@ -7,7 +7,7 @@
 #include <vector>
 #include <atomic>
 #include <thread>
-#include <mutex>
+#include <semaphore>
 
 class JackAudioRecord {
 	public:
@@ -19,13 +19,12 @@ class JackAudioRecord {
 	private:
 		void startRecording();
 		void endRecording(bool wait);
-		bool resize(int channels);
+		bool resize(int channels, bool toggleactive = true);
 
 		void write();
 
 		jack_client_t * mJackClient = nullptr;
 
-		std::mutex mMutex; //around ring and ports
 		std::vector<jack_port_t *> mJackAudioPortIn;
 		std::vector<jack_ringbuffer_t *> mRingBuffers;
 
@@ -50,4 +49,6 @@ class JackAudioRecord {
 		std::atomic<int> mBufferFullCount;
 
 		std::thread mWriteThread;
+
+		std::binary_semaphore mDataAvailable;
 };

@@ -19,14 +19,17 @@
 #include <chrono>
 #include <iterator>
 
-//#define RNBO_RECORD_SLEEP
-
 namespace fs = boost::filesystem;
 
 namespace {
 
+	const int disk_thread_policy = SCHED_FIFO;
+	//jack uses 10 for realtime priority
+	const int default_disk_thread_priority = 9;
+
 	const std::uintmax_t free_bytes_threshold = 104857600; //100MB
 
+	const std::string priority_config_key = "read_thread_priority";
 	const std::string channels_config_key = "channels";
 	const std::string timeout_config_key = "timeout_seconds";
 	const char * record_port_group = "rnbo-graph-record-sink";
@@ -34,7 +37,11 @@ namespace {
 	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
 	const double seconds_report_period_s = 0.1; //only report every 100ms
 
-	const jack_nframes_t buffermul = 8; //how many buffers do we store to transfer?
+	//(bytes in float) * number of channels * buffermul * buffer size ~= bytes used for ringbuffer
+	//10 channels with a large buffer size (1024)
+	//4 * 10 * 128 * 1024 ~ 5.2M of ram.. that isn't much at all so large buffer mul seems fine
+	//32 chans is only ~ 17M of ram..
+	const jack_nframes_t buffermul = 128; //how many buffers do we store to transfer?
 
 	static int recordProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
@@ -52,52 +59,51 @@ namespace {
 		return config::set<T>(v, key, ns);
 	}
 
+	std::string inname(int index) {
+		return std::string("in") + std::to_string(index + 1);
+	}
+
 	template boost::optional<int> jconfig_get(const std::string& key);
 	template boost::optional<double> jconfig_get(const std::string& key);
 	template boost::optional<bool> jconfig_get(const std::string& key);
 	template boost::optional<std::string> jconfig_get(const std::string& key);
 }
 
-JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder), mFileNameTmpl(default_filename_templ) { }
+JackAudioRecord::JackAudioRecord(NodeBuilder builder) : mBuilder(builder), mFileNameTmpl(default_filename_templ), mDataAvailable(0) { }
 JackAudioRecord::~JackAudioRecord() {
 	close();
 	endRecording(true);
 }
 
 void JackAudioRecord::process(jack_nframes_t nframes) {
-	//TODO read MIDI
+	if (mDoRecord.load()) {
+		const auto bytesneeded = nframes * sizeof(jack_default_audio_sample_t);
+		const size_t channels = mJackAudioPortIn.size();
 
-	if (mDoRecord.load() == false) {
-		return;
-	}
+		//first, make sure we have enough space to send a full frame
+		bool full = false;
+		for (size_t i = 0; i < channels; i++) {
+			if (jack_ringbuffer_write_space(mRingBuffers[i]) < bytesneeded) {
+				full = true;
+				mBufferFullCount.fetch_add(1);
+				break;
+			}
+		}
 
-	//try to get ports and ringbuffers, if fail, abort
-	//does not block
-	std::unique_lock<std::mutex> lock(mMutex, std::try_to_lock);
-	if(!lock.owns_lock()){
-		return;
-	}
-
-	const auto bytesneeded = nframes * sizeof(jack_default_audio_sample_t);
-
-	//first, make sure we have enough space to send a full frame
-	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
-		if (jack_ringbuffer_write_space(mRingBuffers[i]) < bytesneeded) {
-			mBufferFullCount.fetch_add(1);
-			return;
+		if (!full) {
+			for (size_t i = 0; i < channels; i++) {
+				auto rb = mRingBuffers[i];
+				auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
+				auto towrite = bytesneeded;
+				while (towrite) {
+					auto written = jack_ringbuffer_write(rb, data, towrite);
+					towrite -= written;
+					data += written;
+				}
+			}
 		}
 	}
-
-	for (size_t i = 0; i < mJackAudioPortIn.size(); i++) {
-		auto rb = mRingBuffers[i];
-		auto data = reinterpret_cast<char *>(jack_port_get_buffer(mJackAudioPortIn[i], nframes));
-		auto towrite = bytesneeded;
-		while (towrite) {
-			auto written = jack_ringbuffer_write(rb, data, towrite);
-			towrite -= written;
-			data += written;
-		}
-	}
+	mDataAvailable.release(); //always release because the write thread might be waiting
 }
 
 bool JackAudioRecord::open() {
@@ -116,7 +122,7 @@ bool JackAudioRecord::open() {
 	mBufferSize = jack_get_buffer_size(mJackClient);
 	mSampleRate = jack_get_sample_rate(mJackClient);
 
-	if (!resize(channels)) {
+	if (!resize(channels, false)) {
 		std::cerr << std::string("failed to create ") << channels << " channels" << std::endl;
 		return false;
 	}
@@ -178,7 +184,7 @@ bool JackAudioRecord::open() {
 					endRecording(true);
 					if (val.get_type() == ossia::val_type::INT) {
 						int channels = std::max(1, val.get<int>());
-						resize(channels);
+						resize(channels, true);
 						jconfig_set(channels, channels_config_key);
 					}
 				});
@@ -268,15 +274,39 @@ void JackAudioRecord::startRecording() {
 	mWrite.store(true);
 	mWriteThread = std::thread(&JackAudioRecord::write, this);
 }
+
 void JackAudioRecord::endRecording(bool wait) {
+	mDoRecord.store(false);
 	mWrite.store(false);
 	if (wait && mWriteThread.joinable()) {
 		mWriteThread.join();
 	}
 }
 
-bool JackAudioRecord::resize(int channels) {
-	std::unique_lock<std::mutex> lock(mMutex);
+bool JackAudioRecord::resize(int channels, bool toggleactive) {
+	//dst <- list of sources
+	std::unordered_map<int, std::vector<std::string>> connections;
+	if (toggleactive) {
+		endRecording(true);
+
+		for (auto i = 0; i < mJackAudioPortIn.size(); i++) {
+			std::string n = inname(i);
+			auto port = mJackAudioPortIn[i];
+
+			const char ** names = jack_port_get_connections(port);
+
+			if (names != nullptr) {
+				std::vector<std::string> namelist;
+				for (auto j = 0; names[j] != nullptr; j++) {
+					namelist.push_back(std::string(names[j]));
+				}
+				jack_free(names);
+				connections.emplace(i, namelist);
+			}
+		}
+
+		jack_deactivate(mJackClient);
+	}
 
 	while (mJackAudioPortIn.size() > channels) {
 		auto r = mRingBuffers.back();
@@ -300,8 +330,9 @@ bool JackAudioRecord::resize(int channels) {
 		}
 		jack_ringbuffer_mlock(rb);
 
+		std::string n = inname(i);
 		auto port = jack_port_register(mJackClient,
-				("in" + std::to_string(i + 1)).c_str(),
+				n.c_str(),
 				JACK_DEFAULT_AUDIO_TYPE,
 				JackPortFlags::JackPortIsInput | JackPortFlags::JackPortIsTerminal,
 				0
@@ -317,15 +348,40 @@ bool JackAudioRecord::resize(int channels) {
 		mJackAudioPortIn.push_back(port);
 		mRingBuffers.push_back(rb);
 	}
+
+	//make sure they all have the same amount of space
+	for (i = 0; i < channels; i++) {
+		jack_ringbuffer_reset(mRingBuffers[i]);
+	}
+
+	if (toggleactive) {
+		jack_activate(mJackClient);
+		for (i = 0; i < channels; i++) {
+			auto it = connections.find(i);
+			if (it != connections.end()) {
+				const char * n = jack_port_name(mJackAudioPortIn[i]);
+				for (auto src: it->second) {
+					jack_connect(mJackClient, src.c_str(), n);
+				}
+			}
+		}
+	}
+
 	return true;
 }
 
 void JackAudioRecord::write() {
-	//clear out buffers (not real time)
 	{
-		std::unique_lock<std::mutex> lock(mMutex);
+		//clear out buffers
+		size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
+		for (size_t i = 1; i < mRingBuffers.size(); i++) {
+			//really these should all be the same value
+			bytes = std::min(bytes, jack_ringbuffer_read_space(mRingBuffers[i]));
+		}
+
+		bytes = bytes - (bytes % sizeof(jack_default_audio_sample_t));
 		for (auto r: mRingBuffers) {
-			jack_ringbuffer_reset(r);
+			jack_ringbuffer_read_advance(r, bytes);
 		}
 	}
 
@@ -368,6 +424,62 @@ void JackAudioRecord::write() {
 
 	{
 		const size_t channels = mRingBuffers.size();
+		const double sampleratef = static_cast<double>(mSampleRate);
+		size_t frameswritten = 0;
+		double secondswritten = 0.0;
+		auto readwrite = [this, channels, sampleratef, &frameswritten, &secondswritten, &timeoutframes](SndfileHandle& sndfile, std::vector<jack_default_audio_sample_t>& readBuffer, std::vector<jack_default_audio_sample_t>& interlaceBuffer) -> bool {
+			//figure out how many bytes we should read
+			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
+			for (size_t i = 1; i < channels; i++) {
+				bytes = std::min(bytes, jack_ringbuffer_read_space(mRingBuffers[i]));
+			}
+
+			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
+			if (frames == 0) {
+				return false;
+			}
+
+			const size_t samples = frames * channels;
+			readBuffer.resize(samples);
+			interlaceBuffer.resize(samples);
+
+			//quickly read in the data
+			{
+				const size_t readbytes = frames * sizeof(jack_default_audio_sample_t);
+				size_t offset = 0;
+				for (size_t i = 0; i < channels; i++) {
+					char * dst = reinterpret_cast<char *>(readBuffer.data() + offset);
+					size_t toread = readbytes;
+					while (toread) {
+						size_t read = jack_ringbuffer_read(mRingBuffers[i], dst, toread);
+						dst += read;
+						toread -= read;
+					}
+					offset += frames;
+				}
+			}
+
+			//interlace
+			size_t index = 0;
+			for (size_t i = 0; i < frames; i++) {
+				auto offset = i * channels;
+				for (size_t c = 0; c < channels; c++) {
+					interlaceBuffer[offset + c] = readBuffer[i + c * frames];
+				}
+			}
+
+			//don't read more frames than requested
+			if (timeoutframes > 0) {
+				frames = std::min(frames, timeoutframes - frameswritten);
+			}
+
+			//TODO assert frames
+			sndfile.writef(interlaceBuffer.data(), frames);
+			frameswritten += frames;
+			secondswritten = static_cast<double>(frameswritten) / sampleratef;
+			return true;
+		};
+
 		SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, mSampleRate);
 		if (!sndfile) {
 			std::cerr << "error opening temp sndfile: " << tmpfile.string() << std::endl;
@@ -375,70 +487,11 @@ void JackAudioRecord::write() {
 			return;
 		}
 
-#ifdef RNBO_RECORD_SLEEP
-		//TODO what should the huristic be for sleep time? currently doing 1/8 of a buffer
-		auto sleeptime = std::chrono::microseconds(std::max(1, static_cast<int>(ceil(static_cast<double>(mBufferSize) / static_cast<double>(mSampleRate) / 8.0 * 1000000.0))));
-#endif
-		double sampleratef = static_cast<double>(mSampleRate);
+		int fullreported = 0;
 
 		mDoRecord.store(true); //indicate that we should record
-		size_t frameswritten = 0;
-		double secondswritten = 0.0;
-		int fullreported = 0;
 		while (mWrite.load() && sndfile && (timeoutframes == 0 || frameswritten < timeoutframes)) {
-			//figure out how many bytes we should read
-			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
-			for (size_t i = 1; i < mRingBuffers.size(); i++) {
-				bytes = std::min(bytes, jack_ringbuffer_read_space(mRingBuffers[i]));
-			}
-
-			size_t frames = (bytes - (bytes % sizeof(jack_default_audio_sample_t))) / sizeof(jack_default_audio_sample_t);
-			if (frames == 0) {
-#ifdef RNBO_RECORD_SLEEP
-				//TODO do we want to sleep? we definitely don't want to fill up the buffer..
-				std::this_thread::sleep_for(sleeptime);
-#else
-				std::this_thread::yield();
-#endif
-			} else {
-				const size_t samples = frames * channels;
-				readBuffer.resize(samples);
-				interlaceBuffer.resize(samples);
-
-				//quickly read in the data
-				{
-					const size_t readbytes = frames * sizeof(jack_default_audio_sample_t);
-					size_t offset = 0;
-					for (size_t i = 0; i < channels; i++) {
-						char * dst = reinterpret_cast<char *>(readBuffer.data() + offset);
-						size_t toread = readbytes;
-						while (toread) {
-							size_t read = jack_ringbuffer_read(mRingBuffers[i], dst, toread);
-							dst += read;
-							toread -= read;
-						}
-						offset += frames;
-					}
-				}
-
-				//interlace
-				size_t index = 0;
-				for (size_t i = 0; i < frames; i++) {
-					auto offset = i * channels;
-					for (size_t c = 0; c < channels; c++) {
-						interlaceBuffer[offset + c] = readBuffer[i + c * frames];
-					}
-				}
-
-				//don't read more frames than requested
-				if (timeoutframes > 0) {
-					frames = std::min(frames, timeoutframes - frameswritten);
-				}
-
-				sndfile.writef(interlaceBuffer.data(), frames);
-				frameswritten += frames;
-
-				secondswritten = static_cast<double>(frameswritten) / sampleratef;
+			if (readwrite(sndfile, readBuffer, interlaceBuffer)) {
 				if (std::abs(secondslast - secondswritten) >= seconds_report_period_s) {
 					mSecondsCapturedParam->push_value(static_cast<float>(secondswritten));
 					secondslast = secondswritten;
@@ -452,6 +505,8 @@ void JackAudioRecord::write() {
 					std::cerr << "available storage space less than byte threshold " << free_bytes_threshold << " ending recording" << std::endl;
 					break;
 				}
+			} else {
+				mDataAvailable.acquire();
 			}
 
 			//update full count
@@ -461,9 +516,12 @@ void JackAudioRecord::write() {
 				mBufferFullCountParam->push_value(full);
 			}
 		}
+		mDoRecord.store(false); //incase of time out, also set from user callback
+
+		//read any remaining data in the buffers
+		readwrite(sndfile, readBuffer, interlaceBuffer);
 		mSecondsCapturedParam->push_value(static_cast<float>(secondswritten));
 	}
-	mDoRecord.store(false);
 	if (mActiveParam->value().get<bool>()) {
 		mActiveParam->push_value_quiet(false);
 	}
