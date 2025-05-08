@@ -36,6 +36,8 @@ class JackAudioRecord {
 
 		int mSampleRate = 0;
 		jack_nframes_t mBufferSize = 0;
+		size_t mRingBufferBytes = 0;
+
 		NodeBuilder mBuilder;
 
 		ossia::net::node_base * mRecordRoot = nullptr;

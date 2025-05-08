@@ -22,6 +22,8 @@
 namespace fs = boost::filesystem;
 
 namespace {
+	//min number of seconds per channel that we buffer while recording
+	const double buffer_seconds = 1.0;
 
 	const int disk_thread_policy = SCHED_FIFO;
 	//jack uses 10 for realtime priority
@@ -36,12 +38,6 @@ namespace {
 
 	const std::string default_filename_templ = "%y%m%dT%H%M%S-captured";
 	const double seconds_report_period_s = 0.1; //only report every 100ms
-
-	//(bytes in float) * number of channels * buffermul * buffer size ~= bytes used for ringbuffer
-	//10 channels with a large buffer size (1024)
-	//4 * 10 * 128 * 1024 ~ 5.2M of ram.. that isn't much at all so large buffer mul seems fine
-	//32 chans is only ~ 17M of ram..
-	const jack_nframes_t buffermul = 128; //how many buffers do we store to transfer?
 
 	static int recordProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<JackAudioRecord *>(arg)->process(nframes);
@@ -121,6 +117,12 @@ bool JackAudioRecord::open() {
 
 	mBufferSize = jack_get_buffer_size(mJackClient);
 	mSampleRate = jack_get_sample_rate(mJackClient);
+
+	{
+		//get at least a second of buffer time, a power of 2 multiplier
+		size_t mul = static_cast<size_t>(pow(2.0, ceil(log2(ceil(buffer_seconds * static_cast<double>(mSampleRate) / static_cast<double>(mBufferSize))))));
+		mRingBufferBytes = mul * mBufferSize * sizeof(jack_default_audio_sample_t);
+	}
 
 	if (!resize(channels, false)) {
 		std::cerr << std::string("failed to create ") << channels << " channels" << std::endl;
@@ -319,9 +321,9 @@ bool JackAudioRecord::resize(int channels, bool toggleactive) {
 	}
 
 	unsigned int i = mJackAudioPortIn.size();
-	auto bufferbytes = mBufferSize * buffermul * sizeof(jack_default_audio_sample_t);
+
 	for (; i < channels; i++) {
-		auto rb = jack_ringbuffer_create(bufferbytes);
+		auto rb = jack_ringbuffer_create(mRingBufferBytes);
 		//shouldn't happen
 		if (rb == nullptr) {
 			jack_client_close(mJackClient);
