@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbooscquery LANGUAGES CXX C)
-set(RUNNER_VERSION 2) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
+set(RUNNER_VERSION 3) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
 
 set(PROJECT_APP "rnbooscquery")
 
