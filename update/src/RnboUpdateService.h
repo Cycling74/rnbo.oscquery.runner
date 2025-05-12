@@ -47,4 +47,5 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		std::mutex mVersionMutex;
 		std::string mUseLibVersion;
 		std::string mLibVersion;
+		bool mSearchRunnerVersion = false;
 };

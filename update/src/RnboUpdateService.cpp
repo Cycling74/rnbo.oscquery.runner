@@ -7,7 +7,7 @@
 #include <boost/algorithm/string.hpp>
 
 namespace {
-	const std::string LIBRARY_PACKAGE_NAME = "librnbo";
+	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
 
 	//https://stackoverflow.com/questions/478898/how-do-i-execute-a-command-and-get-the-output-of-the-command-within-c-using-po
 	bool execLineFunc(const std::string cmd, std::function<void(std::string)> lineFunc) {
@@ -115,6 +115,8 @@ void RnboUpdateService::evaluateCommands() {
 
 	{
 		std::unique_lock<std::mutex> guard(mVersionMutex);
+		searchlatest = mSearchRunnerVersion;
+		mSearchRunnerVersion = false;
 		if (mUseLibVersion != mLibVersion) {
 			mLibVersion = mUseLibVersion;
 			searchlatest = true;
@@ -138,16 +140,16 @@ void RnboUpdateService::evaluateCommands() {
 	}
 	auto o = mInstallQueue.tryPop();
 	if (o) {
-		std::string packageVersion = LIBRARY_PACKAGE_NAME + "=" + o.get();
+		std::string packageVersion = RUNNER_PACKAGE_NAME + "=" + o.get();
 		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to install anyway");
 		}
 		updateStatus("installing " + packageVersion);
 		auto r = exec("apt-get install -y --install-recommends --install-suggests --allow-change-held-packages --allow-downgrades " + packageVersion);
 		bool success = r.first;
-		updateStatus("marking " + LIBRARY_PACKAGE_NAME + "hold");
+		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
 		//always mark hold
-		exec("apt-mark hold " + LIBRARY_PACKAGE_NAME);
+		exec("apt-mark hold " + RUNNER_PACKAGE_NAME);
 
 		std::string msg = "install of " + packageVersion;
 		if (success) {
@@ -182,6 +184,8 @@ bool RnboUpdateService::UseLibraryVersion(const std::string& version) {
 	if (!validation::version(version))
 		return false;
 	mUseLibVersion = version;
+	//always search for the latest runner verison even if we don't change library versions
+	mSearchRunnerVersion = true;
 	return true;
 }
 
