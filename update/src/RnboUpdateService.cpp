@@ -19,7 +19,7 @@ namespace {
 			throw std::runtime_error("popen() failed!");
 		}
 		while (fgets(buffer.data(), buffer.size(), pipe) != nullptr) {
-			std::cout << buffer.data() << std::endl;
+			std::cout << buffer.data();
 			lineFunc(buffer.data());
 		}
 		return WEXITSTATUS(pclose(pipe)) == 0;
@@ -76,24 +76,36 @@ void RnboUpdateService::findLatestRunner() {
 			//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
 			//the first part matches the library version and -2 represents that application version
 			std::vector<std::string> entries;
-			boost::algorithm::split(entries, line, boost::is_any_of(" | "));
-			if (entries.size() > 1 && entries[0] == "rnbooscquery") {
-				std::vector<std::string> versionentries;
-				boost::algorithm::split(versionentries, entries[1], boost::is_any_of("-"));
-				if (versionentries.size() > 1) {
-					std::string appversion = versionentries.back();
-					versionentries.pop_back();
-					std::string version = boost::algorithm::join(versionentries, "-");
-					if (version == mLibVersion) {
-						newest = std::max(newest, std::stoi(appversion));
-					}
+			boost::algorithm::split(entries, line, boost::is_any_of("|"));
+			if (entries.size() > 1) {
+				std::string prefix = entries[0];
+				std::string version = entries[1];
+				boost::trim(prefix);
+				boost::trim(version);
+
+				if (prefix != RUNNER_PACKAGE_NAME) {
+					return;
 				}
+
+				std::vector<std::string> versionentries;
+				boost::algorithm::split(versionentries, version, boost::is_any_of("-"));
+				if (versionentries.size() > 1) {
+					try {
+						std::string appversion = versionentries.back();
+						versionentries.pop_back();
+						std::string v = boost::algorithm::join(versionentries, "-");
+						if (v == mLibVersion) {
+							newest = std::max(newest, std::stoi(appversion));
+						}
+					} catch (...) {}
+				} 
 			}
 	});
 
 	std::string latest = mLibVersion; //fall back to exact match
 	if (newest != 0) {
 		latest = mLibVersion + "-" + std::to_string(newest);
+		std::cout << "found rnbooscquery=" << latest << std::endl;
 	} else {
 		std::cerr << "failed to find runner version with version prefix " << mLibVersion << std::endl;
 	}
