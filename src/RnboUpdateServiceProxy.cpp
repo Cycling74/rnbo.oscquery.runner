@@ -50,6 +50,18 @@ void RnboUpdateServiceProxy::setOutdatedPackagesCallback(std::function<void(uint
 	}
 }
 
+void RnboUpdateServiceProxy::setLatestRunnerVersionCallback(std::function<void(std::string)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mLatestRunnerVersionCallback = cb;
+	if (cb) {
+		try {
+			std::string val = getProxy().getProperty("LatestRunnerVersion").onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			cb(val);
+		} catch (...) {
+		}
+	}
+}
+
 void RnboUpdateServiceProxy::onPropertiesChanged(
 		const std::string& interfaceName,
 		const std::map<std::string, sdbus::Variant>& changedProperties,
@@ -70,6 +82,10 @@ void RnboUpdateServiceProxy::onPropertiesChanged(
 		} else if (key == "OutdatedPackages") {
 			if (mOutdatedPackagesCallback && var.containsValueOfType<uint32_t>()) {
 				mOutdatedPackagesCallback(var.get<uint32_t>());
+			}
+		} else if (key == "LatestRunnerVersion") {
+			if (mLatestRunnerVersionCallback && var.containsValueOfType<std::string>()) {
+				mLatestRunnerVersionCallback(var.get<std::string>());
 			}
 		}
 	}

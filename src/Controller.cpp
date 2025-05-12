@@ -838,6 +838,9 @@ Controller::Controller(std::string server_name) {
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
 #endif
+#if RNBO_USE_DBUS
+			"use_rnbo_library",
+#endif
 			"instance_load-multi",
 			"patcherstore",
 			"patcherfilestore"
@@ -1676,7 +1679,18 @@ Controller::Controller(std::string server_name) {
 				p->push_value(-1);
 				mUpdateServiceProxy->setOutdatedPackagesCallback([p](uint32_t cnt) mutable { p->push_value(static_cast<int>(cnt)); });
 			}
+
+			{
+				auto n = update->create_child("latest_runner_version");
+				auto p = mLatestRunnerVersion = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A version string indicating the latest runner that can be installed with a given RNBO library version");
+				mUpdateServiceProxy->setLatestRunnerVersionCallback([p](std::string version) mutable { p->push_value(version); });
+			}
+
 			supports_install = true;
+
+			mUpdateServiceProxy->UseLibraryVersion(rnbo_version);
 		} catch (const std::exception& e) {
 			cerr << "exception caught " << e.what() << endl;
 			//reset shared ptrs as we use them later to decide if we should try to update or poll
@@ -3908,6 +3922,47 @@ void Controller::registerCommands() {
 #endif
 			}
 	});
+
+#ifdef RNBO_USE_DBUS
+	mCommandHandlers.insert({
+			"use_rnbo_library",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				if (!mUpdateServiceProxy) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
+					return;
+				}
+				if (!params.is_object() || !params.contains("version")) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
+					return;
+				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(InstallProgramStatus::Received)},
+					{"message", "signaling update service"},
+					{"progress", 10}
+				});
+				//clear out latest runner
+				if (mLatestRunnerVersion) {
+					mLatestRunnerVersion->push_value("");
+				}
+
+				std::string version = params["version"];
+				try {
+					if (!mUpdateServiceProxy->UseLibraryVersion(version)) {
+						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+						return;
+					}
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
+							{"message", "using given rnbo library version"},
+							{"progress", 100}
+					});
+				} catch (...) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
+					return;
+				}
+			}
+	});
+#endif
 
 }
 

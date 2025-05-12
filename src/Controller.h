@@ -220,5 +220,6 @@ class Controller {
 
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
+		ossia::net::parameter_base * mLatestRunnerVersion = nullptr;
 #endif
 };
