@@ -3940,10 +3940,6 @@ void Controller::registerCommands() {
 					{"message", "signaling update service"},
 					{"progress", 10}
 				});
-				//clear out latest runner
-				if (mLatestRunnerVersion) {
-					mLatestRunnerVersion->push_value("");
-				}
 
 				std::string version = params["version"];
 				try {
