@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbooscquery LANGUAGES CXX C)
-set(RUNNER_VERSION 3) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
+set(RUNNER_VERSION 4) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
 
 set(PROJECT_APP "rnbooscquery")
 
@@ -510,8 +510,8 @@ if (LINUX)
 		endif()
 
 		#packages that are also installed by default but don't have to be
-		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.1.1)")
-		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (= 0.1.0)")
+		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.3.0)")
+		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (< 0.3.0)")
 
 		#packages that are suggested
 		SET(CPACK_DEBIAN_PACKAGE_SUGGESTS "jack_transport_link")
