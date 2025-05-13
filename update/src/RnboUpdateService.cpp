@@ -98,7 +98,7 @@ void RnboUpdateService::findLatestRunner() {
 							newest = std::max(newest, std::stoi(appversion));
 						}
 					} catch (...) {}
-				} 
+				}
 			}
 	});
 
