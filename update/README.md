@@ -78,7 +78,7 @@ dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo o
 Tell the service to use a specific library version:
 
 ```shell
-dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.UseLibraryVersion string:"1.4.0-dev.0"
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.UseLibraryVersion string:"1.4.0-dev.153"
 ```
 
 Tell the service to install a specific version of the runner:

@@ -68,10 +68,11 @@ void RnboUpdateService::computeOutdated() {
 
 void RnboUpdateService::findLatestRunner() {
 	int newest = 0;
+	bool exact = false; //if there is an exact match
 
 	//simply list all the versions of rnbooscquery and find versions that start with mLibVersion
 	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
-	execLineFunc("apt-cache madison rnbooscquery", [&newest, this](std::string line) {
+	execLineFunc("apt-cache madison rnbooscquery", [&newest, &exact, this](std::string line) {
 			//example line
 			//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
 			//the first part matches the library version and -2 represents that application version
@@ -84,6 +85,11 @@ void RnboUpdateService::findLatestRunner() {
 				boost::trim(version);
 
 				if (prefix != RUNNER_PACKAGE_NAME) {
+					return;
+				}
+
+				if (version == mLibVersion) {
+					exact = true;
 					return;
 				}
 
@@ -106,7 +112,7 @@ void RnboUpdateService::findLatestRunner() {
 	if (newest != 0) {
 		latest = mLibVersion + "-" + std::to_string(newest);
 		std::cout << "found rnbooscquery=" << latest << std::endl;
-	} else {
+	} else if (!exact) {
 		std::cerr << "failed to find runner version with version prefix " << mLibVersion << std::endl;
 	}
 
