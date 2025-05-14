@@ -6,5 +6,6 @@ PATH=/opt/cross-pi-gcc/bin:$PATH \
 	cmake -DRNBO_DIR=/build/src/cpp/ \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCONAN_PROFILE=host \
+	-DINCLUDE_RUNNER_VERSION=Off \
 	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/bookworm-toolchain.cmake \
 	..  && make && cpack

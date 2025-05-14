@@ -29,6 +29,9 @@ mark_as_advanced(JACK_CONAN_NAME)
 mark_as_advanced(JACK_CONAN_VERSION)
 mark_as_advanced(JACK_CONAN_TAG)
 
+set(INCLUDE_RUNNER_VERSION On CACHE BOOL "should the runner version include the numeric suffix")
+mark_as_advanced(INCLUDE_RUNNER_VERSION)
+
 #find RNBO
 if (RNBO_CONAN_VERSION)
 	conan_cmake_configure(
@@ -93,7 +96,11 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
-set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_VERSION}")
+if (INCLUDE_RUNNER_VERSION)
+	set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_VERSION}")
+else()
+	set(PROJECT_VERSION "${RNBO_VERSION}")
+endif()
 
 #https://stackoverflow.com/questions/1435953/how-can-i-pass-git-sha1-to-compiler-as-definition-using-cmake
 # git commit hash macro
@@ -485,7 +492,9 @@ if (LINUX)
 
 		#rnbo version might have a 'prerelease' or 'channel' version in it
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
-		SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
+		if (INCLUDE_RUNNER_VERSION)
+			SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
+		endif()
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
 		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
@@ -500,7 +509,11 @@ if (LINUX)
 				)
 		endif()
 
-		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		if (INCLUDE_RUNNER_VERSION)
+			SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		else()
+			SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		endif()
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
 		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
