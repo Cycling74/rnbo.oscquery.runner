@@ -218,8 +218,14 @@ class Controller {
 
     std::string mSystemPrettyName;
 
+		ossia::net::node_base * mUpdateNode = nullptr;
+		ossia::net::parameter_base * mUpdateSupportedParam = nullptr;
 #ifdef RNBO_USE_DBUS
 		std::shared_ptr<RnboUpdateServiceProxy> mUpdateServiceProxy;
 		ossia::net::parameter_base * mLatestRunnerVersion = nullptr;
+		bool setupUpdateService();
+
+		std::chrono::duration<int> mUpdateServicePollPeriod = std::chrono::seconds(10);
+		std::chrono::time_point<std::chrono::steady_clock> mUpdateServicePollNext;
 #endif
 };
