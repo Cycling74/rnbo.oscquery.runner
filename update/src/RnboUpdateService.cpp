@@ -57,7 +57,7 @@ bool RnboUpdateService::updatePackages() {
 void RnboUpdateService::computeOutdated() {
 	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 	uint32_t cnt = 0;
-	execLineFunc("apt-get -q -y -s dist-upgrade", [&cnt](std::string line) {
+	execLineFunc("apt-get -q -y -s upgrade", [&cnt](std::string line) {
 		//lines that start with Inst are installations
 		if (line.rfind("Inst", 0) == 0) {
 			cnt++;
