@@ -34,6 +34,7 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
     virtual bool QueueJackTransportLinkInstall(const std::string& version) override;
 		virtual bool UseLibraryVersion(const std::string& version) override;
 		virtual void UpdateOutdated() override;
+		virtual void Upgrade() override;
 
 		//properties
 		virtual uint32_t State() override;
@@ -59,4 +60,5 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		std::string mUseLibVersion;
 		std::string mLibVersion;
 		bool mSearchRunnerVersion = false;
+		bool mUpgrade = false;
 };

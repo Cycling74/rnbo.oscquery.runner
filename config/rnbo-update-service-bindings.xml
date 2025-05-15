@@ -19,6 +19,7 @@
             <arg type="b" name="queued" direction="out"/>
         </method>
 				<method name="UpdateOutdated" />
+				<method name="Upgrade" />
 
 				<property name="State" type="u" access="read"/>
 				<property name="Status" type="s" access="read"/>

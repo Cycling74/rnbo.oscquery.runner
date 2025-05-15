@@ -844,6 +844,7 @@ Controller::Controller(std::string server_name) {
 			"latest_runner_panel_version",
 			"latest_jack_transport_link_version",
 			"new_update_service_version",
+			"upgrade",
 #endif
 			"instance_load-multi",
 			"patcherstore",
@@ -3879,6 +3880,8 @@ void Controller::registerCommands() {
 							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
 							return;
 						}
+					} else if (package == "all") {
+						mUpdateServiceProxy->Upgrade();
 					} else {
 						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "unknown package for install: " + package);
 						return;

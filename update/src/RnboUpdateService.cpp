@@ -155,13 +155,27 @@ bool RnboUpdateService::QueueInstall(std::string package, const std::string& ver
 void RnboUpdateService::evaluateCommands() {
 	bool searchlatestrunner = false; //TODO should this happen every so often anyway?
 	bool searchlatestdeps = false; //TODO should this happen every so often anyway?
-	
+
 	if (mInit) {
 		updateState(RunnerUpdateState::Active, "update service init starting");
 		updatePackages();
 		updateState(RunnerUpdateState::Idle, "update service init complete");
 		mInit = false;
 		searchlatestdeps = true;
+	}
+
+	if (mUpgrade) {
+		mUpgrade = false;
+		updateState(RunnerUpdateState::Active, "update service upgrading");
+		bool success = false; 
+		std::string msg = "apt-get update failed";
+		if (updatePackages()) {
+			setenv("DEBIAN_FRONTEND", "noninteractive", 1);
+			success = exec("apt-get -y upgrade").first;
+			msg = std::string("apt-get upgrade ") + std::string(success ? "success" : "failed");
+		}
+		updateState(success ? RunnerUpdateState::Idle : RunnerUpdateState::Failed, msg);
+		mUpdateOutdated = true;
 	}
 
 	{
@@ -278,6 +292,10 @@ bool RnboUpdateService::UseLibraryVersion(const std::string& version) {
 
 void RnboUpdateService::UpdateOutdated() {
 	mUpdateOutdated = true;
+}
+
+void RnboUpdateService::Upgrade() {
+	mUpgrade = true;
 }
 
 uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }

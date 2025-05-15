@@ -27,6 +27,7 @@ protected:
         object_.registerMethod("QueueRunnerPanelInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueRunnerPanelInstall(version); });
         object_.registerMethod("QueueJackTransportLinkInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueJackTransportLinkInstall(version); });
         object_.registerMethod("UpdateOutdated").onInterface(INTERFACE_NAME).implementedAs([this](){ return this->UpdateOutdated(); });
+        object_.registerMethod("Upgrade").onInterface(INTERFACE_NAME).implementedAs([this](){ return this->Upgrade(); });
         object_.registerProperty("State").onInterface(INTERFACE_NAME).withGetter([this](){ return this->State(); });
         object_.registerProperty("Status").onInterface(INTERFACE_NAME).withGetter([this](){ return this->Status(); });
         object_.registerProperty("OutdatedPackages").onInterface(INTERFACE_NAME).withGetter([this](){ return this->OutdatedPackages(); });
@@ -44,6 +45,7 @@ private:
     virtual bool QueueRunnerPanelInstall(const std::string& version) = 0;
     virtual bool QueueJackTransportLinkInstall(const std::string& version) = 0;
     virtual void UpdateOutdated() = 0;
+    virtual void Upgrade() = 0;
 
 private:
     virtual uint32_t State() = 0;

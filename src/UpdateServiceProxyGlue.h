@@ -60,6 +60,11 @@ public:
         proxy_.callMethod("UpdateOutdated").onInterface(INTERFACE_NAME);
     }
 
+    void Upgrade()
+    {
+        proxy_.callMethod("Upgrade").onInterface(INTERFACE_NAME);
+    }
+
 public:
     uint32_t State()
     {

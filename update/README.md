@@ -95,11 +95,18 @@ dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo 
 dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerPanelInstall string:"2.1.1-beta.12"
 ```
 
+Tell the service to upgrade all updateable packages
+
+```shell
+dbus-send --system --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.Upgrade
+```
+
 osc to the runner
 ```
 oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "1.4.0-xnor-runner-version.2"}}'
 oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "0.0.9-1", "package": "jack_transport_link"}}'
 oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "2.1.1-beta.12", "package": "rnbo-runner-panel"}}'
+oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "foo", "package": "all"}}'
 ```
 
 Discover the details of the service
