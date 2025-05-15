@@ -523,8 +523,8 @@ if (LINUX)
 		endif()
 
 		#packages that are also installed by default but don't have to be
-		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.3.0), rnbo-runner-panel (>= 2.1.1)")
-		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (<< 0.3.0)")
+		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.3.2), rnbo-runner-panel (>= 2.1.1)")
+		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (<< 0.3.2)")
 
 		#packages that are suggested
 		SET(CPACK_DEBIAN_PACKAGE_SUGGESTS "jack_transport_link")
