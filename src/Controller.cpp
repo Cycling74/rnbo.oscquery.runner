@@ -4389,6 +4389,30 @@ bool Controller::setupUpdateService() {
 				mUpdateServiceProxy->setLatestRunnerVersionCallback([p](std::string version) mutable { p->push_value(version); });
 			}
 
+			{
+				auto n = mUpdateNode->create_child("latest_runner_panel_version");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A version string indicating the latest rnbo-runner-pannel version that can be installed");
+				mUpdateServiceProxy->setLatestRunnerPanelVersionCallback([p](std::string version) mutable { p->push_value(version); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("latest_jack_transport_link_version");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A version string indicating the latest jack_transport_link version that can be installed");
+				mUpdateServiceProxy->setLatestJackTransportLinkVersionCallback([p](std::string version) mutable { p->push_value(version); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("new_update_service_version");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A version string indicating that there is a new rnbo-update-service version that can be installed");
+				mUpdateServiceProxy->setNewUpdateServiceVersionCallback([p](std::string version) mutable { p->push_value(version); });
+			}
+
 			mUpdateServiceProxy->UseLibraryVersion(rnbo_version);
 			return true;
 		}	catch (const sdbus::Error& e) {

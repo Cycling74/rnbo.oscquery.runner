@@ -53,9 +53,31 @@ void RnboUpdateServiceProxy::setOutdatedPackagesCallback(std::function<void(uint
 void RnboUpdateServiceProxy::setLatestRunnerVersionCallback(std::function<void(std::string)> cb) {
 	std::lock_guard<std::mutex> guard(mCallbackMutex);
 	mLatestRunnerVersionCallback = cb;
+	tryCall("LatestRunnerVersion", cb);
+}
+
+void RnboUpdateServiceProxy::setLatestRunnerPanelVersionCallback(std::function<void(std::string)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mLatestRunnerPanelVersionCallback = cb;
+	tryCall("LatestRunnerPanelVersion", cb);
+}
+
+void RnboUpdateServiceProxy::setLatestJackTransportLinkVersionCallback(std::function<void(std::string)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mLatestJackTransportLinkVersionCallback = cb;
+	tryCall("LatestJackTransportLinkVersion", cb);
+}
+
+void RnboUpdateServiceProxy::setNewUpdateServiceVersionCallback(std::function<void(std::string)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mNewUpdateServiceVersionCallback = cb;
+	tryCall("NewUpdateServiceVersion", cb);
+}
+
+void RnboUpdateServiceProxy::tryCall(const std::string& property, std::function<void(std::string)> cb) {
 	if (cb) {
 		try {
-			std::string val = getProxy().getProperty("LatestRunnerVersion").onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			std::string val = getProxy().getProperty(property).onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
 			cb(val);
 		} catch (...) {
 		}
@@ -86,6 +108,18 @@ void RnboUpdateServiceProxy::onPropertiesChanged(
 		} else if (key == "LatestRunnerVersion") {
 			if (mLatestRunnerVersionCallback && var.containsValueOfType<std::string>()) {
 				mLatestRunnerVersionCallback(var.get<std::string>());
+			}
+		} else if (key == "LatestRunnerPanelVersion") {
+			if (mLatestRunnerPanelVersionCallback && var.containsValueOfType<std::string>()) {
+				mLatestRunnerPanelVersionCallback(var.get<std::string>());
+			}
+		} else if (key == "LatestJackTransportLinkVersion") {
+			if (mLatestJackTransportLinkVersionCallback && var.containsValueOfType<std::string>()) {
+				mLatestJackTransportLinkVersionCallback(var.get<std::string>());
+			}
+		} else if (key == "NewUpdateServiceVersion") {
+			if (mNewUpdateServiceVersionCallback && var.containsValueOfType<std::string>()) {
+				mNewUpdateServiceVersionCallback(var.get<std::string>());
 			}
 		}
 	}
