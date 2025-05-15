@@ -41,6 +41,13 @@ public:
         return result;
     }
 
+    bool QueueRunnerPanelInstall(const std::string& version)
+    {
+        bool result;
+        proxy_.callMethod("QueueRunnerPanelInstall").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
+        return result;
+    }
+
     void UpdateOutdated()
     {
         proxy_.callMethod("UpdateOutdated").onInterface(INTERFACE_NAME);
@@ -65,6 +72,16 @@ public:
     std::string LatestRunnerVersion()
     {
         return proxy_.getProperty("LatestRunnerVersion").onInterface(INTERFACE_NAME);
+    }
+
+    std::string LatestRunnerPanelVersion()
+    {
+        return proxy_.getProperty("LatestRunnerPanelVersion").onInterface(INTERFACE_NAME);
+    }
+
+    std::string NewUpdateServiceVersion()
+    {
+        return proxy_.getProperty("NewUpdateServiceVersion").onInterface(INTERFACE_NAME);
     }
 
 private:
