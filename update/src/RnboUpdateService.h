@@ -24,9 +24,14 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		bool updatePackages();
 		void computeOutdated();
 		void findLatestRunner();
+		std::string findLatest(std::string package);
+
+    bool QueueInstall(std::string package, const std::string& version);
 
 		//methods
 		virtual bool QueueRunnerInstall(const std::string& version) override;
+    virtual bool QueueRunnerPanelInstall(const std::string& version) override;
+    virtual bool QueueJackTransportLinkInstall(const std::string& version) override;
 		virtual bool UseLibraryVersion(const std::string& version) override;
 		virtual void UpdateOutdated() override;
 
@@ -35,6 +40,9 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		virtual std::string Status() override;
 		virtual uint32_t OutdatedPackages() override;
 		virtual std::string LatestRunnerVersion() override;
+    virtual std::string LatestRunnerPanelVersion() override;
+    virtual std::string LatestJackTransportLinkVersion() override;
+    virtual std::string NewUpdateServiceVersion() override;
 
 		void updateState(RunnerUpdateState state, const std::string status);
 		void updateStatus(const std::string status);
@@ -42,6 +50,9 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		RunnerUpdateState mState = RunnerUpdateState::Idle;
 		std::string mStatus = "waiting";
 		std::string mLatestRunnerVersion;
+		std::string mLatestRunnerPanelVersion;
+		std::string mLatestJackTransportLinkVersion;
+		std::string mNewUpdateServiceVersion;
 		uint32_t mOutdatedPackages = 0;
 
 		std::mutex mVersionMutex;

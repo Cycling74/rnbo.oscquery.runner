@@ -1,4 +1,4 @@
-# rnbo-update-service
+#o rnbo-update-service
 
 This is a systemd based service for Linux that provides a
 [DBus](https://www.freedesktop.org/wiki/Software/dbus/) interface and lets us
@@ -73,6 +73,9 @@ dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo o
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:Status
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:OutdatedPackages
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:LatestRunnerVersion
+dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:LatestRunnerPanelVersion
+dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:LatestJackTransportLinkVersion
+dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:NewUpdateServiceVersion
 ```
 
 Tell the service to use a specific library version:
@@ -85,6 +88,11 @@ Tell the service to install a specific version of the runner:
 
 ```shell
 dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerInstall string:"0.9.0-alpha.0"
+```
+
+```shell
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueJackTransportLinkInstall string:"0.0.9-1"
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerPanelInstall string:"2.1.1-beta.12"
 ```
 
 osc to the runner

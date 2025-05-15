@@ -48,6 +48,13 @@ public:
         return result;
     }
 
+    bool QueueJackTransportLinkInstall(const std::string& version)
+    {
+        bool result;
+        proxy_.callMethod("QueueJackTransportLinkInstall").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
+        return result;
+    }
+
     void UpdateOutdated()
     {
         proxy_.callMethod("UpdateOutdated").onInterface(INTERFACE_NAME);
@@ -77,6 +84,11 @@ public:
     std::string LatestRunnerPanelVersion()
     {
         return proxy_.getProperty("LatestRunnerPanelVersion").onInterface(INTERFACE_NAME);
+    }
+
+    std::string LatestJackTransportLinkVersion()
+    {
+        return proxy_.getProperty("LatestJackTransportLinkVersion").onInterface(INTERFACE_NAME);
     }
 
     std::string NewUpdateServiceVersion()

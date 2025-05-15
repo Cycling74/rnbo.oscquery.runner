@@ -8,6 +8,9 @@
 
 namespace {
 	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
+	const std::string RUNNER_PANEL_PACKAGE_NAME = "rnbo-runner-panel";
+	const std::string JACK_TRANSPORT_LINK_NAME = "jack_transport_link";
+	const std::string UPDATE_SERVICE_PACKAGE_NAME = "rnbo-update-service";
 
 	//https://stackoverflow.com/questions/478898/how-do-i-execute-a-command-and-get-the-output-of-the-command-within-c-using-po
 	bool execLineFunc(const std::string cmd, std::function<void(std::string)> lineFunc) {
@@ -122,32 +125,64 @@ void RnboUpdateService::findLatestRunner() {
 	}
 }
 
+std::string RnboUpdateService::findLatest(std::string package) {
+	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
+	std::string candidate;
+	std::string installed;
+	execLineFunc("apt-cache policy " + package, [&candidate, &installed](std::string line) {
+			boost::trim(line);
+			const std::string chead = "Candidate: ";
+			const std::string ihead = "Installed: ";
+			if (line.rfind(chead, 0) == 0) {
+				candidate = line.substr(chead.size());
+			} else if (line.rfind(ihead, 0) == 0) {
+				installed = line.substr(ihead.size());
+			}
+	});
+	if (candidate == installed)
+		return std::string();
+	return candidate;
+}
+
+bool RnboUpdateService::QueueInstall(std::string package, const std::string& version) {
+	//make sure the version string is valid (so we don't allow injection)
+	if (!validation::version(version))
+		return false;
+	mInstallQueue.push(package + "=" + version);
+	return true;
+}
+
 void RnboUpdateService::evaluateCommands() {
-	bool searchlatest = false; //TODO should this happen every so often anyway?
+	bool searchlatestrunner = false; //TODO should this happen every so often anyway?
+	bool searchlatestdeps = false; //TODO should this happen every so often anyway?
+	
 	if (mInit) {
 		updateState(RunnerUpdateState::Active, "update service init starting");
 		updatePackages();
 		updateState(RunnerUpdateState::Idle, "update service init complete");
 		mInit = false;
+		searchlatestdeps = true;
 	}
 
 	{
 		std::unique_lock<std::mutex> guard(mVersionMutex);
-		searchlatest = mSearchRunnerVersion;
+		searchlatestrunner = mSearchRunnerVersion;
 		mSearchRunnerVersion = false;
 		if (mUseLibVersion != mLibVersion) {
 			mLibVersion = mUseLibVersion;
-			searchlatest = true;
+			searchlatestrunner = true;
 		}
 	}
 
-	if (searchlatest) {
+	if (searchlatestrunner) {
 		updateState(RunnerUpdateState::Active, "searching for latest runner for librnbo=" + mLibVersion);
 		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to search anyway");
 		}
 		findLatestRunner();
 		updateState(RunnerUpdateState::Idle, "runner search complete");
+
+		searchlatestdeps = true;
 	}
 
 	if (mUpdateOutdated) {
@@ -158,16 +193,19 @@ void RnboUpdateService::evaluateCommands() {
 	}
 	auto o = mInstallQueue.tryPop();
 	if (o) {
-		std::string packageVersion = RUNNER_PACKAGE_NAME + "=" + o.get();
+		std::string packageVersion = o.get();
 		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to install anyway");
 		}
 		updateStatus("installing " + packageVersion);
 		auto r = exec("apt-get install -y --install-recommends --install-suggests --allow-change-held-packages --allow-downgrades " + packageVersion);
 		bool success = r.first;
-		updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
-		//always mark hold
-		exec("apt-mark hold " + RUNNER_PACKAGE_NAME);
+
+		if (packageVersion.rfind(RUNNER_PACKAGE_NAME, 0) == 0) {
+			updateStatus("marking " + RUNNER_PACKAGE_NAME + "hold");
+			//always mark hold
+			exec("apt-mark hold " + RUNNER_PACKAGE_NAME);
+		}
 
 		std::string msg = "install of " + packageVersion;
 		if (success) {
@@ -186,15 +224,46 @@ void RnboUpdateService::evaluateCommands() {
 			}
 		}
 		updateState(success ? RunnerUpdateState::Idle : RunnerUpdateState::Failed, msg);
+		if (success) {
+			searchlatestdeps = true;
+		}
+	}
+
+	if (searchlatestdeps) {
+		{
+			auto latest = findLatest(RUNNER_PANEL_PACKAGE_NAME);
+			if (mLatestRunnerPanelVersion != latest) {
+				mLatestRunnerPanelVersion = latest;
+				emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"LatestRunnerPanelVersion"});
+			}
+		}
+		{
+			auto latest = findLatest(JACK_TRANSPORT_LINK_NAME);
+			if (mLatestJackTransportLinkVersion != latest) {
+				mLatestJackTransportLinkVersion = latest;
+				emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"LatestJackTransportLinkVersion"});
+			}
+		}
+		{
+			auto latest = findLatest(UPDATE_SERVICE_PACKAGE_NAME);
+			if (mNewUpdateServiceVersion != latest) {
+				mNewUpdateServiceVersion = latest;
+				emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"NewUpdateServiceVersion"});
+			}
+		}
 	}
 }
 
 bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
-	//make sure the version string is valid (so we don't allow injection)
-	if (!validation::version(version))
-		return false;
-	mInstallQueue.push(version);
-	return true;
+	return QueueInstall(RUNNER_PACKAGE_NAME, version);
+}
+
+bool RnboUpdateService::QueueRunnerPanelInstall(const std::string& version) {
+	return QueueInstall(RUNNER_PANEL_PACKAGE_NAME, version);
+}
+
+bool RnboUpdateService::QueueJackTransportLinkInstall(const std::string& version) {
+	return QueueInstall(JACK_TRANSPORT_LINK_NAME, version);
 }
 
 bool RnboUpdateService::UseLibraryVersion(const std::string& version) {
@@ -215,6 +284,9 @@ uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }
 std::string RnboUpdateService::Status() { return mStatus; }
 uint32_t RnboUpdateService::OutdatedPackages() { return mOutdatedPackages; }
 std::string RnboUpdateService::LatestRunnerVersion() { return mLatestRunnerVersion; }
+std::string RnboUpdateService::LatestRunnerPanelVersion() { return mLatestRunnerPanelVersion; }
+std::string RnboUpdateService::LatestJackTransportLinkVersion() { return mLatestJackTransportLinkVersion; }
+std::string RnboUpdateService::NewUpdateServiceVersion() { return mNewUpdateServiceVersion; }
 
 void RnboUpdateService::updateState(RunnerUpdateState state, const std::string status) {
 	mState = state;
