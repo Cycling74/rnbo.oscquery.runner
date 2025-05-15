@@ -97,7 +97,9 @@ dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo 
 
 osc to the runner
 ```
-oscsend osc.udp://xnor-rnbo-rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "0.9.0-alpha.1"}}'
+oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "1.4.0-xnor-runner-version.2"}}'
+oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "0.0.9-1", "package": "jack_transport_link"}}'
+oscsend osc.udp://c74rpi.local:1234 /rnbo/cmd s '{"id": "fake-uuid", "method": "install", "params": {"version": "2.1.1-beta.12", "package": "rnbo-runner-panel"}}'
 ```
 
 Discover the details of the service

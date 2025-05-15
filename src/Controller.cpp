@@ -3855,9 +3855,28 @@ void Controller::registerCommands() {
 					{"progress", 10}
 				});
 				std::string version = params["version"];
+				std::string package = "rnbooscquery";
+				if (params.contains("package")) {
+					package = params["package"].get<std::string>();
+				}
 				try {
-					if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
-						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+					if (package == "rnbooscquery") {
+						if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
+							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+							return;
+						}
+					} else if (package == "rnbo-runner-panel") {
+						if (!mUpdateServiceProxy->QueueRunnerPanelInstall(version)) {
+							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+							return;
+						}
+					} else if (package == "jack_transport_link") {
+						if (!mUpdateServiceProxy->QueueJackTransportLinkInstall(version)) {
+							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+							return;
+						}
+					} else {
+						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "unknown package for install: " + package);
 						return;
 					}
 					reportCommandResult(id, {
