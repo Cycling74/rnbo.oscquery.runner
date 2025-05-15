@@ -840,6 +840,10 @@ Controller::Controller(std::string server_name) {
 #endif
 #if RNBO_USE_DBUS
 			"use_rnbo_library",
+			"latest_runner_version",
+			"latest_runner_panel_version",
+			"latest_jack_transport_link_version",
+			"new_update_service_version",
 #endif
 			"instance_load-multi",
 			"patcherstore",
