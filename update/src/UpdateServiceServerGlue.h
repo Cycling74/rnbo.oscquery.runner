@@ -22,28 +22,25 @@ protected:
     rnbo_adaptor(sdbus::IObject& object)
         : object_(object)
     {
-        object_.registerMethod("UseLibraryVersion").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("using").implementedAs([this](const std::string& version){ return this->UseLibraryVersion(version); });
+        object_.registerMethod("UseLibraryVersion").onInterface(INTERFACE_NAME).withInputParamNames("version", "dependencies").withOutputParamNames("using").implementedAs([this](const std::string& version, const std::vector<std::string>& dependencies){ return this->UseLibraryVersion(version, dependencies); });
         object_.registerMethod("QueueRunnerInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueRunnerInstall(version); });
-        object_.registerMethod("QueueRunnerPanelInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueRunnerPanelInstall(version); });
-        object_.registerMethod("QueueJackTransportLinkInstall").onInterface(INTERFACE_NAME).withInputParamNames("version").withOutputParamNames("queued").implementedAs([this](const std::string& version){ return this->QueueJackTransportLinkInstall(version); });
+        object_.registerMethod("QueueInstall").onInterface(INTERFACE_NAME).withInputParamNames("packagename", "version").withOutputParamNames("queued").implementedAs([this](const std::string& packagename, const std::string& version){ return this->QueueInstall(packagename, version); });
         object_.registerMethod("UpdateOutdated").onInterface(INTERFACE_NAME).implementedAs([this](){ return this->UpdateOutdated(); });
         object_.registerMethod("Upgrade").onInterface(INTERFACE_NAME).implementedAs([this](){ return this->Upgrade(); });
         object_.registerProperty("State").onInterface(INTERFACE_NAME).withGetter([this](){ return this->State(); });
         object_.registerProperty("Status").onInterface(INTERFACE_NAME).withGetter([this](){ return this->Status(); });
         object_.registerProperty("OutdatedPackages").onInterface(INTERFACE_NAME).withGetter([this](){ return this->OutdatedPackages(); });
         object_.registerProperty("LatestRunnerVersion").onInterface(INTERFACE_NAME).withGetter([this](){ return this->LatestRunnerVersion(); });
-        object_.registerProperty("LatestRunnerPanelVersion").onInterface(INTERFACE_NAME).withGetter([this](){ return this->LatestRunnerPanelVersion(); });
-        object_.registerProperty("LatestJackTransportLinkVersion").onInterface(INTERFACE_NAME).withGetter([this](){ return this->LatestJackTransportLinkVersion(); });
         object_.registerProperty("NewUpdateServiceVersion").onInterface(INTERFACE_NAME).withGetter([this](){ return this->NewUpdateServiceVersion(); });
+        object_.registerProperty("DependencyUpdates").onInterface(INTERFACE_NAME).withGetter([this](){ return this->DependencyUpdates(); });
     }
 
     ~rnbo_adaptor() = default;
 
 private:
-    virtual bool UseLibraryVersion(const std::string& version) = 0;
+    virtual bool UseLibraryVersion(const std::string& version, const std::vector<std::string>& dependencies) = 0;
     virtual bool QueueRunnerInstall(const std::string& version) = 0;
-    virtual bool QueueRunnerPanelInstall(const std::string& version) = 0;
-    virtual bool QueueJackTransportLinkInstall(const std::string& version) = 0;
+    virtual bool QueueInstall(const std::string& packagename, const std::string& version) = 0;
     virtual void UpdateOutdated() = 0;
     virtual void Upgrade() = 0;
 
@@ -52,9 +49,8 @@ private:
     virtual std::string Status() = 0;
     virtual uint32_t OutdatedPackages() = 0;
     virtual std::string LatestRunnerVersion() = 0;
-    virtual std::string LatestRunnerPanelVersion() = 0;
-    virtual std::string LatestJackTransportLinkVersion() = 0;
     virtual std::string NewUpdateServiceVersion() = 0;
+    virtual std::vector<sdbus::Struct<std::string, std::string>> DependencyUpdates() = 0;
 
 private:
     sdbus::IObject& object_;

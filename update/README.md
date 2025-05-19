@@ -32,25 +32,24 @@ mkdir build && cd build && cmake .. && make && cpack && sudo dpkg -i rnbo-update
 
 ## How to generate the glue files
 
-I do this all on the pi. Build the sdbus-cpp project from git.
+Download [sdbus-cpp](https://github.com/Kistler-Group/sdbus-cpp/releases/tag/v0.8.3)
+
+Build
 
 ```
-git checkout https://github.com/Kistler-Group/sdbus-cpp.git
-cd sdbus-cpp
-git checkout v0.8.3
+cd sdbus-cpp/tools/
 mkdir build
-cmake .. -DBUILD_CODE_GEN=On && cmake --build . --parallel 8
+cmake -DCMAKE_INSTALL_PREFIX=~/local .. && cmake --build . --parallel 8
+cmake --install .
 ```
 
-Should be an exeuctable called `sdbus-c++-xml2cpp` in tools.
+Should be an exeuctable called `sdbus-c++-xml2cpp`
 
-From the update directory, run
+From the update directory, run:
 
 ```shell
-~/local/src/sdbus-cpp/build/tools/sdbus-c++-xml2cpp ../config/rnbo-update-service-bindings.xml --adaptor=./src/UpdateServiceServerGlue.h --proxy=../src/UpdateServiceProxyGlue.h
+sdbus-c++-xml2cpp ../config/rnbo-update-service-bindings.xml --adaptor=./src/UpdateServiceServerGlue.h --proxy=../src/UpdateServiceProxyGlue.h
 ```
-
-Copy those .h files back to your computer and copy them into their appropriate places
 
 ## Testing
 
@@ -73,15 +72,14 @@ dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo o
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:Status
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:OutdatedPackages
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:LatestRunnerVersion
-dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:LatestRunnerPanelVersion
-dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:LatestJackTransportLinkVersion
+dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:DependencyUpdates
 dbus-send --system --print-reply --dest=com.cycling74.rnbo /com/cycling74/rnbo org.freedesktop.DBus.Properties.Get string:com.cycling74.rnbo string:NewUpdateServiceVersion
 ```
 
-Tell the service to use a specific library version:
+Tell the service to use a specific library version and dependencies:
 
 ```shell
-dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.UseLibraryVersion string:"1.4.0-dev.153"
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.UseLibraryVersion string:"1.4.0-dev.153" array:string:"jack_transport_link","rnbo-runner-panel"
 ```
 
 Tell the service to install a specific version of the runner:
@@ -91,8 +89,8 @@ dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo 
 ```
 
 ```shell
-dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueJackTransportLinkInstall string:"0.0.9-1"
-dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueRunnerPanelInstall string:"2.1.1-beta.12"
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueInstall string:"jack_transport_link" string:"0.0.9-1"
+dbus-send --system --print-reply --type="method_call" --dest=com.cycling74.rnbo /com/cycling74/rnbo com.cycling74.rnbo.QueueInstall string:"rnbo-runner-panel" string:"2.1.1-beta.12"
 ```
 
 Tell the service to upgrade all updateable packages

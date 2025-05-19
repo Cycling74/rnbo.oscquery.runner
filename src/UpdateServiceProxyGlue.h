@@ -27,10 +27,10 @@ protected:
     ~rnbo_proxy() = default;
 
 public:
-    bool UseLibraryVersion(const std::string& version)
+    bool UseLibraryVersion(const std::string& version, const std::vector<std::string>& dependencies)
     {
         bool result;
-        proxy_.callMethod("UseLibraryVersion").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
+        proxy_.callMethod("UseLibraryVersion").onInterface(INTERFACE_NAME).withArguments(version, dependencies).storeResultsTo(result);
         return result;
     }
 
@@ -41,17 +41,10 @@ public:
         return result;
     }
 
-    bool QueueRunnerPanelInstall(const std::string& version)
+    bool QueueInstall(const std::string& packagename, const std::string& version)
     {
         bool result;
-        proxy_.callMethod("QueueRunnerPanelInstall").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
-        return result;
-    }
-
-    bool QueueJackTransportLinkInstall(const std::string& version)
-    {
-        bool result;
-        proxy_.callMethod("QueueJackTransportLinkInstall").onInterface(INTERFACE_NAME).withArguments(version).storeResultsTo(result);
+        proxy_.callMethod("QueueInstall").onInterface(INTERFACE_NAME).withArguments(packagename, version).storeResultsTo(result);
         return result;
     }
 
@@ -86,19 +79,14 @@ public:
         return proxy_.getProperty("LatestRunnerVersion").onInterface(INTERFACE_NAME);
     }
 
-    std::string LatestRunnerPanelVersion()
-    {
-        return proxy_.getProperty("LatestRunnerPanelVersion").onInterface(INTERFACE_NAME);
-    }
-
-    std::string LatestJackTransportLinkVersion()
-    {
-        return proxy_.getProperty("LatestJackTransportLinkVersion").onInterface(INTERFACE_NAME);
-    }
-
     std::string NewUpdateServiceVersion()
     {
         return proxy_.getProperty("NewUpdateServiceVersion").onInterface(INTERFACE_NAME);
+    }
+
+    std::vector<sdbus::Struct<std::string, std::string>> DependencyUpdates()
+    {
+        return proxy_.getProperty("DependencyUpdates").onInterface(INTERFACE_NAME);
     }
 
 private:

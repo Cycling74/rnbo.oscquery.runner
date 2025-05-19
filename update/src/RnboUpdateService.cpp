@@ -3,13 +3,12 @@
 #include <iostream>
 #include <stdlib.h>
 #include <functional>
+#include <algorithm>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string.hpp>
 
 namespace {
 	const std::string RUNNER_PACKAGE_NAME = "rnbooscquery";
-	const std::string RUNNER_PANEL_PACKAGE_NAME = "rnbo-runner-panel";
-	const std::string JACK_TRANSPORT_LINK_NAME = "jack_transport_link";
 	const std::string UPDATE_SERVICE_PACKAGE_NAME = "rnbo-update-service";
 
 	//https://stackoverflow.com/questions/478898/how-do-i-execute-a-command-and-get-the-output-of-the-command-within-c-using-po
@@ -125,6 +124,7 @@ void RnboUpdateService::findLatestRunner() {
 	}
 }
 
+//TODO make sure that the package doesn't conflict with our library version
 std::string RnboUpdateService::findLatest(std::string package) {
 	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
 	std::string candidate;
@@ -144,14 +144,6 @@ std::string RnboUpdateService::findLatest(std::string package) {
 	return candidate;
 }
 
-bool RnboUpdateService::QueueInstall(std::string package, const std::string& version) {
-	//make sure the version string is valid (so we don't allow injection)
-	if (!validation::version(version))
-		return false;
-	mInstallQueue.push(package + "=" + version);
-	return true;
-}
-
 void RnboUpdateService::evaluateCommands() {
 	bool searchlatestrunner = false; //TODO should this happen every so often anyway?
 	bool searchlatestdeps = false; //TODO should this happen every so often anyway?
@@ -167,7 +159,7 @@ void RnboUpdateService::evaluateCommands() {
 	if (mUpgrade) {
 		mUpgrade = false;
 		updateState(RunnerUpdateState::Active, "update service upgrading");
-		bool success = false; 
+		bool success = false;
 		std::string msg = "apt-get update failed";
 		if (updatePackages()) {
 			setenv("DEBIAN_FRONTEND", "noninteractive", 1);
@@ -245,19 +237,20 @@ void RnboUpdateService::evaluateCommands() {
 
 	if (searchlatestdeps) {
 		{
-			auto latest = findLatest(RUNNER_PANEL_PACKAGE_NAME);
-			if (mLatestRunnerPanelVersion != latest) {
-				mLatestRunnerPanelVersion = latest;
-				emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"LatestRunnerPanelVersion"});
+			std::unique_lock<std::mutex> guard(mVersionMutex);
+			std::vector<sdbus::Struct<std::string, std::string>> updates;
+			for (auto name: mDependencies) {
+				auto latest = findLatest(name);
+				if (latest.size()) {
+					updates.emplace_back(name, latest);
+				}
+			}
+			if (updates.size() != mDependencyUpdates.size() || !std::equal(updates.begin(), updates.end(), mDependencyUpdates.begin())) {
+				mDependencyUpdates = std::move(updates);
+				emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"DependencyUpdates"});
 			}
 		}
-		{
-			auto latest = findLatest(JACK_TRANSPORT_LINK_NAME);
-			if (mLatestJackTransportLinkVersion != latest) {
-				mLatestJackTransportLinkVersion = latest;
-				emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"LatestJackTransportLinkVersion"});
-			}
-		}
+
 		{
 			auto latest = findLatest(UPDATE_SERVICE_PACKAGE_NAME);
 			if (mNewUpdateServiceVersion != latest) {
@@ -272,19 +265,22 @@ bool RnboUpdateService::QueueRunnerInstall(const std::string& version) {
 	return QueueInstall(RUNNER_PACKAGE_NAME, version);
 }
 
-bool RnboUpdateService::QueueRunnerPanelInstall(const std::string& version) {
-	return QueueInstall(RUNNER_PANEL_PACKAGE_NAME, version);
+bool RnboUpdateService::QueueInstall(const std::string& packageName, const std::string& version) {
+	//make sure the version string is valid (so we don't allow injection)
+	if (!validation::version(version))
+		return false;
+	mInstallQueue.push(packageName + "=" + version);
+	return true;
 }
 
-bool RnboUpdateService::QueueJackTransportLinkInstall(const std::string& version) {
-	return QueueInstall(JACK_TRANSPORT_LINK_NAME, version);
-}
-
-bool RnboUpdateService::UseLibraryVersion(const std::string& version) {
+bool RnboUpdateService::UseLibraryVersion(const std::string& version, const std::vector<std::string>& dependencies) {
 	std::unique_lock<std::mutex> guard(mVersionMutex);
 	if (!validation::version(version))
 		return false;
+
 	mUseLibVersion = version;
+	mDependencies = dependencies;
+
 	//always search for the latest runner verison even if we don't change library versions
 	mSearchRunnerVersion = true;
 	return true;
@@ -302,9 +298,8 @@ uint32_t RnboUpdateService::State() { return static_cast<uint32_t>(mState); }
 std::string RnboUpdateService::Status() { return mStatus; }
 uint32_t RnboUpdateService::OutdatedPackages() { return mOutdatedPackages; }
 std::string RnboUpdateService::LatestRunnerVersion() { return mLatestRunnerVersion; }
-std::string RnboUpdateService::LatestRunnerPanelVersion() { return mLatestRunnerPanelVersion; }
-std::string RnboUpdateService::LatestJackTransportLinkVersion() { return mLatestJackTransportLinkVersion; }
 std::string RnboUpdateService::NewUpdateServiceVersion() { return mNewUpdateServiceVersion; }
+std::vector<sdbus::Struct<std::string, std::string>> RnboUpdateService::DependencyUpdates() { return mDependencyUpdates; }
 
 void RnboUpdateService::updateState(RunnerUpdateState state, const std::string status) {
 	mState = state;
