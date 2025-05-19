@@ -28,7 +28,7 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 
 		//methods
 		virtual bool QueueRunnerInstall(const std::string& version) override;
-    virtual bool QueueInstall(const std::string& packagename, const std::string& version) override;
+		virtual bool QueueInstall(const std::string& packagename, const std::string& version) override;
 		virtual bool UseLibraryVersion(const std::string& version, const std::vector<std::string>& dependencies) override;
 		virtual void UpdateOutdated() override;
 		virtual void Upgrade() override;
@@ -38,8 +38,8 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		virtual std::string Status() override;
 		virtual uint32_t OutdatedPackages() override;
 		virtual std::string LatestRunnerVersion() override;
-    virtual std::string NewUpdateServiceVersion() override;
-    virtual std::vector<sdbus::Struct<std::string, std::string>> DependencyUpdates() override;
+		virtual std::string NewUpdateServiceVersion() override;
+		virtual std::vector<sdbus::Struct<std::string, std::string>> DependencyUpdates() override;
 
 		void updateState(RunnerUpdateState state, const std::string status);
 		void updateStatus(const std::string status);
