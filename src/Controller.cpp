@@ -59,6 +59,8 @@ namespace {
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 
+	const std::vector<std::string> dependencies = { "jack_transport_link", "rnbo-runner-panel" };
+
 #if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
 	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
 #else
@@ -841,8 +843,6 @@ Controller::Controller(std::string server_name) {
 #if RNBO_USE_DBUS
 			"use_rnbo_library",
 			"latest_runner_version",
-			"latest_runner_panel_version",
-			"latest_jack_transport_link_version",
 			"new_update_service_version",
 			"upgrade",
 #endif
@@ -3870,21 +3870,13 @@ void Controller::registerCommands() {
 							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
 							return;
 						}
-					} else if (package == "rnbo-runner-panel") {
-						if (!mUpdateServiceProxy->QueueRunnerPanelInstall(version)) {
-							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
-							return;
-						}
-					} else if (package == "jack_transport_link") {
-						if (!mUpdateServiceProxy->QueueJackTransportLinkInstall(version)) {
-							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
-							return;
-						}
 					} else if (package == "all") {
 						mUpdateServiceProxy->Upgrade();
 					} else {
-						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "unknown package for install: " + package);
-						return;
+						if (!mUpdateServiceProxy->QueueInstall(package, version)) {
+							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+							return;
+						}
 					}
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
@@ -3919,7 +3911,7 @@ void Controller::registerCommands() {
 
 				std::string version = params["version"];
 				try {
-					if (!mUpdateServiceProxy->UseLibraryVersion(version)) {
+					if (!mUpdateServiceProxy->UseLibraryVersion(version, dependencies)) {
 						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
 						return;
 					}
@@ -4397,22 +4389,6 @@ bool Controller::setupUpdateService() {
 			}
 
 			{
-				auto n = mUpdateNode->create_child("latest_runner_panel_version");
-				auto p = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				n->set(ossia::net::description_attribute{}, "A version string indicating the latest rnbo-runner-pannel version that can be installed");
-				mUpdateServiceProxy->setLatestRunnerPanelVersionCallback([p](std::string version) mutable { p->push_value(version); });
-			}
-
-			{
-				auto n = mUpdateNode->create_child("latest_jack_transport_link_version");
-				auto p = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				n->set(ossia::net::description_attribute{}, "A version string indicating the latest jack_transport_link version that can be installed");
-				mUpdateServiceProxy->setLatestJackTransportLinkVersionCallback([p](std::string version) mutable { p->push_value(version); });
-			}
-
-			{
 				auto n = mUpdateNode->create_child("new_update_service_version");
 				auto p = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
@@ -4420,7 +4396,22 @@ bool Controller::setupUpdateService() {
 				mUpdateServiceProxy->setNewUpdateServiceVersionCallback([p](std::string version) mutable { p->push_value(version); });
 			}
 
-			mUpdateServiceProxy->UseLibraryVersion(rnbo_version);
+			{
+				auto n = mUpdateNode->create_child("latest_dependency_versions");
+				auto p = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A list of pairs of package name, package version for updates avaialble");
+				mUpdateServiceProxy->setDependencyUpdatesCallback([p](const RnboUpdateServiceProxy::DependencyUpdates& updates) mutable { 
+						std::vector<ossia::value> values;
+						for (auto u: updates) {
+							values.emplace_back(u.get<0>());
+							values.emplace_back(u.get<1>());
+						}
+						p->push_value(values); 
+				});
+			}
+
+			mUpdateServiceProxy->UseLibraryVersion(rnbo_version, dependencies);
 			return true;
 		}	catch (const sdbus::Error& e) {
 			if (e.getName() == "org.freedesktop.DBus.Error.ServiceUnknown") {
