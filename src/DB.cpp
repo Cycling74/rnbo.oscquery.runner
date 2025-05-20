@@ -97,7 +97,6 @@ namespace {
 			return;
 		}
 
-		SQLite::Transaction transaction(db);
 		SQLite::Statement query(db, "INSERT INTO patchers_params (patcher_id, param_id, param_index) VALUES(?1, ?2, ?3)");
 
 		for (auto p: config["parameters"]) {
@@ -116,7 +115,6 @@ namespace {
 				break;
 			}
 		}
-		transaction.commit();
 	}
 }
 
@@ -409,7 +407,6 @@ CREATE TABLE data_migrations
 
 	//need to be able to map param id to param index for sets_views
 	do_migration(17, [](SQLite::Database& db) {
-
 			//create the table
 			db.exec(R"(
 CREATE TABLE patchers_params
@@ -561,6 +558,8 @@ void DB::patcherStore(
 		) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
+	SQLite::Transaction transaction(mDB);
+
 	int old_id = 0; //ids always start at 1 right?
 	{
 		SQLite::Statement query(mDB, "SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
@@ -630,6 +629,7 @@ void DB::patcherStore(
 
 		//TODO delete old patchers_params ?
 	}
+	transaction.commit();
 }
 
 bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string& created_at, std::string rnbo_version) {
