@@ -2,13 +2,28 @@
 
 <node name="/com/cycling74/rnbo">
     <interface name="com.cycling74.rnbo">
+        <method name="UseLibraryVersion">
+            <arg type="s" name="version" direction="in"/>
+            <arg type="as" name="dependencies" direction="in"/> <!-- array of names -->
+            <arg type="b" name="using" direction="out"/>
+        </method>
         <method name="QueueRunnerInstall">
             <arg type="s" name="version" direction="in"/>
             <arg type="b" name="queued" direction="out"/>
         </method>
+        <method name="QueueInstall">
+            <arg type="s" name="packagename" direction="in"/>
+            <arg type="s" name="version" direction="in"/>
+            <arg type="b" name="queued" direction="out"/>
+        </method>
 				<method name="UpdateOutdated" />
+				<method name="Upgrade" />
+
 				<property name="State" type="u" access="read"/>
 				<property name="Status" type="s" access="read"/>
 				<property name="OutdatedPackages" type="u" access="read"/>
+				<property name="LatestRunnerVersion" type="s" access="read"/>
+				<property name="NewUpdateServiceVersion" type="s" access="read"/>
+				<property name="DependencyUpdates" type="a(ss)" access="read"/> <!-- array of pairs of name, version -->
     </interface>
 </node>

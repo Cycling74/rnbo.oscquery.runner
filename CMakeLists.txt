@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
+project(rnbooscquery LANGUAGES CXX C)
+set(RUNNER_VERSION 6) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
+
+set(PROJECT_APP "rnbooscquery")
+
 #libossia requires 20 and sdbus c++17
 set(CMAKE_CXX_STANDARD 20)
 
@@ -23,6 +28,9 @@ set(JACK_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting JACK from C
 mark_as_advanced(JACK_CONAN_NAME)
 mark_as_advanced(JACK_CONAN_VERSION)
 mark_as_advanced(JACK_CONAN_TAG)
+
+set(INCLUDE_RUNNER_VERSION On CACHE BOOL "should the runner version include the numeric suffix")
+mark_as_advanced(INCLUDE_RUNNER_VERSION)
 
 #find RNBO
 if (RNBO_CONAN_VERSION)
@@ -88,6 +96,12 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
+if (INCLUDE_RUNNER_VERSION)
+	set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_VERSION}")
+else()
+	set(PROJECT_VERSION "${RNBO_VERSION}")
+endif()
+
 #https://stackoverflow.com/questions/1435953/how-can-i-pass-git-sha1-to-compiler-as-definition-using-cmake
 # git commit hash macro
 execute_process(
@@ -96,9 +110,6 @@ execute_process(
   OUTPUT_VARIABLE GIT_COMMIT_HASH
   OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-
-set(PROJECT_VERSION "${RNBO_VERSION}-${GIT_COMMIT_HASH}")
-set(PROJECT_APP "rnbooscquery")
 
 set(PROJECT_SRC
 	src/main.cpp
@@ -342,6 +353,7 @@ endif()
 
 add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
 add_definitions(-DRUNNER_VERSION="${PROJECT_VERSION}")
+add_definitions(-DRUNNER_GIT_HASH="${GIT_COMMIT_HASH}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
 add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
 
@@ -480,6 +492,9 @@ if (LINUX)
 
 		#rnbo version might have a 'prerelease' or 'channel' version in it
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
+		if (INCLUDE_RUNNER_VERSION)
+			SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
+		endif()
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
 		if (NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
@@ -494,7 +509,11 @@ if (LINUX)
 				)
 		endif()
 
-		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		if (INCLUDE_RUNNER_VERSION)
+			SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		else()
+			SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		endif()
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
 		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
@@ -504,8 +523,8 @@ if (LINUX)
 		endif()
 
 		#packages that are also installed by default but don't have to be
-		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.1.1)")
-		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (= 0.1.0)")
+		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.4.0), rnbo-runner-panel (>= 2.1.1)")
+		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (<< 0.4.0)")
 
 		#packages that are suggested
 		SET(CPACK_DEBIAN_PACKAGE_SUGGESTS "jack_transport_link")

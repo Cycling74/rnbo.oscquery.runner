@@ -9,20 +9,32 @@
 #include "UpdateServiceProxyGlue.h"
 #include "RunnerUpdateState.h"
 
+
 class RnboUpdateServiceProxy : public sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>
 {
 	public:
+		using DependencyUpdates = std::vector<sdbus::Struct<std::string, std::string>>;
+
 		RnboUpdateServiceProxy(std::string destination = std::string(com::cycling74::rnbo_proxy::INTERFACE_NAME), std::string objectPath = "/com/cycling74/rnbo");
 		virtual ~RnboUpdateServiceProxy();
 
 		void setStateCallback(std::function<void(RunnerUpdateState)> cb);
 		void setStatusCallback(std::function<void(std::string)> cb);
 		void setOutdatedPackagesCallback(std::function<void(uint32_t)> cb);
+		void setLatestRunnerVersionCallback(std::function<void(std::string)> cb);
+		void setNewUpdateServiceVersionCallback(std::function<void(std::string)> cb);
+		void setDependencyUpdatesCallback(std::function<void(const DependencyUpdates&)> cb);
 	protected:
 		std::function<void(RunnerUpdateState)> mStateCallback;
 		std::function<void(std::string)> mStatusCallback;
 		std::function<void(uint32_t)> mOutdatedPackagesCallback;
+		std::function<void(std::string)> mLatestRunnerVersionCallback;
+		std::function<void(std::string)> mNewUpdateServiceVersionCallback;
+		std::function<void(const DependencyUpdates&)> mDependencyUpdatesCallback;
+
 		std::mutex mCallbackMutex;
+
+		void tryCall(const std::string& property, std::function<void(std::string)> cb);
 
 		virtual void onPropertiesChanged(
 				const std::string& interfaceName,

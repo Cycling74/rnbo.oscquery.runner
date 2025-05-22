@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbo-update-service LANGUAGES CXX)
-set(PROJECT_VERSION "0.2.6")
+set(PROJECT_VERSION "0.4.0")
 set(CPACK_DEBIAN_PACKAGE_RELEASE 1) #set to 1 if we inc PROJECT_VERSION, incr if we need to package new with same PROJECT_VERSION
 
 set(CMAKE_CXX_STANDARD 17)
@@ -144,7 +144,7 @@ if (LINUX)
 			${CMAKE_CURRENT_SOURCE_DIR}/debian/prerm
 			${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm
 			${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst
-			${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles
+			#${CMAKE_CURRENT_SOURCE_DIR}/debian/conffiles
 			${CMAKE_CURRENT_SOURCE_DIR}/debian/copyright
 		)
 

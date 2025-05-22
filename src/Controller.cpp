@@ -54,9 +54,12 @@ namespace bp = boost::process;
 
 namespace {
 	static const std::string runner_version(RUNNER_VERSION);
+	static const std::string runner_git_hash(RUNNER_GIT_HASH);
 	static const std::string rnbo_version(RNBO_VERSION);
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
+
+	const std::vector<std::string> dependencies = { "jack_transport_link", "rnbo-runner-panel" };
 
 #if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
 	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
@@ -735,6 +738,7 @@ Controller::Controller(std::string server_name) {
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			std::make_pair("runner_version", runner_version),
+			std::make_pair("runner_git_hash", runner_git_hash),
 			std::make_pair("target_id", targetid()),
 			}) {
 		auto n = info->create_child(it.first);
@@ -835,6 +839,12 @@ Controller::Controller(std::string server_name) {
 #ifdef RNBOOSCQUERY_ENABLE_COMPILE
 			"compile-with_config_file",
 			"compile-with_instance_and_name",
+#endif
+#if RNBO_USE_DBUS
+			"use_rnbo_library",
+			"latest_runner_version",
+			"new_update_service_version",
+			"upgrade",
 #endif
 			"instance_load-multi",
 			"patcherstore",
@@ -1605,11 +1615,11 @@ Controller::Controller(std::string server_name) {
 
 
 	bool supports_install = false;
-	auto update = info->create_child("update");
-	update->set(ossia::net::description_attribute{}, "Self upgrade/downgrade");
+	mUpdateNode = info->create_child("update");
+	mUpdateNode->set(ossia::net::description_attribute{}, "Self upgrade/downgrade");
 
 	{
-		auto n = update->create_child("migration_available");
+		auto n = mUpdateNode->create_child("migration_available");
 		auto p = n->create_parameter(ossia::val_type::STRING);
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 		n->set(ossia::net::description_attribute{}, "a rnbo version for existing data that may be migrated to this version. set it blank to indicate migration is complete.");
@@ -1628,68 +1638,16 @@ Controller::Controller(std::string server_name) {
 		});
 	}
 
-
 #if RNBO_USE_DBUS
-	mUpdateServiceProxy = std::make_shared<RnboUpdateServiceProxy>();
-	if (mUpdateServiceProxy) {
-		try {
-			//setup dbus
-			RunnerUpdateState state;
-			runner_update::from(mUpdateServiceProxy->State(), state);
-			std::string status = mUpdateServiceProxy->Status();
-
-			{
-				auto n = update->create_child("state");
-				auto p = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				n->set(ossia::net::description_attribute{}, "Update state");
-				p->push_value(runner_update::into(state));
-
-				std::vector<ossia::value> accepted;
-				for (auto v: runner_update::all()) {
-					accepted.push_back(v);
-				}
-				auto dom = ossia::init_domain(ossia::val_type::STRING);
-				ossia::set_values(dom, accepted);
-				n->set(ossia::net::domain_attribute{}, dom);
-				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
-
-				mUpdateServiceProxy->setStateCallback([p](RunnerUpdateState state) mutable { p->push_value(runner_update::into(state)); });
-			}
-
-			{
-				auto n = update->create_child("status");
-				auto p = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				n->set(ossia::net::description_attribute{}, "Latest update status");
-				p->push_value(status);
-				mUpdateServiceProxy->setStatusCallback([p](std::string status) mutable { p->push_value(status); });
-			}
-
-			{
-				auto n = update->create_child("outdated");
-				auto p = n->create_parameter(ossia::val_type::INT);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				n->set(ossia::net::description_attribute{}, "Number of outdated packages detected on the system");
-				p->push_value(-1);
-				mUpdateServiceProxy->setOutdatedPackagesCallback([p](uint32_t cnt) mutable { p->push_value(static_cast<int>(cnt)); });
-			}
-			supports_install = true;
-		} catch (const std::exception& e) {
-			cerr << "exception caught " << e.what() << endl;
-			//reset shared ptrs as we use them later to decide if we should try to update or poll
-			supports_install = false;
-		} catch (...) {
-			cerr << "unknown exception caught " << endl;
-			supports_install = false;
-		}
-	}
+	//if service doesn't yet exist, might not yet support install but that might change
+	supports_install = setupUpdateService();
+	mUpdateServicePollNext = steady_clock::now() + mUpdateServicePollPeriod;
 #endif
 
 	//let the outside know if this instance supports up/downgrade
 	{
-		auto n = update->create_child("supported");
-		auto p = n->create_parameter(ossia::val_type::BOOL);
+		auto n = mUpdateNode->create_child("supported");
+		auto p = mUpdateSupportedParam = n->create_parameter(ossia::val_type::BOOL);
 		n->set(ossia::net::description_attribute{}, "Does this runner support remote upgrade/downgrade");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 		p->push_value(supports_install);
@@ -2536,6 +2494,19 @@ bool Controller::processEvents() {
 			std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 			updateDatafileStats();
 		}
+
+#ifdef RNBO_USE_DBUS
+		//poll for update service if we don't already have it
+		if (!mUpdateServiceProxy && mUpdateServicePollNext < steady_clock::now()) {
+			std::lock_guard<std::mutex> guard(mOssiaContextMutex); //needed??
+			std::lock_guard<std::mutex> buildguard(mBuildMutex);
+			if (setupUpdateService()) {
+				mUpdateSupportedParam->push_value(true);
+			} else {
+				mUpdateServicePollNext = steady_clock::now() + mUpdateServicePollPeriod;
+			}
+		}
+#endif
 
 		bool save = false;
 		{
@@ -3889,10 +3860,23 @@ void Controller::registerCommands() {
 					{"progress", 10}
 				});
 				std::string version = params["version"];
+				std::string package = "rnbooscquery";
+				if (params.contains("package")) {
+					package = params["package"].get<std::string>();
+				}
 				try {
-					if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
-						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
-						return;
+					if (package == "rnbooscquery") {
+						if (!mUpdateServiceProxy->QueueRunnerInstall(version)) {
+							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+							return;
+						}
+					} else if (package == "all") {
+						mUpdateServiceProxy->Upgrade();
+					} else {
+						if (!mUpdateServiceProxy->QueueInstall(package, version)) {
+							reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+							return;
+						}
 					}
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
@@ -3906,6 +3890,43 @@ void Controller::registerCommands() {
 #endif
 			}
 	});
+
+#ifdef RNBO_USE_DBUS
+	mCommandHandlers.insert({
+			"use_rnbo_library",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				if (!mUpdateServiceProxy) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::NotEnabled), "dbus object does not exist");
+					return;
+				}
+				if (!params.is_object() || !params.contains("version")) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::InvalidRequestObject), "request object invalid");
+					return;
+				}
+				reportCommandResult(id, {
+					{"code", static_cast<unsigned int>(InstallProgramStatus::Received)},
+					{"message", "signaling update service"},
+					{"progress", 10}
+				});
+
+				std::string version = params["version"];
+				try {
+					if (!mUpdateServiceProxy->UseLibraryVersion(version, dependencies)) {
+						reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "service reported error, check version string");
+						return;
+					}
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(InstallProgramStatus::Completed)},
+							{"message", "using given rnbo library version"},
+							{"progress", 100}
+					});
+				} catch (...) {
+					reportCommandError(id, static_cast<unsigned int>(InstallProgramError::Unknown), "dbus reported error");
+					return;
+				}
+			}
+	});
+#endif
 
 }
 
@@ -4309,3 +4330,102 @@ std::string Controller::getCurrentSetPresetName() {
 	}
 	return std::string();
 }
+
+#ifdef RNBO_USE_DBUS
+bool Controller::setupUpdateService() {
+	mUpdateServiceProxy = std::make_shared<RnboUpdateServiceProxy>();
+	if (mUpdateServiceProxy) {
+		try {
+			//setup dbus
+			RunnerUpdateState state;
+
+			//may throw if service is unknown (wish we could just query for that??)
+			runner_update::from(mUpdateServiceProxy->State(), state);
+			std::string status = mUpdateServiceProxy->Status();
+
+			{
+				auto n = mUpdateNode->create_child("state");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Update state");
+				p->push_value(runner_update::into(state));
+
+				std::vector<ossia::value> accepted;
+				for (auto v: runner_update::all()) {
+					accepted.push_back(v);
+				}
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, accepted);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				mUpdateServiceProxy->setStateCallback([p](RunnerUpdateState state) mutable { p->push_value(runner_update::into(state)); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("status");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Latest update status");
+				p->push_value(status);
+				mUpdateServiceProxy->setStatusCallback([p](std::string status) mutable { p->push_value(status); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("outdated");
+				auto p = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "Number of outdated packages detected on the system");
+				p->push_value(-1);
+				mUpdateServiceProxy->setOutdatedPackagesCallback([p](uint32_t cnt) mutable { p->push_value(static_cast<int>(cnt)); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("latest_runner_version");
+				auto p = mLatestRunnerVersion = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A version string indicating the latest runner that can be installed with a given RNBO library version");
+				mUpdateServiceProxy->setLatestRunnerVersionCallback([p](std::string version) mutable { p->push_value(version); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("new_update_service_version");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A version string indicating that there is a new rnbo-update-service version that can be installed");
+				mUpdateServiceProxy->setNewUpdateServiceVersionCallback([p](std::string version) mutable { p->push_value(version); });
+			}
+
+			{
+				auto n = mUpdateNode->create_child("latest_dependency_versions");
+				auto p = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::description_attribute{}, "A list of pairs of package name, package version for updates avaialble");
+				mUpdateServiceProxy->setDependencyUpdatesCallback([p](const RnboUpdateServiceProxy::DependencyUpdates& updates) mutable { 
+						std::vector<ossia::value> values;
+						for (auto u: updates) {
+							values.emplace_back(u.get<0>());
+							values.emplace_back(u.get<1>());
+						}
+						p->push_value(values); 
+				});
+			}
+
+			mUpdateServiceProxy->UseLibraryVersion(rnbo_version, dependencies);
+			return true;
+		}	catch (const sdbus::Error& e) {
+			if (e.getName() == "org.freedesktop.DBus.Error.ServiceUnknown") {
+				mUpdateServiceProxy.reset();
+				return false;
+			}
+			cerr << "exception caught " << e.what() << endl;
+		} catch (const std::exception& e) {
+			cerr << "exception caught " << e.what() << endl;
+			//reset shared ptrs as we use them later to decide if we should try to update or poll
+		} catch (...) {
+			cerr << "unknown exception caught " << endl;
+		}
+	}
+	return false;
+}
+#endif

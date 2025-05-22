@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
+export CONAN_NON_INTERACTIVE=1
 cd /build/examples/rnbo.oscquery.runner/
 mkdir -p build-rpi && cd build-rpi && rm -fr *
 mkdir -p ~/.conan/profiles/ && cp ../docker/conan-rpi-xcompile-host ~/.conan/profiles/host && cp ../docker/conan-rpi-xcompile-build ~/.conan/profiles/default
+conan remote add -f cycling ${C74_CONAN_REMOTE_URL}
+conan user -r cycling -p ${C74_CONAN_PASSWORD} ${C74_CONAN_USER}
 PATH=/opt/cross-pi-gcc/bin:$PATH \
-	cmake -DRNBO_DIR=/build/src/cpp/ \
+	cmake \
+	-DRNBO_CONAN_VERSION=${RNBO_CONAN_VERSION} \
+	-DRNBO_CONAN_TAG=${RNBO_CONAN_TAG} \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCONAN_PROFILE=host \
-	-DINCLUDE_RUNNER_VERSION=Off \
 	-DCMAKE_TOOLCHAIN_FILE=/build/examples/rnbo.oscquery.runner/config/bookworm-toolchain.cmake \
 	..  && make && cpack

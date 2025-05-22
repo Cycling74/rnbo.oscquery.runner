@@ -50,6 +50,40 @@ void RnboUpdateServiceProxy::setOutdatedPackagesCallback(std::function<void(uint
 	}
 }
 
+void RnboUpdateServiceProxy::setLatestRunnerVersionCallback(std::function<void(std::string)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mLatestRunnerVersionCallback = cb;
+	tryCall("LatestRunnerVersion", cb);
+}
+
+void RnboUpdateServiceProxy::setNewUpdateServiceVersionCallback(std::function<void(std::string)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mNewUpdateServiceVersionCallback = cb;
+	tryCall("NewUpdateServiceVersion", cb);
+}
+
+void RnboUpdateServiceProxy::setDependencyUpdatesCallback(std::function<void(const DependencyUpdates&)> cb) {
+	std::lock_guard<std::mutex> guard(mCallbackMutex);
+	mDependencyUpdatesCallback = cb;
+	if (cb) {
+		try {
+			DependencyUpdates val = getProxy().getProperty("DependencyUpdates").onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			cb(val);
+		} catch (...) {
+		}
+	}
+}
+
+void RnboUpdateServiceProxy::tryCall(const std::string& property, std::function<void(std::string)> cb) {
+	if (cb) {
+		try {
+			std::string val = getProxy().getProperty(property).onInterface(com::cycling74::rnbo_proxy::INTERFACE_NAME);
+			cb(val);
+		} catch (...) {
+		}
+	}
+}
+
 void RnboUpdateServiceProxy::onPropertiesChanged(
 		const std::string& interfaceName,
 		const std::map<std::string, sdbus::Variant>& changedProperties,
@@ -70,6 +104,19 @@ void RnboUpdateServiceProxy::onPropertiesChanged(
 		} else if (key == "OutdatedPackages") {
 			if (mOutdatedPackagesCallback && var.containsValueOfType<uint32_t>()) {
 				mOutdatedPackagesCallback(var.get<uint32_t>());
+			}
+		} else if (key == "LatestRunnerVersion") {
+			if (mLatestRunnerVersionCallback && var.containsValueOfType<std::string>()) {
+				mLatestRunnerVersionCallback(var.get<std::string>());
+			}
+		} else if (key == "NewUpdateServiceVersion") {
+			if (mNewUpdateServiceVersionCallback && var.containsValueOfType<std::string>()) {
+				mNewUpdateServiceVersionCallback(var.get<std::string>());
+			}
+		} else if (key == "DependencyUpdates") {
+			if (mDependencyUpdatesCallback && var.containsValueOfType<DependencyUpdates>()) {
+				const DependencyUpdates& updates = var.get<DependencyUpdates>();
+				mDependencyUpdatesCallback(updates);
 			}
 		}
 	}
