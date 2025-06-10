@@ -1232,6 +1232,20 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 
 					{
+						auto n = transport->create_child("position");
+						auto p = n->create_parameter(ossia::val_type::FLOAT);
+						n->set(ossia::net::description_attribute{}, "Seek to a new beat time position");
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+						p->add_callback([this](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::FLOAT) {
+								double beattime = static_cast<double>(val.get<float>());
+								handleTransportBeatTime(beattime);
+							}
+						});
+					}
+
+					{
 						const std::string key("sync_transport");
 						//get from config
 						bool sync = jconfig_get<bool>(key).get_value_or(true);
@@ -1707,14 +1721,15 @@ void ProcessAudioJack::handleTransportState(bool running) {
 
 static void reposition(jack_client_t * client, std::function<void(jack_position_t& pos)> func) {
 	if (!sync_transport.load()) {
+		std::cout << "not syncing" << std::endl;
 		return;
 	}
 	jack_position_t pos;
 	jack_transport_query(client, &pos);
-	if (pos.valid & JackPositionBBT) {
-		func(pos);
-		jack_transport_reposition(client, &pos);
-	}
+	func(pos);
+	pos.valid = static_cast<jack_position_bits_t>(JackPositionBBT);
+	jack_transport_reposition(client, &pos);
+	std::cout << "jack_transport_reposition " << pos.bar << ":" << pos.beat << std::endl;
 }
 
 void ProcessAudioJack::handleTransportTempo(double bpm) {
@@ -1751,6 +1766,8 @@ void ProcessAudioJack::handleTransportBeatTime(double btime) {
 				pos.bar = static_cast<int32_t>(bar) + 1;
 				pos.beat = static_cast<int32_t>(beat) + 1;
 				pos.tick = static_cast<int32_t>(std::trunc(tick));
+
+				pos.frame = 0;
 			}
 	});
 }
