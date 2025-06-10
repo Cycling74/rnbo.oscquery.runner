@@ -1721,7 +1721,6 @@ void ProcessAudioJack::handleTransportState(bool running) {
 
 static void reposition(jack_client_t * client, std::function<void(jack_position_t& pos)> func) {
 	if (!sync_transport.load()) {
-		std::cout << "not syncing" << std::endl;
 		return;
 	}
 	jack_position_t pos;
