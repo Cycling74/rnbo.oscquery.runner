@@ -1232,6 +1232,20 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 
 					{
+						auto n = transport->create_child("position");
+						auto p = n->create_parameter(ossia::val_type::FLOAT);
+						n->set(ossia::net::description_attribute{}, "Seek to a new beat time position");
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+						p->add_callback([this](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::FLOAT) {
+								double beattime = static_cast<double>(val.get<float>());
+								handleTransportBeatTime(beattime);
+							}
+						});
+					}
+
+					{
 						const std::string key("sync_transport");
 						//get from config
 						bool sync = jconfig_get<bool>(key).get_value_or(true);
@@ -1711,10 +1725,8 @@ static void reposition(jack_client_t * client, std::function<void(jack_position_
 	}
 	jack_position_t pos;
 	jack_transport_query(client, &pos);
-	if (pos.valid & JackPositionBBT) {
-		func(pos);
-		jack_transport_reposition(client, &pos);
-	}
+	func(pos);
+	jack_transport_reposition(client, &pos);
 }
 
 void ProcessAudioJack::handleTransportTempo(double bpm) {
@@ -1740,17 +1752,28 @@ void ProcessAudioJack::handleTransportBeatTime(double btime) {
 			double numerator = pos.beats_per_bar;
 			double denominator = pos.beat_type;
 			if (denominator > 0.0) {
+				const double tpb = static_cast<double>(pos.ticks_per_beat);
+
+				/*
 				double mul = denominator / 4.0;
 				double bt = btime * mul;
-
 				double bar = std::trunc(bt / numerator);
 				double rem = bt - bar * numerator;
 				double beat = std::trunc(rem);
-				double tick = (rem - beat) * static_cast<double>(pos.ticks_per_beat);
+				double tick = (rem - beat) * tpb;
 
 				pos.bar = static_cast<int32_t>(bar) + 1;
 				pos.beat = static_cast<int32_t>(beat) + 1;
 				pos.tick = static_cast<int32_t>(std::trunc(tick));
+				pos.valid = static_cast<jack_position_bits_t>(JackPositionBBT);
+				*/
+
+				//you would think that you'd set the bar/beat/tick but really you just set the frame
+				//and that is the absoulte frame as if you'd be running at the same bpm from 0
+				// based on code from transport.c Copyright (C) 2003 Jack O'Quin.
+				double abs_tick = btime * tpb;
+				double minute = abs_tick / (static_cast<double>(pos.beats_per_minute) * tpb);
+				pos.frame = minute * static_cast<double>(pos.frame_rate) * 60.0;
 			}
 	});
 }
