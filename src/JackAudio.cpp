@@ -1727,9 +1727,7 @@ static void reposition(jack_client_t * client, std::function<void(jack_position_
 	jack_position_t pos;
 	jack_transport_query(client, &pos);
 	func(pos);
-	pos.valid = static_cast<jack_position_bits_t>(JackPositionBBT);
 	jack_transport_reposition(client, &pos);
-	std::cout << "jack_transport_reposition " << pos.bar << ":" << pos.beat << std::endl;
 }
 
 void ProcessAudioJack::handleTransportTempo(double bpm) {
@@ -1755,19 +1753,28 @@ void ProcessAudioJack::handleTransportBeatTime(double btime) {
 			double numerator = pos.beats_per_bar;
 			double denominator = pos.beat_type;
 			if (denominator > 0.0) {
+				const double tpb = static_cast<double>(pos.ticks_per_beat);
+
+				/*
 				double mul = denominator / 4.0;
 				double bt = btime * mul;
-
 				double bar = std::trunc(bt / numerator);
 				double rem = bt - bar * numerator;
 				double beat = std::trunc(rem);
-				double tick = (rem - beat) * static_cast<double>(pos.ticks_per_beat);
+				double tick = (rem - beat) * tpb;
 
 				pos.bar = static_cast<int32_t>(bar) + 1;
 				pos.beat = static_cast<int32_t>(beat) + 1;
 				pos.tick = static_cast<int32_t>(std::trunc(tick));
+				pos.valid = static_cast<jack_position_bits_t>(JackPositionBBT);
+				*/
 
-				pos.frame = 0;
+				//you would think that you'd set the bar/beat/tick but really you just set the frame
+				//and that is the absoulte frame as if you'd be running at the same bpm from 0
+				// based on code from transport.c Copyright (C) 2003 Jack O'Quin.
+				double abs_tick = btime * tpb;
+				double minute = abs_tick / (static_cast<double>(pos.beats_per_minute) * tpb);
+				pos.frame = minute * static_cast<double>(pos.frame_rate) * 60.0;
 			}
 	});
 }
