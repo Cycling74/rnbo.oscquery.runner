@@ -341,9 +341,10 @@ Instance::Instance(
 			ParameterInfo info;
 
 			mCore->getParameterInfo(index, &info);
-			//only supporting numbers right now
+			//only supporting numbers and event rate signal messages right now
+			//TODO support audio rate signals
 			//don't bind invisible or debug
-			if (info.type != ParameterType::ParameterTypeNumber || !info.visible || info.debug)
+			if (!(info.type == ParameterType::ParameterTypeNumber || info.type == ParameterType::ParameterTypeSignal) || !info.visible || info.debug)
 				continue;
 
 			ParamOSCUpdateData updateData;
@@ -1395,7 +1396,7 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 
 	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
 	if (dataFileDir) {
-		fs::path filePath; 
+		fs::path filePath;
 		if (fileName.size()) {
 			filePath = dataFileDir.get() / fs::path(fileName);
 			if (!fs::exists(filePath)) {
