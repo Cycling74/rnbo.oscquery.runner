@@ -23,7 +23,7 @@ TARGET_HOSTNAME='c74rpi'
 STAGE_LIST="stage0 stage1 stage2"
 ```
 
-Build the image
+Build the image, there may be some interactivity required when setting up jackd2.
 
 ```
 sudo ./build.sh
