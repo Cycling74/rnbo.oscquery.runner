@@ -1,5 +1,37 @@
 # Raspberry Pi Setup
 
+## Custom Image
+
+On a pi, check out our custom pi-gen fork:
+
+```
+git clone -b xnor/rnbo-1.4.0-bookworm git@github.com:Cycling74/pi-gen.git
+cd pi-gen
+```
+
+Create a file called `config` in that directory with the following contents (edit as appropriate)
+
+```
+IMG_NAME='raspios'
+DEPLOY_COMPRESSION='zip'
+RELEASE='bookworm'
+ENABLE_SSH='1'
+FIRST_USER_NAME='pi'
+FIRST_USER_PASS='c74rnbo'
+DISABLE_FIRST_BOOT_USER_RENAME='1'
+TARGET_HOSTNAME='c74rpi'
+STAGE_LIST="stage0 stage1 stage2"
+```
+
+Build the image
+
+```
+sudo ./build.sh
+```
+
+You should then have an image in the directory `deploy` that should be installable via Raspberry Pi Imager.
+
+
 ## Normal use
 
 You can install rnbooscquery on an existing bookworm image or start from scratch.
