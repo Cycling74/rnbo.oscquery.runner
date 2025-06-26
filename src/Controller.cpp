@@ -3285,6 +3285,8 @@ void Controller::registerCommands() {
 				filePath = dir.get() / fs::path(fileName);
 			}
 
+			fs::create_directories(filePath);
+
 			std::fstream fs;
 			//allow for "append" to add to the end of an existing file
 			bool append = params["append"].is_boolean() && params["append"].get<bool>();
@@ -4401,13 +4403,13 @@ bool Controller::setupUpdateService() {
 				auto p = n->create_parameter(ossia::val_type::LIST);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 				n->set(ossia::net::description_attribute{}, "A list of pairs of package name, package version for updates avaialble");
-				mUpdateServiceProxy->setDependencyUpdatesCallback([p](const RnboUpdateServiceProxy::DependencyUpdates& updates) mutable { 
+				mUpdateServiceProxy->setDependencyUpdatesCallback([p](const RnboUpdateServiceProxy::DependencyUpdates& updates) mutable {
 						std::vector<ossia::value> values;
 						for (auto u: updates) {
 							values.emplace_back(u.get<0>());
 							values.emplace_back(u.get<1>());
 						}
-						p->push_value(values); 
+						p->push_value(values);
 				});
 			}
 
