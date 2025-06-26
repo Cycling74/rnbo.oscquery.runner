@@ -3285,7 +3285,9 @@ void Controller::registerCommands() {
 				filePath = dir.get() / fs::path(fileName);
 			}
 
-			fs::create_directories(filePath);
+			if (!fs::exists(filePath.parent_path())) {
+				fs::create_directories(filePath.parent_path());
+			}
 
 			std::fstream fs;
 			//allow for "append" to add to the end of an existing file
@@ -3488,6 +3490,10 @@ void Controller::registerCommands() {
 								resp["code"] = static_cast<unsigned int>(FileCommandStatus::Completed);
 								resp["md5"] = md5sum;
 								resp["progress"] = 100;
+
+#if DEBUG
+								std::cout << "file_name md5sum: " << md5sum << std::endl;
+#endif
 							}
 
 							reportCommandResult(id, resp);
