@@ -286,58 +286,6 @@ Instance::Instance(
 
 		params->set(ossia::net::description_attribute{}, "Parameter get/set");
 		for (RNBO::ParameterIndex index = 0; index < mCore->getNumParameters(); index++) {
-
-			auto add_meta = [index, &paramConfig, &paramMetaOverride, this](ossia::net::node_base& param) {
-				if (!paramConfig.is_array()) {
-					return;
-				}
-
-				RNBO::Json metaoverride;
-				for (auto p: paramMetaOverride) {
-					if (p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
-						metaoverride = p["meta"];
-						break;
-					}
-				}
-
-				//XXX what if there is no param config entry for this parameter? will there ever be?
-
-				//find the parameter
-				for (auto p: paramConfig) {
-					if (p.contains("index") && p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
-						auto meta = p["meta"]; //might be null
-						auto param_meta = add_meta_to_param(param);
-
-						auto on = param_meta.first;
-						auto op = param_meta.second;
-
-						//save default and process meta
-						if (meta.is_object()) {
-							mParamMetaDefault.insert({index, meta.dump()});
-						}
-
-						op->add_callback([this, op, on, index](const ossia::value& val) {
-								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
-								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
-						});
-
-						if (metaoverride.is_object()) {
-							op->push_value(metaoverride.dump());
-							handleMetadataUpdate(MetaUpdateCommand(on, op, index, metaoverride.dump()));
-						} else if (meta.is_object()) {
-							op->push_value(meta.dump());
-							handleMetadataUpdate(MetaUpdateCommand(on, op, index, meta.dump()));
-						} else {
-							op->push_value("");
-						}
-
-						//keep track of parameter
-						mParamMetaParams.insert({index, op});
-						break;
-					}
-				}
-			};
-
 			ParameterInfo info;
 
 			mCore->getParameterInfo(index, &info);
@@ -390,17 +338,28 @@ Instance::Instance(
 			if (info.enumValues == nullptr) {
 				//numerical parameters
 				//set parameter access, range, etc etc
-				auto p = n.create_parameter(ossia::val_type::FLOAT);
+				{
+					auto p = n.create_parameter(ossia::val_type::FLOAT);
 
-				n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
-				n.set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
-				n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
-				p->push_value(info.initialValue);
+					n.set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+					n.set(ossia::net::domain_attribute{}, ossia::make_domain(info.min, info.max));
+					n.set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+					p->push_value(info.initialValue);
 
-				updateData.normparam = ccommon(n);
-				updateData.param = p;
+					updateData.normparam = ccommon(n);
+					updateData.param = p;
+					p->add_callback([this, index](const ossia::value& val) { handleFloatParamOscUpdate(index, val); });
+				}
 
-				p->add_callback([this, index](const ossia::value& val) { handleFloatParamOscUpdate(index, val); });
+				//steps
+				if (info.steps > 0) {
+					auto s = n.create_child("steps");
+					auto p = s->create_parameter(ossia::val_type::INT);
+					s->set(ossia::net::description_attribute{}, "RNBO parameter steps");
+					s->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					p->push_value(info.steps);
+				}
+
 			} else {
 				//enumerated parameters
 				std::vector<ossia::value> values;
@@ -428,9 +387,74 @@ Instance::Instance(
 			}
 
 			mIndexToParam[index] = updateData;
-			//XXX no need for this to be a lambda anymore
-			add_meta(n);
 
+			//add meta and other json derived values
+			if (paramConfig.is_array()) {
+				RNBO::Json metaoverride;
+				for (auto p: paramMetaOverride) {
+					if (p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
+						metaoverride = p["meta"];
+						break;
+					}
+				}
+
+				//XXX what if there is no param config entry for this parameter? will there ever be?
+
+				//find the parameter
+				for (auto p: paramConfig) {
+					if (p.contains("index") && p["index"].is_number() && static_cast<RNBO::ParameterIndex>(p["index"].get<double>()) == index) {
+						auto meta = p["meta"]; //might be null
+						auto param_meta = add_meta_to_param(n);
+
+						auto on = param_meta.first;
+						auto op = param_meta.second;
+
+						//save default and process meta
+						if (meta.is_object()) {
+							mParamMetaDefault.insert({index, meta.dump()});
+						}
+
+						op->add_callback([this, op, on, index](const ossia::value& val) {
+								std::string s = val.get_type() == ossia::val_type::STRING ? val.get<std::string>() : std::string();
+								mMetaUpdateQueue.push(MetaUpdateCommand(on, op, index, s));
+						});
+
+						if (metaoverride.is_object()) {
+							op->push_value_quiet(metaoverride.dump());
+							handleMetadataUpdate(MetaUpdateCommand(on, op, index, metaoverride.dump()));
+						} else if (meta.is_object()) {
+							op->push_value_quiet(meta.dump());
+							handleMetadataUpdate(MetaUpdateCommand(on, op, index, meta.dump()));
+						} else {
+							op->push_value("");
+						}
+
+						//keep track of parameter
+						mParamMetaParams.insert({index, op});
+
+						if (p.contains("displayorder")) {
+							auto& order = p["displayorder"];
+							int displayorder = 0;
+							if (order.is_string()) { //for some reason it is a string
+								auto s = order.get<std::string>();
+								displayorder = std::stoi(s);
+							} else if (order.is_number()) {
+								displayorder = static_cast<int>(order.get<double>());
+							} else {
+								break;
+							}
+
+							auto dn = n.create_child("display_order");
+
+							auto dp = dn->create_parameter(ossia::val_type::INT);
+							dn->set(ossia::net::description_attribute{}, "RNBO parameter display order");
+							dn->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+							dp->push_value(displayorder);
+						}
+						break;
+					}
+				}
+			}
 		}
 
 		{
