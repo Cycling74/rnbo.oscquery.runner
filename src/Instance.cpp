@@ -433,23 +433,29 @@ Instance::Instance(
 						mParamMetaParams.insert({index, op});
 
 						if (p.contains("displayorder")) {
-							auto& order = p["displayorder"];
-							int displayorder = 0;
-							if (order.is_string()) { //for some reason it is a string
-								auto s = order.get<std::string>();
-								displayorder = std::stoi(s);
-							} else if (order.is_number()) {
-								displayorder = static_cast<int>(order.get<double>());
-							} else {
-								break;
+							try {
+								auto& order = p["displayorder"];
+								boost::optional<int> displayorder = boost::none;
+								if (order.is_string()) { //for some reason it is a string
+									auto s = order.get<std::string>();
+									if (s != "-") {
+										displayorder = std::stoi(s);
+									}
+								} else if (order.is_number()) {
+									displayorder = static_cast<int>(order.get<double>());
+								}
+
+								if (displayorder.has_value()) {
+									auto dn = n.create_child("display_order");
+
+									auto dp = dn->create_parameter(ossia::val_type::INT);
+									dn->set(ossia::net::description_attribute{}, "RNBO parameter display order");
+									dn->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+									dp->push_value(*displayorder);
+								}
+							} catch (const std::exception& e) {
+								std::cerr << "exception parsing param '" << mCore->getParameterId(index) << "' displayorder " << e.what() << std::endl;
 							}
-
-							auto dn = n.create_child("display_order");
-
-							auto dp = dn->create_parameter(ossia::val_type::INT);
-							dn->set(ossia::net::description_attribute{}, "RNBO parameter display order");
-							dn->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-							dp->push_value(displayorder);
 						}
 						break;
 					}
