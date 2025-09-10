@@ -684,6 +684,11 @@ modifications:
   * `id` is a uuid.
   * method calls may have multiple responces indicating progress.
 
+misc commands worht exploring
+```
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "file_read", "id": "foo", "params": {"filetype": "sets_presets", "filename": "foo", "size": 50000}}'
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "file_read", "id": "foo", "params": {"filetype": "set_preset", "filename": "foo", "name": "x", "size": 50000}}'
+```
 
 ## Notes/Links
 

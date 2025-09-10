@@ -3348,6 +3348,7 @@ void Controller::registerCommands() {
 		//TODO validate
 		if (!params.contains("size") || !params["size"].is_number()) {
 			reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "must include size param");
+			return;
 		}
 
 		int size = params["size"];
@@ -3402,6 +3403,30 @@ void Controller::registerCommands() {
 			}
 
 			readContent = content.dump();
+		} else if (filetype == "sets_presets") {
+			std::string setname = fileName;
+
+			RNBO::Json content = RNBO::Json::object();
+			addSetContent(content, mDB, setname, rnboVersion, true, false);
+			readContent = content.dump();
+		} else if (filetype == "set_preset") {
+
+			if (params.contains("name")) {
+				std::string setname = fileName;
+				std::string presetname = params["presetname"].get<std::string>();
+
+				RNBO::Json content = RNBO::Json::object();
+				addSetContent(content, mDB, setname, rnboVersion, true, false);
+				if (content.contains("presets") && content["presets"].contains(presetname)) {
+					readContent = content["presets"][presetname].dump();
+				} else {
+					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset not found");
+					return;
+				}
+			} else {
+				reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "\"presetname\" not specified");
+				return;
+			}
 		} else if (filetype == "patcher" || filetype == "patcherconfig") {
 			//get the latest from this version
 			fs::path libPath;
