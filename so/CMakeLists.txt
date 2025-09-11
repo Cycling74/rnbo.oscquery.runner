@@ -35,7 +35,10 @@ add_library(RNBOso SHARED
 	${RNBO_CLASS_FILE}
 )
 set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${RNBO_VERSION}")
-target_link_libraries(RNBOso -latomic)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES GNU)
+	target_link_libraries(RNBOso -latomic)
+endif()
 
 #for the cloud compiler
 install(TARGETS RNBOso DESTINATION .)

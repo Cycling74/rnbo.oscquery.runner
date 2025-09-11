@@ -23,6 +23,11 @@ so_build_dir = nil
 end
 raise "cannot find CMakeLists.txt" unless so_build_dir
 
+# set CXXFLAGS for local builds on rpi
+if RUBY_PLATFORM == "arm-linux-gnueabihf"
+	ENV["CXXFLAGS"] = (ENV["CXXFLAGS"] || "") + " -mcpu=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard"
+end
+
 #compile in a temp directory, then move the shared object to the OUTPUT_DIR
 Dir.mktmpdir do |dir|
   Dir.chdir(dir) do
