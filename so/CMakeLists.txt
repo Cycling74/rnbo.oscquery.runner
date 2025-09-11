@@ -35,6 +35,7 @@ add_library(RNBOso SHARED
 	${RNBO_CLASS_FILE}
 )
 set_target_properties(RNBOso PROPERTIES OUTPUT_NAME "${LIBRARY_NAME_PREFIX}.${RNBO_VERSION}")
+target_link_libraries(RNBOso -latomic)
 
 #for the cloud compiler
 install(TARGETS RNBOso DESTINATION .)
