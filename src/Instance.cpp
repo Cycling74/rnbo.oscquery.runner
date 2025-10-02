@@ -7,6 +7,11 @@
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
 
+//shm
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
@@ -128,6 +133,11 @@ Instance::Instance(
 		}
 	}
 
+	RNBO::Json datarefConfig;
+	if (conf.contains("externalDataRefs")) {
+		datarefConfig = conf["externalDataRefs"];
+	}
+
 	//means that the set preset uses preset names for this instance instead of storing all the values itself
 	mSetPresetPatcherNamed = config::get<bool>(config::key::SetPresetDefaultPatcherNamed).value_or(false);
 	if (conf.contains("setpreset") && conf["setpreset"].is_string()) {
@@ -191,7 +201,12 @@ Instance::Instance(
 
 	//setup data handler only if we have datarefs
 	if (mCore->getNumExternalDataRefs()) {
-		mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>();
+		std::vector<std::string> ids;
+		for (auto i = 0; i < mCore->getNumExternalDataRefs(); i++) {
+			ids.push_back(std::string(mCore->getExternalDataId(i)));
+		}
+
+		mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>(ids, datarefConfig);
 		mDataHandler->chunkSize(mAudio->bufferSize() * sizeof(float) * dataCaptureBufferSizeMul);
 		mCore->setExternalDataHandler(mDataHandler.get());
 	}
@@ -205,7 +220,7 @@ Instance::Instance(
 			}
 	});
 
-	builder([this, &dataRefMap, conf](ossia::net::node_base * root) {
+	builder([this, &dataRefMap, &datarefConfig, conf](ossia::net::node_base * root) {
 		//get namespace root so we can add OSC at it with metadata later
 		mOSCRoot = root;
 		while (auto r = mOSCRoot->get_parent()) {
@@ -464,10 +479,6 @@ Instance::Instance(
 		}
 
 		{
-			RNBO::Json datarefConfig;
-			if (conf.contains("externalDataRefs")) {
-				datarefConfig = conf["externalDataRefs"];
-			}
 
 			auto dataRefs = root->create_child("data_refs");
 			for (auto index = 0; index < mCore->getNumExternalDataRefs(); index++) {
@@ -960,7 +971,9 @@ void Instance::processEvents() {
 	}
 	mAudio->processEvents();
 	if (mDataHandler) {
-		mDataHandler->processEvents();
+		mDataHandler->processEvents([this](std::string datarefId, std::string shmname) {
+				//nothing for now
+		});
 	}
 
 	//clear
@@ -1338,81 +1351,10 @@ void Instance::queueConfigChangeSignal() {
 
 bool Instance::loadDataRef(const std::string& id, const fs::path& filePath) {
 	mCore->releaseExternalData(id.c_str());
-	mDataRefs.erase(id);
-	if (filePath.empty())
+	if (mDataHandler && mDataHandler->load(id, filePath)) {
+		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
+		mDataRefFileNameMap[id] = filePath.filename().string();
 		return true;
-	try {
-		if (!fs::exists(filePath)) {
-			std::cerr << "no file at " << filePath << std::endl;
-			//TODO clear node value?
-			return false;
-		}
-		SndfileHandle sndfile(filePath.string());
-		if (!sndfile) {
-			std::cerr << "couldn't open as sound file " << filePath << std::endl;
-			//TODO clear node value?
-			return false;
-		}
-
-		//sanity check
-		if (sndfile.channels() < 1 || sndfile.samplerate() < 1.0 || sndfile.frames() < 1) {
-			std::cerr << "sound file needs to have samplerate, frames and channels greater than zero " << filePath.string() <<
-				" samplerate: " << sndfile.samplerate() <<
-				" channels: " << sndfile.channels() <<
-				" frames: " << sndfile.frames() <<
-				std::endl;
-			return false;
-		}
-
-		std::shared_ptr<std::vector<float>> data;
-		sf_count_t framesRead = 0;
-
-		//actually read in audio and set the data
-		//Some formats have an unknown frame size, so we have to read a bit at a time
-		if (sndfile.frames() < SF_COUNT_MAX) {
-			data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
-			framesRead = sndfile.readf(&data->front(), sndfile.frames());
-		} else {
-			const sf_count_t framesToRead = static_cast<sf_count_t>(sndfile.samplerate());
-			//blockSize, offset, offsetIncr are in samples, not frames
-			const auto blockSize = static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(framesToRead);
-			size_t offset = 0;
-			size_t offsetIncr = framesToRead * sndfile.channels();
-			sf_count_t read = 0;
-			//reserve 5 seconds of space
-			data = std::make_shared<std::vector<float>>(blockSize * 5);
-			do {
-				data->resize(offset + blockSize);
-				read = sndfile.readf(&data->front() + offset, framesToRead);
-				framesRead += read;
-				offset += offsetIncr;
-			} while (read == framesToRead);
-		}
-
-		if (framesRead == 0) {
-			std::cerr << "read zero frames from " << filePath.string() << std::endl;
-			return false;
-		}
-
-		mDataRefs[id] = data;
-
-		//store the mapping so we can persist
-		{
-			std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-			mDataRefFileNameMap[id] = filePath.filename().string();
-		}
-
-		//set the dataref data
-		RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-		mCore->setExternalData(id.c_str(), reinterpret_cast<char *>(&data->front()), sizeof(float) * framesRead * sndfile.channels(), bufferType, [data, this](RNBO::ExternalDataId, char*) mutable {
-				//hold onto data shared_ptr until rnbo stops using it, move it to cleanup
-				mDataRefCleanupQueue->try_enqueue(data);
-				data.reset();
-				});
-		//std::cout << "loading: " << filePath.filename().string() << " into: " << id << std::endl;
-		return true;
-	} catch (std::exception& e) {
-		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
 	}
 	return false;
 }
@@ -1428,15 +1370,71 @@ bool Instance::loadDataRefCleanup(const std::string& id, const std::string& file
 	if (dataFileDir) {
 		fs::path filePath;
 		if (fileName.size()) {
-			filePath = dataFileDir.get() / fs::path(fileName);
-			if (!fs::exists(filePath)) {
-				//see about adding ".wav" so users can send 1234 and get 1234.wav
-				filePath = dataFileDir.get() / fs::path(fileName + ".wav");
-				if (fs::exists(filePath)) {
-					it->second->push_value_quiet(filePath.filename().string());
-				} else {
+			if (fileName == "shm") {
+				std::string name = "rnbo-" + fileName.substr(4); //remove shm, add "rnbo-" prefix
+				int oflag = O_CREAT | O_RDWR; //create, read/write
+				mode_t mode = S_IRUSR | S_IWUSR; //use read/write
+				int fd = shm_open(name.c_str(), oflag, mode);
+
+				if (fd < 0) {
+					std::cerr << "cannot open shared memory with name " << name << std::endl;
 					it->second->push_value_quiet("");
 					return false;
+				} else {
+					//TODO
+					const size_t display_words = 64 * 4;
+					size_t shmsize = ((display_words + 1) * sizeof(uint32_t)); //1 word header
+
+					mCore->releaseExternalData(id.c_str());
+					mDataRefs.erase(id);
+
+					//DISPLAY_WIDTH = 128 / 32 = 4
+					//DISPLAY_HEIGHT = 64;
+
+					if (ftruncate(fd, shmsize) == -1) {
+						std::cerr << "cannot resize shared memory with name " << name << std::endl;
+						it->second->push_value_quiet("");
+						shm_unlink(name.c_str());
+						return false;
+					}
+
+					char * data = reinterpret_cast<char *>(mmap(NULL, shmsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+					if (data == MAP_FAILED) {
+						std::cerr << "cannot mmap shared memory with name " << name << std::endl;
+						it->second->push_value_quiet("");
+						shm_unlink(name.c_str());
+						return false;
+					}
+
+					//store the mapping so we can persist
+					{
+						std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
+						mDataRefFileNameMap[id] = fileName;
+					}
+
+					//set the dataref data
+					RNBO::DataType bufferType;
+					bufferType.type = RNBO::DataType::TypedArray;
+
+					mCore->setExternalData(id.c_str(), data, shmsize, bufferType, [data, shmsize, name, this](RNBO::ExternalDataId, char*) mutable {
+							//TODO move to another thread
+							munmap(data, shmsize);
+							shm_unlink(name.c_str());
+					});
+
+					return true;
+				}
+			} else {
+				filePath = dataFileDir.get() / fs::path(fileName);
+				if (!fs::exists(filePath)) {
+					//see about adding ".wav" so users can send 1234 and get 1234.wav
+					filePath = dataFileDir.get() / fs::path(fileName + ".wav");
+					if (fs::exists(filePath)) {
+						it->second->push_value_quiet(filePath.filename().string());
+					} else {
+						it->second->push_value_quiet("");
+						return false;
+					}
 				}
 			}
 		}
@@ -1810,6 +1808,11 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						mDataRefMetaMapped[name] = update.meta;
 					} else {
 						mDataRefMetaMapped.erase(name);
+					}
+
+					//should always succeed
+					if (mDataHandler) {
+						mDataHandler->handleMeta(name, meta);
 					}
 				}
 				break;
