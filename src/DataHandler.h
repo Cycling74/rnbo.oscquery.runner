@@ -26,7 +26,8 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 		bool load(const std::string& datarefId, const boost::filesystem::path& filePath);
 		void unload(const std::string& datarefId);
 
-		void handleMeta(const std::string& datarefId, const RNBO::Json& meta);
+		//returns true if the dataref was altered
+		bool handleMeta(const std::string& datarefId, const RNBO::Json& meta);
 
 		void capture(std::string datarefId, DataCaptureCallback callback);
 		//how may bytes to read per Read request

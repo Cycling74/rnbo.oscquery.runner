@@ -487,7 +487,7 @@ void RunnerExternalDataHandler::unload(const std::string& datarefId)
 	storeAndRequest(req); //empty
 }
 
-void RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const RNBO::Json& meta)
+bool RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const RNBO::Json& meta)
 {
 	RNBO::Index index;
 
@@ -495,7 +495,7 @@ void RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const R
 		auto it = mIndexLookup.find(datarefId);
 		if (it == mIndexLookup.end()) {
 			std::cerr << "failed to find dataref with id " << datarefId << std::endl;
-			return;
+			return false;
 		}
 		index = it->second;
 	}
@@ -588,6 +588,9 @@ void RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const R
 	}
 	if (req) {
 		storeAndRequest(req);
+		return true;
+	} else {
+		return false;
 	}
 }
 
