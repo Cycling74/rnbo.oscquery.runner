@@ -1811,7 +1811,13 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 					//should always succeed
 					if (mDataHandler) {
-						mDataHandler->handleMeta(name, meta);
+						if (mDataHandler->handleMeta(name, meta)) {
+							//dataref contents changed (via observation or shared mem), clear out
+							auto nodeit = mDataRefNodes.find(name);
+							if (nodeit != mDataRefNodes.end()) {
+								nodeit->second->push_value_quiet("");
+							}
+						}
 					}
 				}
 				break;
