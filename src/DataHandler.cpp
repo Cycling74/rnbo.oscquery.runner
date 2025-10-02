@@ -1,6 +1,7 @@
 #include "DataHandler.h"
 
 #include <iostream>
+#include <atomic>
 
 #include <sndfile.hh>
 
@@ -11,8 +12,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-
-//#define DATAHANLDER_DEBUG
 
 namespace fs = boost::filesystem;
 
@@ -37,8 +36,12 @@ class ShmMemData {
 
 class MapData {
 	public:
-		MapData(RNBO::Index index, std::string id): datarefIndex(index), datarefId(id) { }
-		~MapData() { }
+		MapData(RNBO::Index index, std::string id): datarefIndex(index), datarefId(id) { 
+			//std::cout << "created MapData " << this << std::endl;
+		}
+		~MapData() { 
+			//std::cout << "destroy MapData " << this << std::endl;
+		}
 
 		RNBO::Index datarefIndex;
 		std::string datarefId;
@@ -93,16 +96,17 @@ struct DataRefInfo {
 
 namespace {
 	std::mutex GlobalMutex;
+#ifdef DATAHANDLER_SHARED_WEAK
+	//week doesn't work as we'd expect
 	std::unordered_map<std::string, std::weak_ptr<MapData>> SharedMappings;
+#else
+	std::unordered_map<std::string, std::shared_ptr<MapData>> SharedMappings;
+#endif
 	std::unordered_map<uintptr_t, std::function<void(const std::string&)>> SharedMappingCallbacks;
 
 	void update_shared(const std::string& key, std::shared_ptr<MapData> mapping) {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		SharedMappings[key] = mapping;
-
-#if DATAHANLDER_DEBUG
-		std::cout << "update_shared " << key << std::endl;
-#endif
 
 		//broadcast change
 		for (auto it: SharedMappingCallbacks) {
@@ -114,18 +118,19 @@ namespace {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		SharedMappings.erase(key);
 		//TODO do we want to broadcast that this is now empty?
-#if DATAHANLDER_DEBUG
-		std::cout << "remove_shared " << key << std::endl;
-#endif
 	}
 
 	boost::optional<std::shared_ptr<MapData>> get_shared(const std::string& key) {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		auto it = SharedMappings.find(key);
 		if (it != SharedMappings.end()) {
+#ifdef DATAHANDLER_SHARED_WEAK
 			if (auto p = it->second.lock()) {
 				return p;
 			}
+#else
+			return it->second;
+#endif
 		}
 		return boost::none;
 	}
@@ -173,6 +178,11 @@ RunnerExternalDataHandler::~RunnerExternalDataHandler() {
 	while (mDataRequest.try_dequeue(data)) {
 		//drop
 	}
+
+	//remove stuff we're sharing
+	for (auto it: mSharing) {
+		remove_shared(it.second);
+	}
 }
 
 
@@ -191,16 +201,14 @@ void RunnerExternalDataHandler::processBeginCallback(DataRefIndex numRefs, Const
 				if (req->data == nullptr) {
 					releaseDataRef(i);
 				} else {
-#if DATAHANLDER_DEBUG
-					std::cout << "update dataref " << req->datarefId << " " << req->sizeinbytes << std::endl;
-#endif
 					updateDataRef(i, static_cast<char *>(req->data), req->sizeinbytes, req->datatype);
 				}
 				mProcessMappings[i] = req;
 				req = cur; //return old data
+			} else {
+				//anything to do here?
 			}
 
-			//what to do on fail?
 			mMapResponse.try_enqueue(req);
 		}
 	}
@@ -291,7 +299,7 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 				case DataCaptureState::GetInfo:
 					if (resp->sizeinbytes == 0 || resp->srcData == nullptr) {
 						cleanup = true;
-						std::cout << "capture requested buffer " << resp->datarefId << " is empty, ignoring" << std::endl;
+						std::cerr << "capture requested buffer " << resp->datarefId << " is empty, ignoring" << std::endl;
 					} else {
 						//alloc data needed to copy
 						resp->data.resize(resp->sizeinbytes);
@@ -381,7 +389,6 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 	std::shared_ptr<MapData> req = std::make_shared<MapData>(index, datarefId);
 
 	if (filePath.empty()) {
-		storeAndRequest(req);
 		{
 			std::unique_lock<std::mutex> lock(mMutex);
 			auto sharing = mSharing.find(index);
@@ -389,6 +396,7 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 				update_shared(sharing->second, req);
 			}
 		}
+		storeAndRequest(req);
 		return true;
 	}
 	try {
@@ -450,7 +458,6 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		req->sizeinbytes = sizeof(float) * framesRead * sndfile.channels();
 		req->datatype = bufferType;
 		req->audiodata = std::move(data);
-		storeAndRequest(req);
 
 		{
 			std::unique_lock<std::mutex> lock(mMutex);
@@ -459,6 +466,7 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 				update_shared(sharing->second, req);
 			}
 		}
+		storeAndRequest(req);
 
 		return true;
 	} catch (std::exception& e) {
@@ -590,10 +598,6 @@ void RunnerExternalDataHandler::handleSharedMappingChange(const std::string& key
 }
 
 void RunnerExternalDataHandler::storeAndRequest(std::shared_ptr<MapData> mapping) {
-#if DATAHANLDER_DEBUG
-	std::cout << "storeAndRequest " << mapping->datarefId << " " << (mapping->data == nullptr ? "empty" : "withdata") << std::endl;
-#endif
-
 	std::unique_lock<std::mutex> lock(mMutex);
 	mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
 	mMapRequest.enqueue(mapping);
