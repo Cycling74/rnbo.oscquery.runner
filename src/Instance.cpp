@@ -1350,7 +1350,6 @@ void Instance::queueConfigChangeSignal() {
 }
 
 bool Instance::loadDataRef(const std::string& id, const fs::path& filePath) {
-	mCore->releaseExternalData(id.c_str());
 	if (mDataHandler && mDataHandler->load(id, filePath)) {
 		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
 		mDataRefFileNameMap[id] = filePath.filename().string();
