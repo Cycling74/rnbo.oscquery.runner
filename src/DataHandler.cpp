@@ -5,13 +5,15 @@
 
 #include <sndfile.hh>
 
-#include <boost/optional.hpp>
-#include <boost/none.hpp>
-
 //shm
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/lexical_cast.hpp>
 
 namespace fs = boost::filesystem;
 
@@ -22,21 +24,21 @@ using RNBO::ReleaseRefCallback;
 
 class ShmMemData {
 	public:
-		ShmMemData(uint8_t * data, size_t size, std::string name) : mData(data), mSize(size), mName(name) {
+		ShmMemData(char * data, size_t size, std::string name) : mData(data), mSize(size), mName(name) {
 		}
 		~ShmMemData() {
 			munmap(mData, mSize);
 			shm_unlink(mName.c_str());
 		}
 
-		uint8_t * mData;
+		char * mData;
 		size_t mSize;
 		std::string mName;
 };
 
 class MapData {
 	public:
-		MapData(RNBO::Index index, std::string id): datarefIndex(index), datarefId(id) { 
+		MapData(RNBO::Index index, std::string id, DataTypeInfo info): datarefIndex(index), datarefId(id), typeinfo(info) { 
 			//std::cout << "created MapData " << this << std::endl;
 		}
 		~MapData() { 
@@ -45,17 +47,28 @@ class MapData {
 
 		RNBO::Index datarefIndex;
 		std::string datarefId;
+		DataTypeInfo typeinfo;
 
 		RNBO::DataType datatype;
 		char * data = nullptr; //points to one of the front of audio data, bytedata or memory mapped shared memory, null means unmap
 		size_t sizeinbytes = 0;
 
-		std::shared_ptr<std::vector<float>> audiodata;
+		bool compatible(const std::shared_ptr<MapData>& other) const {
+			return typeinfo == other->typeinfo;
+		}
+
+		bool matches(const RNBO::DataType& other) const {
+			return datatype.matches(other);
+		}
+
+		std::shared_ptr<std::vector<float>> audiodata32;
+		std::shared_ptr<std::vector<double>> audiodata64;
 		std::shared_ptr<std::vector<uint8_t>> bytedata;
 		std::shared_ptr<ShmMemData> shmdata;
 
 		void copyData(const std::shared_ptr<MapData> src) {
-			audiodata = src->audiodata;
+			audiodata32 = src->audiodata32;
+			audiodata64 = src->audiodata64;
 			bytedata = src->bytedata;
 			shmdata = src->shmdata;
 
@@ -95,6 +108,10 @@ struct DataRefInfo {
 };
 
 namespace {
+#ifdef __APPLE__
+	std::atomic_uint64_t mUID = 0;
+#endif
+
 	std::mutex GlobalMutex;
 #ifdef DATAHANDLER_SHARED_WEAK
 	//week doesn't work as we'd expect
@@ -144,6 +161,56 @@ namespace {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		SharedMappingCallbacks.erase(reinterpret_cast<uintptr_t>(key));
 	}
+
+	template <typename T>
+	std::pair<std::shared_ptr<std::vector<T>>, sf_count_t> read_sndfile(SndfileHandle& sndfile) {
+		std::shared_ptr<std::vector<T>> data;
+
+		sf_count_t framesRead = 0;
+
+		//actually read in audio and set the data
+		//Some formats have an unknown frame size, so we have to read a bit at a time
+		if (sndfile.frames() < SF_COUNT_MAX) {
+			data = std::make_shared<std::vector<T>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
+			framesRead = sndfile.readf(&data->front(), sndfile.frames());
+		} else {
+			const sf_count_t framesToRead = static_cast<sf_count_t>(sndfile.samplerate());
+			//blockSize, offset, offsetIncr are in samples, not frames
+			const auto blockSize = static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(framesToRead);
+			size_t offset = 0;
+			size_t offsetIncr = framesToRead * sndfile.channels();
+			sf_count_t read = 0;
+			//reserve 5 seconds of space
+			data = std::make_shared<std::vector<T>>(blockSize * 5);
+			do {
+				data->resize(offset + blockSize);
+				read = sndfile.readf(&data->front() + offset, framesToRead);
+				framesRead += read;
+				offset += offsetIncr;
+			} while (read == framesToRead);
+		}
+
+		if (framesRead == 0) {
+			std::cerr << "read zero frames read from audio file" << std::endl;
+			data.reset();
+		}
+		return std::make_pair(data, framesRead);
+	}
+
+	std::string shm_name(std::string type_name, unsigned int channels, unsigned int samplerate) {
+		std::string name = "rnbo-" + type_name + "-" + std::to_string(channels) + "-" + std::to_string(samplerate);
+		//apple has very short name length limits
+		{
+#ifdef __APPLE__
+			auto id = mUID.fetch_add(1);
+			name = name + "-" + std::to_string(id);
+#else
+			boost::uuids::uuid uid = boost::uuids::random_generator()();
+			name = name + "-" + boost::lexical_cast<std::string>(uid);
+#endif
+		}
+		return name;
+	}
 }
 
 RunnerExternalDataHandler::RunnerExternalDataHandler(const std::vector<std::string>& datarefIds, const RNBO::Json& datarefDesc) :
@@ -153,14 +220,48 @@ RunnerExternalDataHandler::RunnerExternalDataHandler(const std::vector<std::stri
 	mMapResponse(datarefIds.size()),
 	mSharedRefChanged(16) //how many shared refs might we have?
 {
-	//TODO extract data types
 
 	for (RNBO::Index i = 0; i < datarefIds.size(); i++) {
 		auto id = datarefIds[i];
-		auto cur = std::make_shared<MapData>(i, id);
+		mIndexLookup.insert({id, i});
+
+		//extract data types
+		RNBO::DataType::Type datatype = RNBO::DataType::Type::Untyped;
+		uint8_t datatypeBytes = 0;
+		if (datarefDesc.is_array()) {
+			for (const auto& ref: datarefDesc) {
+				if (ref.is_object() && ref.contains("id") && ref.contains("type")) {
+					auto rid = ref["id"];
+					auto rtype = ref["type"];
+					if (rid.is_string() && rid.get<std::string>() == id && rtype.is_string()) {
+						std::string rtype_s = rtype.get<std::string>();
+						if (rtype_s == "Float32Buffer") {
+							datatype = RNBO::DataType::Type::Float32AudioBuffer;
+							datatypeBytes = 4;
+						} else if (rtype_s == "Float64Buffer") {
+							datatype = RNBO::DataType::Type::Float64AudioBuffer;
+							datatypeBytes = 8;
+						} else if (rtype_s == "SampleBuffer") {
+							datatype = RNBO::DataType::Type::SampleAudioBuffer;
+							datatypeBytes = sizeof(RNBO::SampleValue);
+						} else if (rtype_s == "UInt8Buffer") {
+							datatype = RNBO::DataType::Type::TypedArray;
+							datatypeBytes = 1;
+						} else {
+							std::cerr << "unhandled buffer type " << rtype_s << std::endl;
+						}
+						break;
+					}
+				}
+			}
+		}
+
+		DataTypeInfo typeinfo = std::make_pair(datatype, datatypeBytes);
+		mDataTypeDataBytes.push_back(typeinfo);
+
+		auto cur = make_map(id, i);
 		mMappings.emplace_back(cur);
 		mProcessMappings.emplace_back(cur);
-		mIndexLookup.insert({id, i});
 	}
 
 	register_callback(this, std::bind(&RunnerExternalDataHandler::handleSharedMappingChange, this, std::placeholders::_1));
@@ -342,13 +443,7 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 				if (observers != mObservers.end()) {
 					auto shared = get_shared(key);
 					for (auto datarefId: observers->second) {
-						auto it = mIndexLookup.find(datarefId);
-						if (it == mIndexLookup.end()) {
-							std::cerr << "failed to find dataref with id " << datarefId << std::endl;
-							continue;
-						}
-
-						req = std::make_shared<MapData>(it->second, datarefId);
+						req = make_map(datarefId);
 						if (shared) {
 							//TODO verify that datatype matches
 							req->copyData(shared.get());
@@ -365,18 +460,9 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 
 bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::path& filePath)
 {
-	RNBO::Index index;
-
-	//TODO handle share, observe and shmem
-	//TODO make sure this is an audio buffer
-	{
-		auto it = mIndexLookup.find(datarefId);
-		if (it == mIndexLookup.end()) {
-			std::cerr << "failed to find dataref with id " << datarefId << std::endl;
-			return false;
-		}
-		index = it->second;
-	}
+	bool system = false;
+	RNBO::Index index = get_index(datarefId);;
+	DataTypeInfo typeinfo = mDataTypeDataBytes[index];
 
 	{
 		std::unique_lock<std::mutex> lock(mMutex);
@@ -384,9 +470,26 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 			//don't load over observing, though what if we have a rnbo alloc thing in there??
 			return false;
 		}
+		system = mSystem.count(index) > 0;
 	}
 
-	std::shared_ptr<MapData> req = std::make_shared<MapData>(index, datarefId);
+	//TODO make sure this is an audio buffer
+	bool isf32 = false;
+	switch (typeinfo.first) {
+		case RNBO::DataType::Type::Float32AudioBuffer:
+			isf32 = true;
+			break;
+		case RNBO::DataType::Type::Float64AudioBuffer: 
+			isf32 = false;
+			break;
+		case RNBO::DataType::Type::SampleAudioBuffer:
+			isf32 = sizeof(RNBO::SampleValue) == sizeof(float);
+			break;
+		default:
+			return false;
+	}
+
+	std::shared_ptr<MapData> req = make_map(datarefId, index);
 
 	if (filePath.empty()) {
 		{
@@ -422,42 +525,60 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 			return false;
 		}
 
-		std::shared_ptr<std::vector<float>> data;
-		sf_count_t framesRead = 0;
+		if (isf32) {
+			auto [data, framesRead] = read_sndfile<float>(sndfile);
+			if (!data) {
+				return false;
+			}
+			RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
 
-		//actually read in audio and set the data
-		//Some formats have an unknown frame size, so we have to read a bit at a time
-		if (sndfile.frames() < SF_COUNT_MAX) {
-			data = std::make_shared<std::vector<float>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
-			framesRead = sndfile.readf(&data->front(), sndfile.frames());
+			req->data = reinterpret_cast<char *>(&data->front());
+			req->sizeinbytes = sizeof(float) * framesRead * sndfile.channels();
+			req->datatype = bufferType;
+			req->audiodata32 = std::move(data);
 		} else {
-			const sf_count_t framesToRead = static_cast<sf_count_t>(sndfile.samplerate());
-			//blockSize, offset, offsetIncr are in samples, not frames
-			const auto blockSize = static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(framesToRead);
-			size_t offset = 0;
-			size_t offsetIncr = framesToRead * sndfile.channels();
-			sf_count_t read = 0;
-			//reserve 5 seconds of space
-			data = std::make_shared<std::vector<float>>(blockSize * 5);
-			do {
-				data->resize(offset + blockSize);
-				read = sndfile.readf(&data->front() + offset, framesToRead);
-				framesRead += read;
-				offset += offsetIncr;
-			} while (read == framesToRead);
+			auto [data, framesRead] = read_sndfile<double>(sndfile);
+			if (!data) {
+				return false;
+			}
+			RNBO::Float64AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
+
+			req->data = reinterpret_cast<char *>(&data->front());
+			req->sizeinbytes = sizeof(double) * framesRead * sndfile.channels();
+			req->datatype = bufferType;
+			req->audiodata64 = std::move(data);
 		}
 
-		if (framesRead == 0) {
-			std::cerr << "read zero frames from " << filePath.string() << std::endl;
-			return false;
+		if (system) {
+			std::string name = shm_name(isf32 ? "f32" : "f64", sndfile.channels(), sndfile.samplerate());
+			int oflag = O_CREAT | O_RDWR; //create, read/write
+			mode_t mode = S_IRUSR | S_IWUSR; //use read/write
+			int fd = shm_open(name.c_str(), oflag, mode);
+			if (fd < 0) {
+				std::cerr << "cannot open shared memory with name " << name << std::endl;
+				return false;
+			} else if (ftruncate(fd, req->sizeinbytes) == -1) {
+				std::cerr << "cannot resize shared memory with name " << name << std::endl;
+				shm_unlink(name.c_str());
+				return false;
+			}
+
+			char * shmdata = reinterpret_cast<char *>(mmap(NULL, req->sizeinbytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
+			if (shmdata == MAP_FAILED) {
+				std::cerr << "cannot mmap shared memory with name " << name << std::endl;
+				shm_unlink(name.c_str());
+				return false;
+			}
+
+			//copy to shared memory
+			std::memcpy(shmdata, req->data, req->sizeinbytes);
+			req->data = shmdata;
+			req->audiodata32.reset();
+			req->audiodata64.reset();
+			req->shmdata = std::make_shared<ShmMemData>(shmdata, req->sizeinbytes, name);
+
+			std::cout << "opened shm " << name << std::endl;
 		}
-
-		RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
-
-		req->data = reinterpret_cast<char *>(&data->front());
-		req->sizeinbytes = sizeof(float) * framesRead * sndfile.channels();
-		req->datatype = bufferType;
-		req->audiodata = std::move(data);
 
 		{
 			std::unique_lock<std::mutex> lock(mMutex);
@@ -477,28 +598,15 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 
 void RunnerExternalDataHandler::unload(const std::string& datarefId)
 {	
-	auto it = mIndexLookup.find(datarefId);
-	if (it == mIndexLookup.end()) {
-		std::cerr << "failed to find dataref with id " << datarefId << std::endl;
-		return;
-	}
-
-	std::shared_ptr<MapData> req = std::make_shared<MapData>(it->second, datarefId);
+	std::shared_ptr<MapData> req = make_map(datarefId);
 	storeAndRequest(req); //empty
 }
 
-bool RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const RNBO::Json& meta)
+std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const RNBO::Json& meta)
 {
-	RNBO::Index index;
-
-	{
-		auto it = mIndexLookup.find(datarefId);
-		if (it == mIndexLookup.end()) {
-			std::cerr << "failed to find dataref with id " << datarefId << std::endl;
-			return false;
-		}
-		index = it->second;
-	}
+	RNBO::Index index = get_index(datarefId);
+	std::string resp;
+	bool doshm = false;
 
 	std::string sharekey_next;
 	std::string observekey_next;
@@ -510,8 +618,9 @@ bool RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const R
 			observekey_next = meta["observe"].get<std::string>();
 		}
 
-		if (meta.contains("system")) {
-			//TODO
+		if (meta.contains("system") && meta["system"].is_boolean() && meta["system"].get<bool>()) {
+			doshm = true;
+			observekey_next = std::string(); //cannot observe and do shared memory
 		}
 	}
 
@@ -578,19 +687,32 @@ bool RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const R
 				}
 
 				//try to get shared data
-				req = std::make_shared<MapData>(index, datarefId);
+				req = make_map(datarefId, index);
+				resp = "clear";
 				auto o = get_shared(observekey_next);
 				if (o) {
 					req->copyData(o.get());
 				}
 			}
 		}
+
+		if (doshm) {
+			mSystem.insert(index);
+			resp = "reset";
+		} else {
+			if (mSystem.count(index) > 0) {
+				//unmap shared memory
+				req = make_map(datarefId, index);
+				resp = "reset";
+			}
+			mSystem.erase(index);
+		}
 	}
 	if (req) {
 		storeAndRequest(req);
-		return true;
+		return resp;
 	} else {
-		return false;
+		return resp;
 	}
 }
 
@@ -600,8 +722,29 @@ void RunnerExternalDataHandler::handleSharedMappingChange(const std::string& key
 	mSharedRefChanged.enqueue(key);
 }
 
-void RunnerExternalDataHandler::storeAndRequest(std::shared_ptr<MapData> mapping) {
+void RunnerExternalDataHandler::storeAndRequest(std::shared_ptr<MapData> mapping) 
+{
 	std::unique_lock<std::mutex> lock(mMutex);
 	mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
 	mMapRequest.enqueue(mapping);
+}
+
+RNBO::Index RunnerExternalDataHandler::get_index(const std::string& datarefId) const
+{
+	auto it = mIndexLookup.find(datarefId);
+	if (it == mIndexLookup.end()) {
+		std::string msg("failed to find dataref with id " + datarefId);
+		throw std::runtime_error(msg);
+	}
+	return it->second;
+}
+
+std::shared_ptr<MapData> RunnerExternalDataHandler::make_map(const std::string& datarefId, boost::optional<RNBO::Index> index) const 
+{
+	if (!index) {
+		index = get_index(datarefId);
+	}
+	auto typeinfo = mDataTypeDataBytes[*index];
+	auto m = std::make_shared<MapData>(*index, datarefId, typeinfo);
+	return m;
 }

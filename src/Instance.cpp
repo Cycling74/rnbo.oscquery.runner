@@ -972,7 +972,10 @@ void Instance::processEvents() {
 	mAudio->processEvents();
 	if (mDataHandler) {
 		mDataHandler->processEvents([this](std::string datarefId, std::string shmname) {
-				//nothing for now
+				auto nodeit = mDataRefNodes.find(datarefId);
+				if (nodeit != mDataRefNodes.end()) {
+					//nodeit->second->push_value_quiet("");
+				}
 		});
 	}
 
@@ -1811,11 +1814,18 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 					//should always succeed
 					if (mDataHandler) {
-						if (mDataHandler->handleMeta(name, meta)) {
-							//dataref contents changed (via observation or shared mem), clear out
-							auto nodeit = mDataRefNodes.find(name);
-							if (nodeit != mDataRefNodes.end()) {
+						auto resp = mDataHandler->handleMeta(name, meta);
+						auto nodeit = mDataRefNodes.find(name);
+						if (nodeit != mDataRefNodes.end()) {
+							if (resp == "clear") {
+								//dataref contents changed (via observation), clear out
 								nodeit->second->push_value_quiet("");
+							} else if (resp == "reset") {
+								//reset, we may no longer be shared memory so we load back into normal memory
+								if (nodeit->second->get_value_type() == ossia::val_type::STRING) {
+									mDataRefCommandQueue.push(DataRefCommand(nodeit->second->value().get<std::string>(), name.c_str()));
+								}
+							} else if (resp.size() > 0) { //sharedmem
 							}
 						}
 					}

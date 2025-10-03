@@ -1,18 +1,24 @@
 #pragma once
 
 #include <RNBO.h>
+
 #include <mutex>
 #include <functional>
 #include <set>
 #include <unordered_map>
+
 #include <readerwriterqueue/readerwriterqueue.h>
 #include <concurrentqueue/concurrentqueue.h>
+
 #include <boost/filesystem.hpp>
+#include <boost/optional.hpp>
+#include <boost/none.hpp>
 
 using DataCaptureCallback = std::function<void(std::string datarefId, RNBO::DataType datatype, std::vector<char>&& data)>;
 
 struct DataCaptureData;
 class MapData;
+using DataTypeInfo = std::pair<RNBO::DataType::Type, uint8_t>;
 
 //setup to serialize data out of RNBO to a file
 class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
@@ -26,8 +32,11 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 		bool load(const std::string& datarefId, const boost::filesystem::path& filePath);
 		void unload(const std::string& datarefId);
 
-		//returns true if the dataref was altered
-		bool handleMeta(const std::string& datarefId, const RNBO::Json& meta);
+		//returns "clear" if the dataref is observing
+		//returns "reset" if the dataref was system and no longer is
+		//returns shared memory filename if the dataref loaded sharedmemory
+		//returns empty if neither of these
+		std::string handleMeta(const std::string& datarefId, const RNBO::Json& meta);
 
 		void capture(std::string datarefId, DataCaptureCallback callback);
 		//how may bytes to read per Read request
@@ -39,6 +48,8 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 	private:
 		bool mHasRunProcess = false; //bug workaround
 		void storeAndRequest(std::shared_ptr<MapData> mapping);
+		RNBO::Index get_index(const std::string& datarefId) const;
+		std::shared_ptr<MapData> make_map(const std::string& datarefId, boost::optional<RNBO::Index> index = boost::none) const;
 
 		std::mutex mMutex;
 		std::unordered_map<std::string, DataCaptureCallback> mCallbacks;
@@ -46,6 +57,8 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 
 		std::vector<std::shared_ptr<MapData>> mProcessMappings;
 		std::vector<std::weak_ptr<MapData>> mMappings;
+		std::vector<DataTypeInfo> mDataTypeDataBytes;
+
 		std::unordered_map<std::string, RNBO::Index> mIndexLookup;
 
 		moodycamel::ConcurrentQueue<std::shared_ptr<DataCaptureData>> mDataRequest; // into process
@@ -62,4 +75,5 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 		//index -> key
 		std::unordered_map<RNBO::Index, std::string> mObserving;
 		std::unordered_map<RNBO::Index, std::string> mSharing;
+		std::set<RNBO::Index> mSystem;
 };
