@@ -18,7 +18,8 @@ using DataCaptureCallback = std::function<void(std::string datarefId, RNBO::Data
 
 struct DataCaptureData;
 class MapData;
-using DataTypeInfo = std::pair<RNBO::DataType::Type, uint8_t>;
+class DataRefInfo;
+class DataTypeInfo;
 
 //setup to serialize data out of RNBO to a file
 class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
@@ -66,6 +67,10 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 																																														
 		moodycamel::ConcurrentQueue<std::shared_ptr<MapData>> mMapRequest; // into process
 		moodycamel::ReaderWriterQueue<std::shared_ptr<MapData>> mMapResponse; // from process
+																																					
+		//get info from the process side
+		moodycamel::ConcurrentQueue<std::shared_ptr<DataRefInfo>> mInfoRequest; // into process
+		moodycamel::ReaderWriterQueue<std::shared_ptr<DataRefInfo>> mInfoResponse; // from process
 																																				
 		moodycamel::ConcurrentQueue<std::string> mSharedRefChanged; //from various threads into processEvents
 
