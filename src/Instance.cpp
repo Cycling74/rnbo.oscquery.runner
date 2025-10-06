@@ -122,7 +122,7 @@ Instance::Instance(
 		unsigned int index,
 		OSCCallback oscCallback,
 		OSCRegisterCallback oscRegisterCallback
-) : mPatcherFactory(factory), mDataRefProcessCommands(true), mConfig(conf), mIndex(index), mName(name), mDB(db), mOSCCallback(oscCallback), mOSCRegisterCallback(oscRegisterCallback) {
+) : mPatcherFactory(factory), mConfig(conf), mIndex(index), mName(name), mDB(db), mOSCCallback(oscCallback), mOSCRegisterCallback(oscRegisterCallback) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
 	//load up data ref map so we can set the initial value
@@ -206,12 +206,11 @@ Instance::Instance(
 			ids.push_back(std::string(mCore->getExternalDataId(i)));
 		}
 
-		mDataHandler = RNBO::make_unique<RunnerExternalDataHandler>(ids, datarefConfig);
+		mDataHandler = std::make_shared<RunnerExternalDataHandler>(ids, datarefConfig);
 		mDataHandler->chunkSize(mAudio->bufferSize() * sizeof(float) * dataCaptureBufferSizeMul);
 		mCore->setExternalDataHandler(mDataHandler.get());
 	}
 
-	mDataRefCleanupQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>>(32);
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial) {
@@ -492,8 +491,9 @@ Instance::Instance(
 				}
 				d->add_callback(
 					[this, id](const ossia::value& val) {
-						if (val.get_type() == ossia::val_type::STRING)
-							mDataRefCommandQueue.push(DataRefCommand(val.get<std::string>(), id));
+						if (val.get_type() == ossia::val_type::STRING && mDataHandler) {
+							mDataHandler->requestLoad(id, val.get<std::string>());
+						}
 				});
 
 				//save logic
@@ -873,7 +873,7 @@ Instance::Instance(
 
 	//auto load data refs
 	for (auto& kv: dataRefMap) {
-		loadDataRefCleanup(kv.first, kv.second);
+		mDataHandler->requestLoad(kv.first, kv.second);
 	}
 
 	//load the initial or last preset, if in the config
@@ -890,7 +890,6 @@ Instance::Instance(
 
 	//incase we changed it
 	mConfigChanged = false;
-	mDataRefThread = std::thread(&Instance::processDataRefCommands, this);
 }
 
 Instance::~Instance() {
@@ -899,8 +898,6 @@ Instance::~Instance() {
 		kv.second();
 	}
 
-	mDataRefProcessCommands.store(false);
-	mDataRefThread.join();
 	stop();
 	mAudio.reset();
 	mEventHandler.reset();
@@ -936,20 +933,6 @@ void Instance::registerPresetLoadedCallback(std::function<void(const std::string
 	mPresetLoadedCallback = cb;
 }
 
-void Instance::processDataRefCommands() {
-	while (mDataRefProcessCommands.load()) {
-		auto cmdOpt = mDataRefCommandQueue.popTimeout(command_wait_timeout);
-		if (!cmdOpt)
-			continue;
-		DataRefCommand cmd = cmdOpt.get();
-		if (loadDataRefCleanup(cmd.id, cmd.fileName)) {
-			//TODO loading datarefs is changing dirty status, can we figure out a better way?
-			//DISABLING until then
-			//queueConfigChangeSignal();
-		}
-	}
-}
-
 //build mutex is locked, we can build
 void Instance::processEvents() {
 	const auto state = audioState();
@@ -970,18 +953,8 @@ void Instance::processEvents() {
 		}
 	}
 	mAudio->processEvents();
-	if (mDataHandler) {
-		mDataHandler->processEvents([this](std::string datarefId, std::string shmname) {
-				auto nodeit = mDataRefNodes.find(datarefId);
-				if (nodeit != mDataRefNodes.end()) {
-					//nodeit->second->push_value_quiet("");
-				}
-		});
-	}
-
-	//clear
-	while (mDataRefCleanupQueue->pop()) {
-		//clear out/dealloc
+	if (mDataHandler && active) {
+		mDataHandler->processEvents(mDataRefNodes);
 	}
 
 	//handle queued presets
@@ -997,10 +970,8 @@ void Instance::processEvents() {
 
 			//add dataref mapping
 			RNBO::Json datarefs = RNBO::Json::object();
-			{
-				std::lock_guard<std::mutex> bguard(mDataRefFileNameMutex);
-				for (auto& kv: mDataRefFileNameMap)
-					datarefs[kv.first] = kv.second;
+			if (mDataHandler) {
+				datarefs = mDataHandler->fileMappingJson();
 			}
 			data["datarefs"] = datarefs;
 
@@ -1275,10 +1246,8 @@ RNBO::Json Instance::currentConfig() {
 		}
 	}
 	//copy datarefs
-	{
-		std::lock_guard<std::mutex> bguard(mDataRefFileNameMutex);
-		for (auto& kv: mDataRefFileNameMap)
-			datarefs[kv.first] = kv.second;
+	if (mDataHandler) {
+		datarefs = mDataHandler->fileMappingJson();
 	}
 	config["datarefs"] = datarefs;
 	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
@@ -1350,105 +1319,6 @@ void Instance::handleProgramChange(ProgramChange p) {
 void Instance::queueConfigChangeSignal() {
 	std::lock_guard<std::mutex> guard(mConfigChangedMutex);
 	mConfigChanged = true;
-}
-
-bool Instance::loadDataRef(const std::string& id, const fs::path& filePath) {
-	if (mDataHandler && mDataHandler->load(id, filePath)) {
-		std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-		mDataRefFileNameMap[id] = filePath.filename().string();
-		return true;
-	}
-	return false;
-}
-
-bool Instance::loadDataRefCleanup(const std::string& id, const std::string& fileName) {
-	auto it = mDataRefNodes.find(id);
-	if (it == mDataRefNodes.end()) {
-		std::cerr << "cannot find dataref node with id: " << id << std::endl;
-		return false;
-	}
-
-	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
-	if (dataFileDir) {
-		fs::path filePath;
-		if (fileName.size()) {
-			if (fileName == "shm") {
-				std::string name = "rnbo-" + fileName.substr(4); //remove shm, add "rnbo-" prefix
-				int oflag = O_CREAT | O_RDWR; //create, read/write
-				mode_t mode = S_IRUSR | S_IWUSR; //use read/write
-				int fd = shm_open(name.c_str(), oflag, mode);
-
-				if (fd < 0) {
-					std::cerr << "cannot open shared memory with name " << name << std::endl;
-					it->second->push_value_quiet("");
-					return false;
-				} else {
-					//TODO
-					const size_t display_words = 64 * 4;
-					size_t shmsize = ((display_words + 1) * sizeof(uint32_t)); //1 word header
-
-					mCore->releaseExternalData(id.c_str());
-					mDataRefs.erase(id);
-
-					//DISPLAY_WIDTH = 128 / 32 = 4
-					//DISPLAY_HEIGHT = 64;
-
-					if (ftruncate(fd, shmsize) == -1) {
-						std::cerr << "cannot resize shared memory with name " << name << std::endl;
-						it->second->push_value_quiet("");
-						shm_unlink(name.c_str());
-						return false;
-					}
-
-					char * data = reinterpret_cast<char *>(mmap(NULL, shmsize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
-					if (data == MAP_FAILED) {
-						std::cerr << "cannot mmap shared memory with name " << name << std::endl;
-						it->second->push_value_quiet("");
-						shm_unlink(name.c_str());
-						return false;
-					}
-
-					//store the mapping so we can persist
-					{
-						std::lock_guard<std::mutex> guard(mDataRefFileNameMutex);
-						mDataRefFileNameMap[id] = fileName;
-					}
-
-					//set the dataref data
-					RNBO::DataType bufferType;
-					bufferType.type = RNBO::DataType::TypedArray;
-
-					mCore->setExternalData(id.c_str(), data, shmsize, bufferType, [data, shmsize, name, this](RNBO::ExternalDataId, char*) mutable {
-							//TODO move to another thread
-							munmap(data, shmsize);
-							shm_unlink(name.c_str());
-					});
-
-					return true;
-				}
-			} else {
-				filePath = dataFileDir.get() / fs::path(fileName);
-				if (!fs::exists(filePath)) {
-					//see about adding ".wav" so users can send 1234 and get 1234.wav
-					filePath = dataFileDir.get() / fs::path(fileName + ".wav");
-					if (fs::exists(filePath)) {
-						it->second->push_value_quiet(filePath.filename().string());
-					} else {
-						it->second->push_value_quiet("");
-						return false;
-					}
-				}
-			}
-		}
-		if (loadDataRef(id, filePath)) {
-			return true;
-		}
-	} else {
-		std::cerr << config::key::DataFileDir << " not in config" << std::endl;
-	}
-
-	it->second->push_value_quiet("");
-	return false;
 }
 
 //both of these happen in the processEvents callback
@@ -1814,20 +1684,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 
 					//should always succeed
 					if (mDataHandler) {
-						auto resp = mDataHandler->handleMeta(name, meta);
-						auto nodeit = mDataRefNodes.find(name);
-						if (nodeit != mDataRefNodes.end()) {
-							if (resp == "clear") {
-								//dataref contents changed (via observation), clear out
-								nodeit->second->push_value_quiet("");
-							} else if (resp == "reset") {
-								//reset, we may no longer be shared memory so we load back into normal memory
-								if (nodeit->second->get_value_type() == ossia::val_type::STRING) {
-									mDataRefCommandQueue.push(DataRefCommand(nodeit->second->value().get<std::string>(), name.c_str()));
-								}
-							} else if (resp.size() > 0) { //sharedmem
-							}
-						}
+						mDataHandler->handleMeta(name, meta);
 					}
 				}
 				break;

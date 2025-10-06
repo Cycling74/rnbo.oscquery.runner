@@ -38,12 +38,12 @@ using OSCRegisterCallback = std::function<void(bool doregister, const std::strin
 class Instance {
 	public:
 		Instance(
-				std::shared_ptr<DB> db, 
-				std::shared_ptr<PatcherFactory> factory, 
-				std::string name, 
-				NodeBuilder builder, 
-				RNBO::Json conf, 
-				std::shared_ptr<ProcessAudio> processAudio, 
+				std::shared_ptr<DB> db,
+				std::shared_ptr<PatcherFactory> factory,
+				std::string name,
+				NodeBuilder builder,
+				RNBO::Json conf,
+				std::shared_ptr<ProcessAudio> processAudio,
 				unsigned int index,
 				OSCCallback oscCallback,
 				OSCRegisterCallback oscRegisterCallback
@@ -107,11 +107,6 @@ class Instance {
 		std::mutex mConfigChangedMutex;
 		bool mConfigChanged = false;
 
-		struct DataRefCommand {
-			std::string fileName;
-			std::string id;
-			DataRefCommand(std::string inFileName, RNBO::ExternalDataId inId) : fileName(inFileName), id(inId) {}
-		};
 		struct PresetCommand {
 			enum class CommandType {
 				Delete,
@@ -174,17 +169,12 @@ class Instance {
 			void push_osc(ossia::value val, float normval, OSCCallback cb);
 		};
 
-		void processDataRefCommands();
-
 		void updatePresetEntries();
 		void handleProgramChange(ProgramChange);
 
 		//called from various threads
 		void queueConfigChangeSignal();
-		//only called at startup or in the processDataRefCommands thread
-		bool loadDataRef(const std::string& id, const boost::filesystem::path& filePath);
-		//attempts to load the dataref, clears out the oscquery value if it fails
-		bool loadDataRefCleanup(const std::string& id, const std::string& fileName);
+
 		//serialize dataref to file
 		void saveDataref(std::string id, boost::filesystem::path dir, std::string filenameTempl);
 
@@ -214,17 +204,11 @@ class Instance {
 		ossia::net::parameter_base* mActiveParam;
 		ossia::net::parameter_base* mMIDIOutParam;
 
-		//queue for loading or unloading data refs
-		Queue<DataRefCommand> mDataRefCommandQueue;
-		//queue for moving dataref deallocs out of audio thread
-		std::unique_ptr<moodycamel::ReaderWriterQueue<std::shared_ptr<std::vector<float>>, 32>> mDataRefCleanupQueue;
 		//preset name, preset ptr, set name (maybe empty)
 		std::unique_ptr<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>> mPresetSaveQueue;
 
 		//only accessed in the data ref thread
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;
-		std::thread mDataRefThread;
-		std::atomic<bool> mDataRefProcessCommands;
 		//keep the parameters so we can clear out when files don't exist
 		std::unordered_map<std::string, ossia::net::parameter_base *> mDataRefNodes;
 
@@ -261,10 +245,6 @@ class Instance {
 		//cleanupKey -> function
 		std::unordered_map<std::string, std::function<void()>> mMetaCleanup;
 
-		//map of dataref name to file name
-		std::mutex mDataRefFileNameMutex;
-		std::unordered_map<std::string, std::string> mDataRefFileNameMap;
-
 		//presets
 		ossia::net::parameter_base * mPresetEntries;
 		std::mutex mPresetMutex;
@@ -294,5 +274,5 @@ class Instance {
 
 		ossia::net::parameter_base * mNameAliasParam = nullptr;
 
-		std::unique_ptr<RunnerExternalDataHandler> mDataHandler;
+		std::shared_ptr<RunnerExternalDataHandler> mDataHandler;
 };
