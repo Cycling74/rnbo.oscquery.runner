@@ -2,6 +2,9 @@
 
 #include <RNBO.h>
 
+#include <ossia/network/generic/generic_parameter.hpp>
+
+#include <memory>
 #include <mutex>
 #include <functional>
 #include <set>
@@ -20,9 +23,10 @@ struct DataCaptureData;
 class MapData;
 class DataRefInfo;
 class DataTypeInfo;
+class DataLoadJobQueue;
 
 //setup to serialize data out of RNBO to a file
-class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
+class RunnerExternalDataHandler : public RNBO::ExternalDataHandler, public std::enable_shared_from_this<RunnerExternalDataHandler> {
 	public:
 		RunnerExternalDataHandler(const std::vector<std::string>& datarefIds, const RNBO::Json& datarefDesc);
 		~RunnerExternalDataHandler();
@@ -30,25 +34,25 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 		virtual void processBeginCallback(RNBO::DataRefIndex numRefs, RNBO::ConstRefList refList, RNBO::UpdateRefCallback updateDataRef, RNBO::ReleaseRefCallback releaseDataRef) override;
 		virtual void processEndCallback(RNBO::DataRefIndex numRefs, RNBO::ConstRefList refList) override;
 
-		bool load(const std::string& datarefId, const boost::filesystem::path& filePath);
-		void unload(const std::string& datarefId);
+		RNBO::Json fileMappingJson();
 
-		//returns "clear" if the dataref is observing
-		//returns "reset" if the dataref was system and no longer is
-		//returns shared memory filename if the dataref loaded sharedmemory
-		//returns empty if neither of these
-		std::string handleMeta(const std::string& datarefId, const RNBO::Json& meta);
+		void requestLoad(const std::string& datarefId, const std::string& fileName);
+
+		void load(const std::string& datarefId, const boost::filesystem::path& filePath);
+
+		void handleMeta(const std::string& datarefId, const RNBO::Json& meta);
 
 		void capture(std::string datarefId, DataCaptureCallback callback);
 		//how may bytes to read per Read request
 		void chunkSize(size_t bytes) { mChunkBytes = bytes; }
 
-		void processEvents(std::function<void(std::string, std::string)> shmcb = nullptr);
+		void processEvents(std::unordered_map<std::string, ossia::net::parameter_base *>& dataRefNodes);
 
-		void handleSharedMappingChange(const std::string& key);
+		void handleSharedMappingChange(const std::string& key, std::shared_ptr<MapData> ptr);
 	private:
+		std::shared_ptr<DataLoadJobQueue> mDataLoader;
+
 		bool mHasRunProcess = false; //bug workaround
-		void storeAndRequest(std::shared_ptr<MapData> mapping);
 		RNBO::Index get_index(const std::string& datarefId) const;
 		std::shared_ptr<MapData> make_map(const std::string& datarefId, boost::optional<RNBO::Index> index = boost::none) const;
 
@@ -72,7 +76,8 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 		moodycamel::ConcurrentQueue<std::shared_ptr<DataRefInfo>> mInfoRequest; // into process
 		moodycamel::ReaderWriterQueue<std::shared_ptr<DataRefInfo>> mInfoResponse; // from process
 																																				
-		moodycamel::ConcurrentQueue<std::string> mSharedRefChanged; //from various threads into processEvents
+		moodycamel::ConcurrentQueue<std::pair<std::string, std::shared_ptr<MapData>>> mSharedRefChanged; //from various threads into processEvents
+		moodycamel::ConcurrentQueue<std::shared_ptr<MapData>> mDataLoad; //from data loading threads into processEvents
 
 		std::unordered_map<std::string, std::set<std::string>> mObservers; //shared key -> datarefId
 		std::unordered_map<std::string, std::string> mShared; //datarefId -> shared key
@@ -81,4 +86,7 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler {
 		std::unordered_map<RNBO::Index, std::string> mObserving;
 		std::unordered_map<RNBO::Index, std::string> mSharing;
 		std::set<RNBO::Index> mSystem;
+
+		//map of dataref name to file name
+		std::unordered_map<std::string, std::string> mDataRefFileNameMap;
 };

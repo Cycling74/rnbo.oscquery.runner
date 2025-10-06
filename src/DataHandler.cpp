@@ -1,7 +1,10 @@
 #include "DataHandler.h"
+#include "Queue.h"
+#include "Config.h"
 
 #include <iostream>
 #include <atomic>
+#include <thread>
 
 #include <sndfile.hh>
 
@@ -22,6 +25,8 @@ using RNBO::ConstRefList;
 using RNBO::UpdateRefCallback;
 using RNBO::ReleaseRefCallback;
 
+const unsigned int DataLoadWorkers = 4; 
+
 namespace {
 	std::string shm_name(std::string type_name, unsigned int channels, unsigned int samplerate);
 }
@@ -29,10 +34,12 @@ namespace {
 class ShmMemData {
 	public:
 		ShmMemData(char * data, size_t size, std::string name) : mData(data), mSize(size), mName(name) {
+			//std::cout << "created shm with name " << mName << std::endl;
 		}
 		~ShmMemData() {
 			munmap(mData, mSize);
 			shm_unlink(mName.c_str());
+			//std::cout << "destroyed shm with name " << mName << std::endl;
 		}
 
 		const std::string& name() const { return mName; }
@@ -80,6 +87,8 @@ class MapData {
 		~MapData() { 
 			//std::cout << "destroy MapData " << this << std::endl;
 		}
+
+		fs::path filePath;
 
 		RNBO::Index datarefIndex;
 		std::string datarefId;
@@ -191,19 +200,86 @@ struct DataCaptureData {
 	size_t bytesread = 0;
 };
 
+
+namespace {
+	std::weak_ptr<DataLoadJobQueue> GlobalJobQueue;
+	std::mutex CreateMutex;
+
+	class Job {
+		public:
+			Job(
+			std::shared_ptr<RunnerExternalDataHandler> h,
+			std::string id,
+			fs::path fp) :  handler(h), datarefId(id), filePath(fp)
+		{}
+			std::shared_ptr<RunnerExternalDataHandler> handler;
+			std::string datarefId;
+			fs::path filePath;
+
+			bool valid() const {
+				return datarefId.size() > 0;
+			}
+			void dowork() {
+				handler->load(datarefId, filePath);
+			}
+	};
+
+}
+class DataLoadJobQueue {
+	public:
+		DataLoadJobQueue() {
+			for (auto i = 0; i < DataLoadWorkers; i++) {
+				mWorkers.emplace_back(std::thread(&DataLoadJobQueue::work, this));
+			}
+		}
+
+		~DataLoadJobQueue() {
+			mDoWork = false;
+			for (auto& w: mWorkers) {
+				w.join();
+			}
+		}
+
+		static std::shared_ptr<DataLoadJobQueue> Get() {
+			std::unique_lock<std::mutex> lock(CreateMutex);
+			if (auto ptr = GlobalJobQueue.lock()) {
+				return ptr;
+			}
+			auto ptr = std::make_shared<DataLoadJobQueue>();
+			GlobalJobQueue = ptr;
+			return ptr;
+		};
+
+		void queue(std::shared_ptr<RunnerExternalDataHandler> handler, const std::string& datarefId, const fs::path& filePath) {
+			mJobs.push(Job(handler, datarefId, filePath));
+		}
+
+		void work() {
+			while (mDoWork) {
+				if (auto j = mJobs.tryPop()) {
+					j->dowork();
+				} else {
+					std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				}
+			}
+		}
+
+	private:
+		bool mDoWork = true;
+		Queue<Job> mJobs;
+		std::vector<std::thread> mWorkers;
+};
+
+
 namespace {
 #ifdef __APPLE__
 	std::atomic_uint64_t mUID = 0;
 #endif
 
 	std::mutex GlobalMutex;
-#ifdef DATAHANDLER_SHARED_WEAK
 	//week doesn't work as we'd expect
 	std::unordered_map<std::string, std::weak_ptr<MapData>> SharedMappings;
-#else
-	std::unordered_map<std::string, std::shared_ptr<MapData>> SharedMappings;
-#endif
-	std::unordered_map<uintptr_t, std::function<void(const std::string&)>> SharedMappingCallbacks;
+	std::unordered_map<uintptr_t, std::function<void(const std::string&, std::shared_ptr<MapData>)>> SharedMappingCallbacks;
 
 	void update_shared(const std::string& key, std::shared_ptr<MapData> mapping) {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
@@ -211,32 +287,32 @@ namespace {
 
 		//broadcast change
 		for (auto it: SharedMappingCallbacks) {
-			it.second(key);
+			it.second(key, mapping);
 		}
 	}
 
 	void remove_shared(const std::string& key) {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		SharedMappings.erase(key);
-		//TODO do we want to broadcast that this is now empty?
+
+		//broadcast change
+		for (auto it: SharedMappingCallbacks) {
+			it.second(key, {});
+		}
 	}
 
 	boost::optional<std::shared_ptr<MapData>> get_shared(const std::string& key) {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		auto it = SharedMappings.find(key);
 		if (it != SharedMappings.end()) {
-#ifdef DATAHANDLER_SHARED_WEAK
 			if (auto p = it->second.lock()) {
 				return p;
 			}
-#else
-			return it->second;
-#endif
 		}
 		return boost::none;
 	}
 
-	void register_callback(const RunnerExternalDataHandler* key, std::function<void(const std::string&)> cb) {
+	void register_callback(const RunnerExternalDataHandler* key, std::function<void(const std::string&, std::shared_ptr<MapData>)> cb) {
 		std::unique_lock<std::mutex> lock(GlobalMutex);
 		SharedMappingCallbacks[reinterpret_cast<uintptr_t>(key)] = cb;
 	}
@@ -307,8 +383,10 @@ RunnerExternalDataHandler::RunnerExternalDataHandler(const std::vector<std::stri
 	mMapResponse(datarefIds.size()),
 	mInfoRequest(datarefIds.size()),
 	mInfoResponse(datarefIds.size()),
-	mSharedRefChanged(16) //how many shared refs might we have?
+	mSharedRefChanged(16), //how many shared refs might we have?
+	mDataLoad(datarefIds.size())
 {
+	mDataLoader = DataLoadJobQueue::Get();
 
 	for (RNBO::Index i = 0; i < datarefIds.size(); i++) {
 		auto id = datarefIds[i];
@@ -355,7 +433,7 @@ RunnerExternalDataHandler::RunnerExternalDataHandler(const std::vector<std::stri
 		mProcessMappings.emplace_back(cur);
 	}
 
-	register_callback(this, std::bind(&RunnerExternalDataHandler::handleSharedMappingChange, this, std::placeholders::_1));
+	register_callback(this, std::bind(&RunnerExternalDataHandler::handleSharedMappingChange, this, std::placeholders::_1, std::placeholders::_2));
 }
 
 RunnerExternalDataHandler::~RunnerExternalDataHandler() {
@@ -377,21 +455,19 @@ RunnerExternalDataHandler::~RunnerExternalDataHandler() {
 	}
 }
 
+RNBO::Json RunnerExternalDataHandler::fileMappingJson()
+{
+	std::unique_lock<std::mutex> lock(mMutex);
+	RNBO::Json datarefs = RNBO::Json::object();
+	for (auto& kv: mDataRefFileNameMap)
+		datarefs[kv.first] = kv.second;
+	return datarefs;
+}
 
 void RunnerExternalDataHandler::processBeginCallback(DataRefIndex numRefs, ConstRefList refList, UpdateRefCallback updateDataRef, ReleaseRefCallback releaseDataRef)
 {
 	//skip requests for 1 process cycle to avoid our dataref events being stomped on by internal dataref events
 	if (mHasRunProcess) {
-		//get info
-		{
-			std::shared_ptr<DataRefInfo> req;
-			while (mInfoRequest.try_dequeue(req)) {
-
-				auto i = req->datarefIndex;
-				req->update(refList[i]);
-				mInfoResponse.try_enqueue(req);
-			}
-		}
 
 		//do updates
 		{
@@ -404,6 +480,7 @@ void RunnerExternalDataHandler::processBeginCallback(DataRefIndex numRefs, Const
 					//extract RNBO allocated data
 					if (req->docopy && ref->getData() != nullptr) {
 						if (req->sizeinbytes == ref->getSizeInBytes()) {
+							req->docopy = false;
 							std::memcpy(req->data, ref->getData(), ref->getSizeInBytes());
 						} else {
 							//XXX error
@@ -424,21 +501,21 @@ void RunnerExternalDataHandler::processBeginCallback(DataRefIndex numRefs, Const
 				mMapResponse.try_enqueue(req);
 			}
 		}
+
+		//get info
+		{
+			std::shared_ptr<DataRefInfo> req;
+			while (mInfoRequest.try_dequeue(req)) {
+				auto i = req->datarefIndex;
+				req->update(refList[i]);
+				mInfoResponse.try_enqueue(req);
+			}
+		}
 	}
 }
 
 void RunnerExternalDataHandler::processEndCallback(DataRefIndex numRefs, ConstRefList refList)
 {
-	/*
-	for (auto i = 0; i < numRefs; i++) {
-		auto ref = refList[i];
-		auto cur = mProcessMappings[i];
-		if (ref->getData() != cur->data) {
-			std::cout << "data mismatch" << std::endl;
-		}
-	}
-	*/
-
 	std::shared_ptr<DataCaptureData> req;
 	while (mDataRequest.try_dequeue(req)) {
 		bool found = false;
@@ -480,6 +557,27 @@ void RunnerExternalDataHandler::processEndCallback(DataRefIndex numRefs, ConstRe
 	mHasRunProcess = true;
 }
 
+void RunnerExternalDataHandler::requestLoad(const std::string& datarefId, const std::string& fileName)
+{
+	auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+	if (dataFileDir) {
+		fs::path filePath;
+		if (fileName.size()) {
+			filePath = dataFileDir.get() / fs::path(fileName);
+			if (!fs::exists(filePath)) {
+				//see about adding ".wav" so users can send 1234 and get 1234.wav
+				filePath = dataFileDir.get() / fs::path(fileName + ".wav");
+				if (!fs::exists(filePath)) {
+					return;
+				}
+			}
+		}
+		mDataLoader->queue(shared_from_this(), datarefId, filePath);
+	} else {
+		std::cerr << config::key::DataFileDir << " not in config" << std::endl;
+	}
+}
+
 void RunnerExternalDataHandler::capture(std::string datarefId, DataCaptureCallback callback) {
 	std::shared_ptr<DataCaptureData> req = std::make_shared<DataCaptureData>(datarefId);
 	if (mDataRequest.try_enqueue(req)) {
@@ -490,8 +588,29 @@ void RunnerExternalDataHandler::capture(std::string datarefId, DataCaptureCallba
 	}
 }
 
-void RunnerExternalDataHandler::processEvents(std::function<void(std::string, std::string)> shmcb)
+void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, ossia::net::parameter_base *>& dataRefNodes)
 {
+	auto storeAndRequest = [this, &dataRefNodes](std::shared_ptr<MapData> mapping) {
+		std::unique_lock<std::mutex> lock(mMutex);
+		mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
+		mMapRequest.enqueue(mapping);
+		auto nodeit = dataRefNodes.find(mapping->datarefId);
+
+		std::string filename = mapping->filePath.filename().string();
+		if (nodeit != dataRefNodes.end()) {
+			auto value = nodeit->second->value();
+			if (value.get<std::string>() != filename) {
+				nodeit->second->push_value_quiet(filename);
+			}
+		}
+
+		if (filename.size() == 0) {
+			mDataRefFileNameMap.erase(mapping->datarefId);
+		} else {
+			mDataRefFileNameMap[mapping->datarefId] = filename;
+		}
+	};
+
 	{
 		std::shared_ptr<MapData> resp;
 		while (mMapResponse.try_dequeue(resp)) {
@@ -544,8 +663,9 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 		}
 	}
 	{
-		std::string key;
-		while (mSharedRefChanged.try_dequeue(key)) {
+		std::pair<std::string, std::shared_ptr<MapData>> keyptr;
+		while (mSharedRefChanged.try_dequeue(keyptr)) {
+			auto [key, shared] = keyptr;
 			std::shared_ptr<MapData> req; //move req out of lock to not deadlock when storeAndRequest
 			{
 				std::unique_lock<std::mutex> lock(mMutex);
@@ -553,12 +673,11 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 				//update any found observers
 				auto observers = mObservers.find(key);
 				if (observers != mObservers.end()) {
-					auto shared = get_shared(key);
 					for (auto datarefId: observers->second) {
 						req = make_map(datarefId);
 						if (shared) {
 							//TODO verify that datatype matches
-							req->copyData(shared.get());
+							req->copyData(shared);
 						}
 					}
 				}
@@ -566,6 +685,20 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 			if (req) {
 				storeAndRequest(req);
 			}
+		}
+	}
+	{
+		std::shared_ptr<MapData> req;
+		while (mDataLoad.try_dequeue(req)) {
+			auto index = req->datarefIndex;
+			{
+				std::unique_lock<std::mutex> lock(mMutex);
+				auto sharing = mSharing.find(index);
+				if (sharing != mSharing.end()) {
+					update_shared(sharing->second, req);
+				}
+			}
+			storeAndRequest(req);
 		}
 	}
 	{
@@ -580,22 +713,26 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 				std::unique_lock<std::mutex> lock(mMutex);
 				if (resp->sizeinbytes > 0) {
 					bool system = mSystem.count(index) > 0;
-					bool shared = mSharing.find(index) != mSharing.end();
-					bool doalloc = (system || shared);
+					std::string sharedname;
+					{
+						auto it = mSharing.find(index);
+						if (it != mSharing.end()) {
+							sharedname = it->second;
+						}
+					}
+					bool doalloc = (system || sharedname.size() > 0);
 
 					auto mapping = mMappings[index];
 					if (auto p = mapping.lock()) {
-						if (p->data == resp->data) {
-							doalloc = system && !p->shmdata;
-						}
+						doalloc = doalloc && system && !p->shmdata;
 					} else {
-						//no mapping, should we replace?
 						doalloc = resp->data != nullptr && doalloc;
 					}
 
 					std::string type_name = typeinfo.type_name();
 					if (type_name != "f32" && type_name != "f64" && type_name != "u8") {
 						std::cerr << "type not yet supported " << type_name << std::endl;
+						continue;
 					}
 
 					if (doalloc) {
@@ -634,8 +771,10 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 							}
 						}
 						req->docopy = true;
-						if (shared) {
-							update_shared(req->datarefId, req);
+
+						//XXX
+						if (sharedname.size()) {
+							update_shared(sharedname, req);
 						}
 					}
 				}
@@ -647,17 +786,26 @@ void RunnerExternalDataHandler::processEvents(std::function<void(std::string, st
 	}
 }
 
-bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::path& filePath)
+//called from multiple threads at once
+void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::path& filePath)
 {
 	bool system = false;
 	RNBO::Index index = get_index(datarefId);
 	DataTypeInfo typeinfo = mDataTypeDataBytes[index];
 
+	//reload existing mapping if we can
+	auto reset = [this, index](){
+		std::unique_lock<std::mutex> lock(mMutex);
+		if (auto p = mMappings[index].lock()) {
+			mDataLoad.enqueue(p);
+		}
+	};
+
 	{
 		std::unique_lock<std::mutex> lock(mMutex);
 		if (mObserving.find(index) != mObserving.end()) {
 			//don't load over observing, though what if we have a rnbo alloc thing in there??
-			return false;
+			return;
 		}
 		system = mSystem.count(index) > 0;
 	}
@@ -665,33 +813,27 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 	//make sure this is an audio buffer
 	std::string type_name = typeinfo.type_name();
 	if (type_name != "f32" && type_name != "f64") {
-		return false;
+		return;
 	}
 
 	std::shared_ptr<MapData> req = make_map(datarefId, index);
 
 	if (filePath.empty()) {
-		{
-			std::unique_lock<std::mutex> lock(mMutex);
-			auto sharing = mSharing.find(index);
-			if (sharing != mSharing.end()) {
-				update_shared(sharing->second, req);
-			}
-		}
-		storeAndRequest(req);
-		return true;
+		mDataLoad.enqueue(req);
+		return;
 	}
+
 	try {
 		if (!fs::exists(filePath)) {
 			std::cerr << "no file at " << filePath << std::endl;
-			//TODO clear node value?
-			return false;
+			reset();
+			return;
 		}
 		SndfileHandle sndfile(filePath.string());
 		if (!sndfile) {
 			std::cerr << "couldn't open as sound file " << filePath << std::endl;
-			//TODO clear node value?
-			return false;
+			reset();
+			return;
 		}
 
 		//sanity check
@@ -701,13 +843,15 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 				" channels: " << sndfile.channels() <<
 				" frames: " << sndfile.frames() <<
 				std::endl;
-			return false;
+			reset();
+			return;
 		}
 
 		if (type_name == "f32") {
 			auto [data, framesRead] = read_sndfile<float>(sndfile);
 			if (!data) {
-				return false;
+				reset();
+				return;
 			}
 			RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
 
@@ -718,7 +862,8 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		} else {
 			auto [data, framesRead] = read_sndfile<double>(sndfile);
 			if (!data) {
-				return false;
+				reset();
+				return;
 			}
 			RNBO::Float64AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
 
@@ -728,37 +873,24 @@ bool RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 			req->audiodata64 = std::move(data);
 		}
 
-		if (system && req->createshm(type_name, sndfile.channels(), sndfile.samplerate())) {
-			//std::cout << "opened shm " << req->shmdata->name() << std::endl;
+		req->filePath = filePath;
+
+		if (system && !req->createshm(type_name, sndfile.channels(), sndfile.samplerate())) {
+			std::cerr << "failed to create shm" << std::endl;
 		}
 
-		{
-			std::unique_lock<std::mutex> lock(mMutex);
-			auto sharing = mSharing.find(index);
-			if (sharing != mSharing.end()) {
-				update_shared(sharing->second, req);
-			}
-		}
-		storeAndRequest(req);
-
-		return true;
+		mDataLoad.enqueue(req);
 	} catch (std::exception& e) {
 		std::cerr << "exception reading data ref file: " << e.what() << std::endl;
+		reset();
 	}
-	return false;
 }
 
-void RunnerExternalDataHandler::unload(const std::string& datarefId)
-{	
-	std::shared_ptr<MapData> req = make_map(datarefId);
-	storeAndRequest(req); //empty
-}
-
-std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const RNBO::Json& meta)
+void RunnerExternalDataHandler::handleMeta(const std::string& datarefId, const RNBO::Json& meta)
 {
 	RNBO::Index index = get_index(datarefId);
-	std::string resp;
 	bool doshm = false;
+	bool reload = false;
 	bool getinfo = false; //get info from process side to see if we need to alloc our own memory and copy RNBO alloc data
 
 	std::string sharekey_next;
@@ -773,7 +905,6 @@ std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, 
 
 		if (meta.contains("system") && meta["system"].is_boolean() && meta["system"].get<bool>()) {
 			doshm = true;
-			getinfo = true;
 			observekey_next = std::string(); //cannot observe and do shared memory
 		}
 	}
@@ -804,10 +935,9 @@ std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, 
 			}
 
 			if (sharekey_next.size()) {
-				getinfo = true;
 				mSharing[index] = sharekey_next;
+				//should broadcast update
 				if (auto p = mapping.lock()) {
-					//should broadcast update
 					update_shared(sharekey_next, p);
 				} else {
 					remove_shared(sharekey_next);
@@ -815,7 +945,6 @@ std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, 
 			} else {
 				mSharing.erase(index);
 			}
-			//is there mObservers cleanup to do??
 		}
 
 		if (observekey_next != observekey_cur) {
@@ -842,7 +971,6 @@ std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, 
 
 				//try to get shared data
 				req = make_map(datarefId, index);
-				resp = "clear";
 				auto o = get_shared(observekey_next);
 				if (o) {
 					req->copyData(o.get());
@@ -852,15 +980,21 @@ std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, 
 
 		if (doshm) {
 			mSystem.insert(index);
-			resp = "reset";
 		} else {
 			if (mSystem.count(index) > 0) {
 				//unmap shared memory
 				req = make_map(datarefId, index);
-				resp = "reset";
-				getinfo = true;
 			}
 			mSystem.erase(index);
+		}
+
+		//should we get info, only if we don't have files loaded
+		if (doshm || (sharekey_next.size() && sharekey_next != sharekey_cur)) {
+			if (auto p = mMappings[index].lock()) {
+				getinfo = p->data == nullptr;
+			} else {
+				getinfo = true;
+			}
 		}
 	}
 
@@ -870,24 +1004,14 @@ std::string RunnerExternalDataHandler::handleMeta(const std::string& datarefId, 
 	}
 
 	if (req) {
-		storeAndRequest(req);
-		return resp;
-	} else {
-		return resp;
+		mDataLoad.enqueue(req);
 	}
 }
 
-void RunnerExternalDataHandler::handleSharedMappingChange(const std::string& key)
+void RunnerExternalDataHandler::handleSharedMappingChange(const std::string& key, std::shared_ptr<MapData> ptr)
 {
 	//global lock held, wait for processEvents
-	mSharedRefChanged.enqueue(key);
-}
-
-void RunnerExternalDataHandler::storeAndRequest(std::shared_ptr<MapData> mapping) 
-{
-	std::unique_lock<std::mutex> lock(mMutex);
-	mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
-	mMapRequest.enqueue(mapping);
+	mSharedRefChanged.enqueue({key, ptr});
 }
 
 RNBO::Index RunnerExternalDataHandler::get_index(const std::string& datarefId) const
