@@ -1,6 +1,7 @@
 #pragma once
 
 #include <RNBO.h>
+#include "Queue.h"
 
 #include <ossia/network/generic/generic_parameter.hpp>
 
@@ -69,15 +70,15 @@ class RunnerExternalDataHandler : public RNBO::ExternalDataHandler, public std::
 		moodycamel::ConcurrentQueue<std::shared_ptr<DataCaptureData>> mDataRequest; // into process
 		moodycamel::ReaderWriterQueue<std::shared_ptr<DataCaptureData>> mDataResponse; // from process
 																																														
-		moodycamel::ConcurrentQueue<std::shared_ptr<MapData>> mMapRequest; // into process
+		moodycamel::ReaderWriterQueue<std::shared_ptr<MapData>> mMapRequest; // into process from processEvents
 		moodycamel::ReaderWriterQueue<std::shared_ptr<MapData>> mMapResponse; // from process
 																																					
 		//get info from the process side
-		moodycamel::ConcurrentQueue<std::shared_ptr<DataRefInfo>> mInfoRequest; // into process
-		moodycamel::ReaderWriterQueue<std::shared_ptr<DataRefInfo>> mInfoResponse; // from process
+		moodycamel::ReaderWriterQueue<std::shared_ptr<DataRefInfo>> mInfoRequest; // into process from processEvents
+	 	moodycamel::ReaderWriterQueue<std::shared_ptr<DataRefInfo>> mInfoResponse; // from process
 																																				
-		moodycamel::ConcurrentQueue<std::pair<std::string, std::shared_ptr<MapData>>> mSharedRefChanged; //from various threads into processEvents
-		moodycamel::ConcurrentQueue<std::shared_ptr<MapData>> mDataLoad; //from data loading threads into processEvents
+		Queue<std::pair<std::string, std::shared_ptr<MapData>>> mSharedRefChanged; //from various threads into processEvents
+		Queue<std::shared_ptr<MapData>> mDataLoad; //from data loading threads into processEvents
 
 		std::unordered_map<std::string, std::set<std::string>> mObservers; //shared key -> datarefId
 		std::unordered_map<std::string, std::string> mShared; //datarefId -> shared key
