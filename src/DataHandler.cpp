@@ -654,7 +654,7 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 							//TODO verify that datatype matches
 							req->copyData(shared);
 						}
-            mDataLoad.push(req);
+						mDataLoad.push(req);
 					}
 				}
 			}
@@ -663,132 +663,132 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 	{
 		//if we have an info response, see if we need to alloc new data and copy
 		std::shared_ptr<DataRefInfo> resp;
-    while (mInfoResponse.try_dequeue(resp)) {
-      RNBO::Index index = resp->datarefIndex;
-      DataTypeInfo typeinfo = mDataTypeDataBytes[index];
+		while (mInfoResponse.try_dequeue(resp)) {
+			RNBO::Index index = resp->datarefIndex;
+			DataTypeInfo typeinfo = mDataTypeDataBytes[index];
 
-      std::unique_lock<std::mutex> lock(mMutex);
-      if (resp->sizeinbytes > 0) {
-        bool system = mSystem.count(index) > 0;
-        std::string sharedname;
-        {
-          auto it = mSharing.find(index);
-          if (it != mSharing.end()) {
-            sharedname = it->second;
-          }
-        }
-        bool doalloc = (system || sharedname.size() > 0);
+			std::unique_lock<std::mutex> lock(mMutex);
+			if (resp->sizeinbytes > 0) {
+				bool system = mSystem.count(index) > 0;
+				std::string sharedname;
+				{
+					auto it = mSharing.find(index);
+					if (it != mSharing.end()) {
+						sharedname = it->second;
+					}
+				}
+				bool doalloc = (system || sharedname.size() > 0);
 
-        auto mapping = mMappings[index];
-        if (auto p = mapping.lock()) {
-          doalloc = doalloc && system && !p->shmdata;
-        } else {
-          doalloc = resp->data != nullptr && doalloc;
-        }
+				auto mapping = mMappings[index];
+				if (auto p = mapping.lock()) {
+					doalloc = doalloc && system && !p->shmdata;
+				} else {
+					doalloc = resp->data != nullptr && doalloc;
+				}
 
-        std::string type_name = typeinfo.type_name();
-        if (type_name != "f32" && type_name != "f64" && type_name != "u8") {
-          std::cerr << "type not yet supported " << type_name << std::endl;
-          continue;
-        }
+				std::string type_name = typeinfo.type_name();
+				if (type_name != "f32" && type_name != "f64" && type_name != "u8") {
+					std::cerr << "type not yet supported " << type_name << std::endl;
+					continue;
+				}
 
-        std::shared_ptr<MapData> req;
-        if (doalloc) {
-          req = make_map(resp->datarefId, index);
-          if (system) {
-            unsigned int channels = 0;
-            unsigned int samplerate = 0;
-            switch (resp->datatype.type) {
-              case RNBO::DataType::Type::Float32AudioBuffer:
-              case RNBO::DataType::Type::Float64AudioBuffer:
-              case RNBO::DataType::Type::SampleAudioBuffer:
-                channels = static_cast<unsigned int>(resp->datatype.audioBufferInfo.channels);
-                samplerate = static_cast<unsigned int>(resp->datatype.audioBufferInfo.samplerate);
-                break;
-              default:
-                break;
-            }
+				std::shared_ptr<MapData> req;
+				if (doalloc) {
+					req = make_map(resp->datarefId, index);
+					if (system) {
+						unsigned int channels = 0;
+						unsigned int samplerate = 0;
+						switch (resp->datatype.type) {
+							case RNBO::DataType::Type::Float32AudioBuffer:
+							case RNBO::DataType::Type::Float64AudioBuffer:
+							case RNBO::DataType::Type::SampleAudioBuffer:
+								channels = static_cast<unsigned int>(resp->datatype.audioBufferInfo.channels);
+								samplerate = static_cast<unsigned int>(resp->datatype.audioBufferInfo.samplerate);
+								break;
+							default:
+								break;
+						}
 
-            req->sizeinbytes = resp->sizeinbytes;
-            if (!req->createshm(type_name, channels, samplerate)) {
-              std::cerr << "failed to create shm" << std::endl;
-              continue;
-            }
-          } else {
-            if (type_name == "f32") {
-              req->audiodata32 = std::make_shared<std::vector<float>>(req->sizeinbytes / sizeof(float), 0.0);
-              req->data = reinterpret_cast<char *>(&req->audiodata32->front());
-            } else if (type_name == "f64") {
-              req->audiodata64 = std::make_shared<std::vector<double>>(req->sizeinbytes / sizeof(double), 0.0);
-              req->data = reinterpret_cast<char *>(&req->audiodata64->front());
-            } else if (type_name == "u8") {
-              req->bytedata = std::make_shared<std::vector<uint8_t>>(req->sizeinbytes, 0);
-              req->data = reinterpret_cast<char *>(&req->bytedata->front());
-            } else {
-              continue; //shouldn't happen
-            }
-          }
-          req->docopy = true;
+						req->sizeinbytes = resp->sizeinbytes;
+						if (!req->createshm(type_name, channels, samplerate)) {
+							std::cerr << "failed to create shm" << std::endl;
+							continue;
+						}
+					} else {
+						if (type_name == "f32") {
+							req->audiodata32 = std::make_shared<std::vector<float>>(req->sizeinbytes / sizeof(float), 0.0);
+							req->data = reinterpret_cast<char *>(&req->audiodata32->front());
+						} else if (type_name == "f64") {
+							req->audiodata64 = std::make_shared<std::vector<double>>(req->sizeinbytes / sizeof(double), 0.0);
+							req->data = reinterpret_cast<char *>(&req->audiodata64->front());
+						} else if (type_name == "u8") {
+							req->bytedata = std::make_shared<std::vector<uint8_t>>(req->sizeinbytes, 0);
+							req->data = reinterpret_cast<char *>(&req->bytedata->front());
+						} else {
+							continue; //shouldn't happen
+						}
+					}
+					req->docopy = true;
 
-          //XXX
-          if (sharedname.size()) {
-            update_shared(sharedname, req);
-          }
-        }
-        if (req) {
-          mDataLoad.push(req);
-        }
-      }
-    }
+					//XXX
+					if (sharedname.size()) {
+						update_shared(sharedname, req);
+					}
+				}
+				if (req) {
+					mDataLoad.push(req);
+				}
+			}
+		}
 	}
 	{
 		while (auto c = mDataLoad.tryPop()) {
-      std::unique_lock<std::mutex> lock(mMutex);
-      auto mapping = c.get();
-      const auto index = mapping->datarefIndex;
-      const std::string filename = mapping->filePath.filename().string();
+			std::unique_lock<std::mutex> lock(mMutex);
+			auto mapping = c.get();
+			const auto index = mapping->datarefIndex;
+			const std::string filename = mapping->filePath.filename().string();
 
-      auto sharing = mSharing.find(index);
-      if (sharing != mSharing.end()) {
-        update_shared(sharing->second, mapping);
-      }
+			auto sharing = mSharing.find(index);
+			if (sharing != mSharing.end()) {
+				update_shared(sharing->second, mapping);
+			}
 
-      mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
-      mMapRequest.enqueue(mapping);
+			mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
+			mMapRequest.enqueue(mapping);
 
-      auto nodeit = dataRefNodes.find(mapping->datarefId);
+			auto nodeit = dataRefNodes.find(mapping->datarefId);
 
-      if (nodeit != dataRefNodes.end()) {
-        auto value = nodeit->second->value();
-        if (value.get<std::string>() != filename) {
-          nodeit->second->push_value_quiet(filename);
-        }
-        ossia::net::node_base& node = nodeit->second->get_node();
-        {
-          const std::string key = "shm";
-          auto shm = node.find_child(key);
-          if (mapping->shmdata) {
-            ossia::net::parameter_base * p = nullptr;
-            if (shm == nullptr) {
-              shm = node.create_child(key);
-              p = shm->create_parameter(ossia::val_type::STRING);
-              shm->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-              shm->set(ossia::net::description_attribute{}, "Shared Memory Name");
-            } else {
-              p = shm->get_parameter();
-            }
-            p->push_value(mapping->shmdata->name());
-          } else if (shm) {
-            node.remove_child(key);
-          }
-        }
-      }
+			if (nodeit != dataRefNodes.end()) {
+				auto value = nodeit->second->value();
+				if (value.get<std::string>() != filename) {
+					nodeit->second->push_value_quiet(filename);
+				}
+				ossia::net::node_base& node = nodeit->second->get_node();
+				{
+					const std::string key = "shm";
+					auto shm = node.find_child(key);
+					if (mapping->shmdata) {
+						ossia::net::parameter_base * p = nullptr;
+						if (shm == nullptr) {
+							shm = node.create_child(key);
+							p = shm->create_parameter(ossia::val_type::STRING);
+							shm->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+							shm->set(ossia::net::description_attribute{}, "Shared Memory Name");
+						} else {
+							p = shm->get_parameter();
+						}
+						p->push_value(mapping->shmdata->name());
+					} else if (shm) {
+						node.remove_child(key);
+					}
+				}
+			}
 
-      if (filename.size() == 0) {
-        mDataRefFileNameMap.erase(mapping->datarefId);
-      } else {
-        mDataRefFileNameMap[mapping->datarefId] = filename;
-      }
+			if (filename.size() == 0) {
+				mDataRefFileNameMap.erase(mapping->datarefId);
+			} else {
+				mDataRefFileNameMap[mapping->datarefId] = filename;
+			}
 		}
 	}
 }
@@ -820,8 +820,8 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		}
 		if (observekey_cur.size()) {
 			if (auto p = get_shared(observekey_cur)) {
-        auto req = make_map(datarefId, index);
-        req->copyData(p.get());
+				auto req = make_map(datarefId, index);
+				req->copyData(p.get());
 				mDataLoad.push(req);
 			}
 			return;
