@@ -588,27 +588,6 @@ void RunnerExternalDataHandler::capture(std::string datarefId, DataCaptureCallba
 
 void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, ossia::net::parameter_base *>& dataRefNodes)
 {
-  //expects to have lock already
-	auto storeAndRequest = [this, &dataRefNodes](std::shared_ptr<MapData> mapping) {
-		mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
-		mMapRequest.enqueue(mapping);
-		auto nodeit = dataRefNodes.find(mapping->datarefId);
-
-		std::string filename = mapping->filePath.filename().string();
-		if (nodeit != dataRefNodes.end()) {
-			auto value = nodeit->second->value();
-			if (value.get<std::string>() != filename) {
-				nodeit->second->push_value_quiet(filename);
-			}
-		}
-
-		if (filename.size() == 0) {
-			mDataRefFileNameMap.erase(mapping->datarefId);
-		} else {
-			mDataRefFileNameMap[mapping->datarefId] = filename;
-		}
-	};
-
 	{
 		std::shared_ptr<MapData> resp;
 		while (mMapResponse.try_dequeue(resp)) {
@@ -765,13 +744,51 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 	{
 		while (auto c = mDataLoad.tryPop()) {
       std::unique_lock<std::mutex> lock(mMutex);
-      auto req = c.get();
-      auto index = req->datarefIndex;
+      auto mapping = c.get();
+      const auto index = mapping->datarefIndex;
+      const std::string filename = mapping->filePath.filename().string();
+
       auto sharing = mSharing.find(index);
       if (sharing != mSharing.end()) {
-        update_shared(sharing->second, req);
+        update_shared(sharing->second, mapping);
       }
-      storeAndRequest(req);
+
+      mMappings[mapping->datarefIndex] = mapping; //keep a weak copy
+      mMapRequest.enqueue(mapping);
+
+      auto nodeit = dataRefNodes.find(mapping->datarefId);
+
+      if (nodeit != dataRefNodes.end()) {
+        auto value = nodeit->second->value();
+        if (value.get<std::string>() != filename) {
+          nodeit->second->push_value_quiet(filename);
+        }
+        ossia::net::node_base& node = nodeit->second->get_node();
+        {
+          const std::string key = "shm";
+          auto shm = node.find_child(key);
+          if (mapping->shmdata) {
+            ossia::net::parameter_base * p = nullptr;
+            if (shm == nullptr) {
+              shm = node.create_child(key);
+              p = shm->create_parameter(ossia::val_type::STRING);
+              shm->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+              shm->set(ossia::net::description_attribute{}, "Shared Memory Name");
+            } else {
+              p = shm->get_parameter();
+            }
+            p->push_value(mapping->shmdata->name());
+          } else if (shm) {
+            node.remove_child(key);
+          }
+        }
+      }
+
+      if (filename.size() == 0) {
+        mDataRefFileNameMap.erase(mapping->datarefId);
+      } else {
+        mDataRefFileNameMap[mapping->datarefId] = filename;
+      }
 		}
 	}
 }
