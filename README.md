@@ -770,7 +770,16 @@ This would map controller change 4 on channel 16's value, scaled to 0..1 to the 
 
 #### Buffers
 
-Buffers support the `meta` entry. The runner doesn't do anything with that at the time of this writing.
+Buffers support the `meta` entry. The `share` and `observe` keys let you share buffers between your devices.
+The `system` key attempts to load your buffer into shared memory so it can be viewed by other applications running on your system.
+
+**NOTE** - calling "resize" on a shared or system buffer might reallocate the buffer and lose its shared or system status.
+Also, the runner can execute devices in parallel sometimes so it is up to you to make sure that your devices are reading from valid locations in your buffers.
+You can make sure that devices aren't running at the same time by connecting them in series with audio connections.
+
+* `"share": "<sharekey>"` - specify that this buffer should be shared with the specified key.
+* `"observe": "<sharekey>"` - specify that this buffer should be loaded with the data of the buffer shared with the specified key.
+* `"system": true` - specify that this buffer should be loaded into shared memory if possible.
 
 ### Testing out discovery
 
