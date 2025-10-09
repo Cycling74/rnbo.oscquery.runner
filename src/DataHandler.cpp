@@ -779,7 +779,9 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 						}
 						p->push_value(mapping->shmdata->name());
 					} else if (shm) {
-						node.remove_child(key);
+						if (auto p = shm->get_parameter()) {
+							p->push_value("");
+						}
 					}
 				}
 			}
