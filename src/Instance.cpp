@@ -523,12 +523,16 @@ Instance::Instance(
 				//we want to add this before processing meta
 				mDataRefNodes.emplace(name, d);
 
-				//add meta
+				//add meta and type_name
 				{
 					RNBO::Json meta;
+					std::string type_name;
 					for (auto& j: datarefConfig) {
 						if (j.is_object() && j.contains("id") && j["id"].get<std::string>() == name) {
 							meta = j["meta"];
+							if (j.contains("type")) {
+								type_name = j["type"].get<std::string>();
+							}
 							break;
 						}
 					}
@@ -559,6 +563,15 @@ Instance::Instance(
 							mMetaUpdateQueue.push(MetaUpdateCommand(on, op, MetaUpdateCommand::Subject::DataRef, name, s));
 					});
 
+
+					if (type_name.size() > 0) {
+						auto type_node = n->create_child("type");
+
+						auto p = type_node->create_parameter(ossia::val_type::STRING);
+						type_node->set(ossia::net::description_attribute{}, "The buffer type name");
+						type_node->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+						p->push_value(type_name);
+					}
 				}
 			}
 		}
