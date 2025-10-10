@@ -695,6 +695,8 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 				std::shared_ptr<MapData> req;
 				if (doalloc) {
 					req = make_map(resp->datarefId, index);
+					req->datatype = resp->datatype;
+					req->sizeinbytes = resp->sizeinbytes;
 					if (system) {
 						unsigned int channels = 0;
 						unsigned int samplerate = 0;
@@ -709,7 +711,6 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 								break;
 						}
 
-						req->sizeinbytes = resp->sizeinbytes;
 						if (!req->createshm(type_name, channels, samplerate)) {
 							std::cerr << "failed to create shm" << std::endl;
 							continue;
