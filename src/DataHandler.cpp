@@ -677,11 +677,17 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 						sharedname = it->second;
 					}
 				}
-				bool doalloc = (system || sharedname.size() > 0);
+				bool share = sharedname.size() > 0;
+				bool doalloc = (system || share);
+
+				// we allocate data if we want to be system
+				// sharing and we're not already or we want to
+				// be local sharing but our mapped data doesn't
+				// match the data in the response
 
 				auto mapping = mMappings[index];
 				if (auto p = mapping.lock()) {
-					doalloc = doalloc && system && !p->shmdata;
+					doalloc = doalloc && ((system && !p->shmdata) || (share && p->data != resp->data));
 				} else {
 					doalloc = resp->data != nullptr && doalloc;
 				}
