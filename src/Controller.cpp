@@ -352,7 +352,7 @@ namespace {
 		auto exportlocation = exportdir / tarname;
 
 		if (!config.repackage_existing && fs::exists(exportlocation)) {
-			return tarname;
+			return sanitizeName(rnboVersion) / tarname;
 		}
 
 		RNBO::Json info = RNBO::Json::object();
@@ -588,7 +588,7 @@ namespace {
 			throw std::runtime_error(msg);
 		}
 		fs::remove_all(tmppath, ec);
-		return tarname;
+		return sanitizeName(rnboVersion) / tarname;
 	}
 
 }
