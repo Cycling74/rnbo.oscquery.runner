@@ -57,6 +57,13 @@ enum class PackageCommandError : unsigned int {
 	NotFound = 2,
 };
 
+enum class DBCommandStatus : unsigned int {
+	Completed = 0,
+	BadParams = 1,
+	NotFound = 2,
+	Unknown = 3,
+};
+
 enum class ListenerCommandStatus : unsigned int {
 	Received = 0,
 	Completed = 1,

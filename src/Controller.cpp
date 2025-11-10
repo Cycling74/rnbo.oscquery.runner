@@ -1666,6 +1666,54 @@ Controller::~Controller() {
 	mServer.reset();
 }
 
+void Controller::replaceDB(fs::path& path) {
+	if (!fs::exists(path)) {
+		throw std::runtime_error("trying to replace db with file that does not exist");
+	}
+
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		clearInstances(guard, 0.0f);
+
+		mDB.reset();
+
+		std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+		std::string backupname = sanitizeName("dbbackup-" + timeTag + "-prerestore-" + rnbo_version + ".sqlite");
+
+		auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / backupname;
+		auto dbpath = config::get<fs::path>(config::key::DBPath).get();
+
+		boost::system::error_code ec;
+		fs::rename(dbpath, backuppath.string(), ec);
+		if (ec) {
+			std::cerr << "failed to move db file to " << backuppath.string() << std::endl;
+		}
+
+		if (!fs::copy_file(path, dbpath, fs::copy_option::overwrite_if_exists)) {
+			std::cerr << "failed to copy db file from " << backuppath.string() << " to " << dbpath.string() << std::endl;
+		}
+
+		mDB = std::make_shared<DB>();
+
+		//if the old set exists, rename it
+		mDB->setRename(LAST_SET_NAME, UNTITLED_SET_NAME);
+	}
+
+	{
+		auto n = mUpdateNode->find_child("migration_available");
+		if (n != nullptr) {
+			auto m = mDB->migrationDataAvailable();
+			auto p = n->get_parameter();
+			if (p && m) {
+				p->push_value(m.get());
+			}
+		}
+	}
+
+	updateSetNames();
+	updatePatchersInfo();
+}
+
 std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
 	//clear out our last instance presets, loadSet should already have it if there is one
 	mInstanceLastPreset.clear();
@@ -2317,9 +2365,9 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 	}
 
 	std::string package_rnbo_version = info["rnbo_version"].get<std::string>();
-	std::string package_name("unknownpackage")
+	std::string package_name("unknownpackage");
 	if (info.contains("name")) {
-		package_name = = info["name"].get<std::string>();
+		package_name = info["name"].get<std::string>();
 	}
 
 	if (package_rnbo_version != rnbo_version) {
@@ -3638,6 +3686,49 @@ void Controller::registerCommands() {
 					{"exists", dir ? fs::exists(dir.get() / fs::path(fileName)) : false},
 					{"progress", 100}
 				});
+			}
+	});
+
+	mCommandHandlers.insert({
+			"db_backup",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+				std::string backupname = sanitizeName("dbbackup-" + timeTag + "-manual-" + rnbo_version);
+				if (params.contains("name")) {
+					fs::path name(params["name"].get<std::string>());
+					backupname = name.replace_extension().string();
+				}
+				if (mDB->backup(sanitizeName(backupname)).size() > 0) {
+					reportCommandResult(id, {
+							{"code", static_cast<unsigned int>(DBCommandStatus::Completed)},
+							{"message", "completed"},
+							{"progress", 100}
+						});
+				} else {
+						reportCommandError(id, static_cast<unsigned int>(DBCommandStatus::Unknown), "failed to backup db");
+						return;
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"db_restore",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				if (!params.contains("name")) {
+						reportCommandError(id, static_cast<unsigned int>(DBCommandStatus::BadParams), "you must provide a name");
+						return;
+				}
+				auto path = config::get<fs::path>(config::key::BackupDir).get() / params["name"].get<std::string>();
+				if (!fs::exists(path)) {
+						reportCommandError(id, static_cast<unsigned int>(DBCommandStatus::NotFound), "cannot find file at given path " + path.string());
+						return;
+				}
+				replaceDB(path);
+				reportCommandResult(id, {
+						{"code", static_cast<unsigned int>(DBCommandStatus::Completed)},
+						{"message", "completed"},
+						{"progress", 100}
+					});
 			}
 	});
 
