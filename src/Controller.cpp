@@ -3698,10 +3698,14 @@ void Controller::registerCommands() {
 					fs::path name(params["name"].get<std::string>());
 					backupname = name.replace_extension().string();
 				}
-				if (mDB->backup(sanitizeName(backupname)).size() > 0) {
+
+				backupname = mDB->backup(sanitizeName(backupname));
+
+				if (backupname.size() > 0) {
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(DBCommandStatus::Completed)},
 							{"message", "completed"},
+							{"filename", backupname},
 							{"progress", 100}
 						});
 				} else {
