@@ -2357,7 +2357,7 @@ unsigned int Controller::nextInstanceIndex() {
 	return index;
 }
 
-void Controller::installPackage(const boost::filesystem::path& contentdir) {
+std::string Controller::installPackage(const boost::filesystem::path& contentdir) {
 	//get info
 	RNBO::Json info = readJson(contentdir / "info.json");
 	if (!info.contains("schema_version") || info["schema_version"] != 1 || !info.contains("rnbo_version")) {
@@ -2376,13 +2376,11 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 	}
 
 	//backup
-	{
-		std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-		std::string backupname = sanitizeName("dbbackup-" + timeTag + "-pkgpreinstall-" + package_name + "-" + rnbo_version);
-		backupname = mDB->backup(backupname);
-		if (backupname.size() > 0) {
-			std::cout << "backed up DB to " << backupname << std::endl;
-		}
+	std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+	std::string backupname = sanitizeName("dbbackup-" + timeTag + "-pkgpreinstall-" + package_name + "-" + rnbo_version);
+	backupname = mDB->backup(backupname);
+	if (backupname.size() > 0) {
+		std::cout << "backed up DB to " << backupname << std::endl;
 	}
 
 	auto do_copy = [&contentdir](const fs::path& src, const fs::path& dst) {
@@ -2470,6 +2468,7 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 		}
 		updateSetNames();
 	}
+	return backupname;
 }
 
 bool Controller::processEvents() {
@@ -3863,10 +3862,12 @@ void Controller::registerCommands() {
 						throw std::runtime_error("cannot find package data in extracted data");
 					}
 
-					installPackage(contentlocation);
+					auto backupname = installPackage(contentlocation);
+
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
 							{"message", "completed"},
+							{"backupname", backupname},
 							{"progress", 100}
 						});
 				} catch (std::runtime_error& e) {

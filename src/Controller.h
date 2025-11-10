@@ -122,7 +122,8 @@ class Controller {
 
 		unsigned int nextInstanceIndex();
 
-    void installPackage(const boost::filesystem::path& location);
+		//returns the backup name
+		std::string installPackage(const boost::filesystem::path& location);
 
 		//guard by mInstanceMutex
 		std::string mPendingSetPresetName;
