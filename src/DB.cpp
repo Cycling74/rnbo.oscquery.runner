@@ -508,9 +508,9 @@ CREATE TABLE sets_views_params
 
 DB::~DB() { }
 
-std::string DB::backup(std::string backupName) {
-	backupname = backupName + ".sqlite";
-	auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / ;
+std::string DB::backup(std::string backupname) {
+	backupname = backupname + ".sqlite";
+	auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / backupname;
 
 	SQLite::Database backupDB(backuppath.string(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
 	SQLite::Backup backup(backupDB, mDB);
@@ -520,7 +520,7 @@ std::string DB::backup(std::string backupName) {
 		std::cerr << "failed to backup db to: " << backuppath.string() << std::endl;
 		return "";
 	}
-	return backupName;
+	return backupname;
 }
 
 void DB::rnboVersions(std::function<void(const std::string&)> f) {
