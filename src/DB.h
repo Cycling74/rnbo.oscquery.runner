@@ -67,6 +67,9 @@ class DB {
 		DB();
 		~DB();
 
+		//returns actual file name used on success
+		std::string backup(std::string backupName);
+
 		//get the RNBO versions from DB
 		void rnboVersions(std::function<void(const std::string&)> f);
 

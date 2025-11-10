@@ -165,16 +165,8 @@ DB::DB() : mDB(config::get<fs::path>(config::key::DBPath).get().string(), SQLite
 
 			//do backup
 			if (!backupdone) {
-				auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / ("oscqueryrunner-dbversion-" + std::to_string(curversion) + ".sqlite");
-
-				SQLite::Database backupDB(backuppath.string(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
-				SQLite::Backup backup(backupDB, mDB);
-				try {
-					backup.executeStep();
-				} catch (...) {
-					std::cerr << "failed to backup db to: " << backuppath.string() << std::endl;
-				}
-
+				std::string backupname = "oscqueryrunner-dbversion-" + std::to_string(curversion);
+				backup(backupname);
 				backupdone = true;
 			}
 
@@ -515,6 +507,21 @@ CREATE TABLE sets_views_params
 }
 
 DB::~DB() { }
+
+std::string DB::backup(std::string backupName) {
+	backupname = backupName + ".sqlite";
+	auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / ;
+
+	SQLite::Database backupDB(backuppath.string(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+	SQLite::Backup backup(backupDB, mDB);
+	try {
+		backup.executeStep();
+	} catch (...) {
+		std::cerr << "failed to backup db to: " << backuppath.string() << std::endl;
+		return "";
+	}
+	return backupName;
+}
 
 void DB::rnboVersions(std::function<void(const std::string&)> f) {
 		SQLite::Statement query(mDB, "SELECT DISTINCT(runner_rnbo_version) FROM patchers ORDER BY id DESC");

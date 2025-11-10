@@ -2317,10 +2317,24 @@ void Controller::installPackage(const boost::filesystem::path& contentdir) {
 	}
 
 	std::string package_rnbo_version = info["rnbo_version"].get<std::string>();
+	std::string package_name("unknownpackage")
+	if (info.contains("name")) {
+		package_name = = info["name"].get<std::string>();
+	}
 
 	if (package_rnbo_version != rnbo_version) {
 		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_version: " + rnbo_version;
 		throw std::runtime_error(msg);
+	}
+
+	//backup
+	{
+		std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
+		std::string backupname = sanitizeName("dbbackup-" + timeTag + "-pkgpreinstall-" + package_name + "-" + rnbo_version);
+		backupname = mDB->backup(backupname);
+		if (backupname.size() > 0) {
+			std::cout << "backed up DB to " << backupname << std::endl;
+		}
 	}
 
 	auto do_copy = [&contentdir](const fs::path& src, const fs::path& dst) {
@@ -3724,6 +3738,7 @@ void Controller::registerCommands() {
 				if (!fs::exists(packagelocation)) {
 					std::string msg = "cannot find package file at: " + packagelocation.string();
 					reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), msg);
+					return;
 				}
 
 				//delete and recreate working directory
@@ -3752,6 +3767,7 @@ void Controller::registerCommands() {
 					if (contentlocation.empty()) {
 						throw std::runtime_error("cannot find package data in extracted data");
 					}
+
 					installPackage(contentlocation);
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},
