@@ -706,7 +706,9 @@ oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "listener_add", "id": "
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "package_create", "id": "foo", "params": {"set": "granulator"}}'
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "package_create", "id": "foo", "params": {"all": true}}'
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "package_install", "id": "foo", "params": {"filename": "graph-granulator-rnbo-1.4.0-control.11.rnbopack"}}'
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "db_backup", "id": "foo", "params": {}}'
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "db_backup", "id": "foo", "params": {"name": "foo"}}'
+oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "db_restore", "id": "foo", "params": {"name": "foo.sqlite"}}'
 ```
 
 ### Metadata
