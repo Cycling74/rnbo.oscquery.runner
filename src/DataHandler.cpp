@@ -881,6 +881,9 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		req->sizeinbytes = data->size();
 		req->datatype = datatype; 
 		req->bytedata = std::move(data);
+		req->filePath = filePath;
+
+		mDataLoad.push(req);
 
 		return;
 	}
