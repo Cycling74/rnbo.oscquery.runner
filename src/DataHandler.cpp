@@ -4,6 +4,7 @@
 #include <iostream>
 #include <atomic>
 #include <thread>
+#include <fstream>
 
 #include <sndfile.hh>
 
@@ -332,7 +333,7 @@ namespace {
 		//Some formats have an unknown frame size, so we have to read a bit at a time
 		if (sndfile.frames() < SF_COUNT_MAX) {
 			data = std::make_shared<std::vector<T>>(static_cast<size_t>(sndfile.channels()) * static_cast<size_t>(sndfile.frames()));
-			framesRead = sndfile.readf(&data->front(), sndfile.frames());
+			framesRead = sndfile.readf(data->data(), sndfile.frames());
 		} else {
 			const sf_count_t framesToRead = static_cast<sf_count_t>(sndfile.samplerate());
 			//blockSize, offset, offsetIncr are in samples, not frames
@@ -344,7 +345,7 @@ namespace {
 			data = std::make_shared<std::vector<T>>(blockSize * 5);
 			do {
 				data->resize(offset + blockSize);
-				read = sndfile.readf(&data->front() + offset, framesToRead);
+				read = sndfile.readf(data->data() + offset, framesToRead);
 				framesRead += read;
 				offset += offsetIncr;
 			} while (read == framesToRead);
@@ -724,13 +725,13 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 					} else {
 						if (type_name == "f32") {
 							req->audiodata32 = std::make_shared<std::vector<float>>(req->sizeinbytes / sizeof(float), 0.0);
-							req->data = reinterpret_cast<char *>(&req->audiodata32->front());
+							req->data = reinterpret_cast<char *>(req->audiodata32->data());
 						} else if (type_name == "f64") {
 							req->audiodata64 = std::make_shared<std::vector<double>>(req->sizeinbytes / sizeof(double), 0.0);
-							req->data = reinterpret_cast<char *>(&req->audiodata64->front());
+							req->data = reinterpret_cast<char *>(req->audiodata64->data());
 						} else if (type_name == "u8") {
 							req->bytedata = std::make_shared<std::vector<uint8_t>>(req->sizeinbytes, 0);
-							req->data = reinterpret_cast<char *>(&req->bytedata->front());
+							req->data = reinterpret_cast<char *>(req->bytedata->data());
 						} else {
 							continue; //shouldn't happen
 						}
@@ -837,11 +838,12 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		}
 	}
 
-	//make sure this is an audio buffer
-	std::string type_name = typeinfo.type_name();
-	if (type_name != "f32" && type_name != "f64") {
+	if (!fs::exists(filePath)) {
+		std::cerr << "no file at " << filePath << std::endl;
+		reset();
 		return;
 	}
+
 
 	std::shared_ptr<MapData> req = make_map(datarefId, index);
 
@@ -850,12 +852,44 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		return;
 	}
 
-	try {
-		if (!fs::exists(filePath)) {
-			std::cerr << "no file at " << filePath << std::endl;
+	std::string type_name = typeinfo.type_name();
+	//binary data
+	if (type_name == "u8") {
+		std::ifstream file(filePath.string(), std::ios::binary);
+		if (!file) {
 			reset();
 			return;
 		}
+
+		RNBO::DataType datatype;
+		datatype.type = RNBO::DataType::TypedArray;
+
+		file.seekg(0, std::ios::end);
+		std::shared_ptr<std::vector<uint8_t>> data = std::make_shared<std::vector<uint8_t>>(file.tellg());
+		file.seekg(0, std::ios::beg);
+		file.read(reinterpret_cast<char *>(data->data()), data->size());
+
+		//failed to read
+		if (!file) {
+			file.close();
+			reset();
+			return;
+		}
+		file.close();
+
+		req->data = reinterpret_cast<char *>(data->data());
+		req->sizeinbytes = data->size();
+		req->datatype = datatype; 
+		req->bytedata = std::move(data);
+
+		return;
+	}
+
+	if (type_name != "f32" && type_name != "f64") {
+		return; //not a soundfile
+	}
+
+	try {
 		SndfileHandle sndfile(filePath.string());
 		if (!sndfile) {
 			std::cerr << "couldn't open as sound file " << filePath << std::endl;
@@ -882,7 +916,7 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 			}
 			RNBO::Float32AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
 
-			req->data = reinterpret_cast<char *>(&data->front());
+			req->data = reinterpret_cast<char *>(data->data());
 			req->sizeinbytes = sizeof(float) * framesRead * sndfile.channels();
 			req->datatype = bufferType;
 			req->audiodata32 = std::move(data);
@@ -894,7 +928,7 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 			}
 			RNBO::Float64AudioBuffer bufferType(sndfile.channels(), static_cast<double>(sndfile.samplerate()));
 
-			req->data = reinterpret_cast<char *>(&data->front());
+			req->data = reinterpret_cast<char *>(data->data());
 			req->sizeinbytes = sizeof(double) * framesRead * sndfile.channels();
 			req->datatype = bufferType;
 			req->audiodata64 = std::move(data);
