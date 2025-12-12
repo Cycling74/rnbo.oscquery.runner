@@ -10,8 +10,8 @@ set(CMAKE_CXX_STANDARD 20)
 
 project(rnbooscquery LANGUAGES CXX C)
 
-set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
-include("${CMAKE_CURRENT_LIST_DIR}/common/conan.cmake")
+#set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
+#include("${CMAKE_CURRENT_LIST_DIR}/common/conan.cmake")
 
 if(NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: Debug Release" FORCE)
@@ -162,6 +162,7 @@ if (BUILTIN_PATCHER_PATH)
 	list(APPEND PROJECT_SRC ${BUILTIN_PATCHER_PATH})
 endif()
 
+if (false)
 conan_cmake_configure(
 	REQUIRES cpp-optparse/cci.20171104
 	GENERATORS cmake_find_package
@@ -274,6 +275,7 @@ conan_cmake_install(
 	PROFILE_HOST ${CONAN_PROFILE}
 	PROFILE_BUILD default
 )
+endif()
 
 if (USE_JACK)
 	if (JACK_DIR)
@@ -325,10 +327,12 @@ else()
   add_definitions(-DJACK_SERVER=0)
 endif()
 
-find_package(cpp-optparse REQUIRED)
 find_package(libossia REQUIRED)
+find_package(cpp-optparse REQUIRED)
 find_package(base64 REQUIRED)
+find_package(sndfile REQUIRED)
 find_package(SQLiteCpp REQUIRED)
+find_package(Boost REQUIRED)
 
 include_directories(
 	./3rdparty/
@@ -337,13 +341,7 @@ include_directories(
 	"${RNBO_DIR}/common"
 	"${RNBO_DIR}/src"
 	"${RNBO_DIR}/src/3rdparty"
-	${Boost_INCLUDE_DIRS}
-	${cpp-optparse_INCLUDE_DIRS}
-	${libossia_INCLUDE_DIRS}
-	${base64_INCLUDE_DIRS}
-	${SndFile_INCLUDE_DIRS}
 	${JACK_INCLUDE_DIR}
-	${SQLiteCpp_INCLUDES}
 )
 
 find_program(CCACHE_PROGRAM ccache)
@@ -397,15 +395,14 @@ FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 add_executable(${PROJECT_APP} ${PROJECT_SRC})
 
 target_link_libraries(${PROJECT_APP}
-	${Boost_LIBRARIES}
-	${libossia_LIBRARIES}
-	${base64_LIBRARIES}
-	${cpp-optparse_LIBRARIES}
 	${JACK_LIB}
 	${JACKSERVER_LIB}
-	${SndFile_LIBRARIES}
-	${SQLiteCpp_LIBRARIES}
-	${SDBUS_LIBS}
+	cpp-optparse::cpp-optparse
+	aklomp::base64
+	SndFile::sndfile
+	SQLiteCpp
+	boost::boost
+	libossia::libossia
 )
 if (LINUX)
 	target_link_libraries(${PROJECT_APP}
