@@ -13,12 +13,14 @@ class RNBORunnerRecipe(ConanFile):
     }
 
     def requirements(self):
-        self.requires("libossia/v2.0.0-rc6-133-gad48e52a1", options = { "shared": False })
+        self.requires("libossia/v2.0.0-rc6-134-g3db449474", options = { "shared": False })
         self.requires("cpp-optparse/cci.20171104")
         self.requires("base64/0.5.2")
         self.requires("libsndfile/1.2.2")
         self.requires("sqlitecpp/3.3.3");
         self.requires("boost/1.83.0")
+        if self.options.dbus:
+            self.requires("sdbus-cpp/0.8.3")
 
     def build_requirements(self):
         self.tool_requires("cmake/3.27.9")
