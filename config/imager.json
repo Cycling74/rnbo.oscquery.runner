@@ -3,7 +3,7 @@
     {
       "name": "RNBO 1.4.2 (Bookworm, 32-bit)",
       "description": "RNBO customized bookworm installation",
-      "icon": "file:///Users/xnor/dev/rnbo.core/targets/oscquery/img/rnbo.png",
+      "icon": "https://assets.cycling74.com/rnbo/pi-images/rnbo.png",
       "url": "https://assets.cycling74.com/rnbo/pi-images/raspios-bookworm-lite-32bit-rnbooscquery-1.4.2.img.zip",
       "extract_size": 2659188736,
       "extract_sha256": "9edfdc65671b05f4e6bf4c4a38aa1c8e8dad4119525093833b7ae9c7f1bf8ca2",
