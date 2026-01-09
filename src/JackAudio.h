@@ -48,6 +48,9 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) override;
 		virtual std::vector<SetConnectionInfo> connections() override;
 
+		// disconnect non rnbo
+		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) override;
+
 		virtual void handleTransportState(bool running) override;
 		virtual void handleTransportTempo(double bpm) override;
 		virtual void handleTransportBeatTime(double btime) override;

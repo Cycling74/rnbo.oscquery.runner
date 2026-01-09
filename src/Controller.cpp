@@ -2719,6 +2719,8 @@ void Controller::reportActive() {
 }
 
 void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
+	auto info = setInfo();
+
 	for (auto it = mInstances.begin(); it < mInstances.end(); ) {
 		auto inst = std::get<0>(*it);
 		auto index = inst->index();
@@ -2731,6 +2733,16 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
 		}
 	}
+
+	//disconnect any connections that don't flow thru rnbo instances
+	std::vector<SetConnectionInfo> disconnect;
+	for (auto& c: info.connections) {
+		if (c.sink_instance_index < 0 && c.source_instance_index < 0 && c.sink_name != "rnbo-control") {
+			disconnect.push_back(c);
+		}
+	}
+
+	mProcessAudio->disconnect(disconnect);
 }
 
 void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index) {

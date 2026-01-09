@@ -44,6 +44,7 @@ namespace {
 
 	const std::string RNBO_GRAPH_SINK_PORTGROUP("rnbo-graph-user-sink");
 	const std::string RNBO_GRAPH_SRC_PORTGROUP("rnbo-graph-user-src");
+	const std::string RNBO_HIDDEN_PORTGROUP("rnbo-graph-hidden");
 
 #ifdef __APPLE__
 	const static std::string jack_driver_name = "coreaudio";
@@ -210,6 +211,36 @@ namespace {
 		}
 		return info;
 	};
+
+	std::string get_port_portgroup(jack_port_t* port) {
+		std::string groupname;
+
+		jack_uuid_t uuid = jack_port_uuid(port);
+		if (!jack_uuid_empty(uuid)) {
+			jack_description_t description;
+			auto cnt = jack_get_properties(uuid, &description);
+			for (auto i = 0; i < cnt; i++) {
+				char* pEnd = nullptr;
+				auto prop = description.properties[i];
+				if (prop.key == nullptr || prop.data == nullptr) {
+					continue;
+				}
+
+				std::string key(prop.key);
+				std::string data(prop.data);
+				if (prop.type == nullptr || strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "https://www.w3.org/2001/XMLSchema#string") == 0 || strcmp(prop.type, "text/plain") == 0) {
+					if (PORTGROUPKEY.compare(key) == 0) {
+						groupname = data;
+						break;
+					}
+				}
+			}
+			if (cnt > 0) {
+				jack_free_description(&description, 0);
+			}
+		}
+		return groupname;
+	}
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(ProgramChange)> progChangeCallback) :
@@ -661,20 +692,44 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 		for (size_t i = 0; sources[i] != nullptr; i++) {
 			std::string name(sources[i]);
 		 	jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
+
+			//ignore hidden
+			{
+				auto pg = get_port_portgroup(src);
+				if (RNBO_HIDDEN_PORTGROUP == pg) {
+					//std::cout << "ignoring hidden source port " << name << std::endl;
+					continue;
+				}
+			}
+
 			name = use_midi_port_alias(name);
 
 			std::vector<std::string> src_info = cleanupPortNameInfo(name);
-			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias](std::string sinkname) {
-					sinkname = use_midi_port_alias(sinkname);
+			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias, this](std::string sinkname) {
+					jack_port_t * dst = jack_port_by_name(mJackClient, sinkname.c_str());
+					auto pg = get_port_portgroup(dst);
+					if (RNBO_HIDDEN_PORTGROUP != pg) {
+						sinkname = use_midi_port_alias(sinkname);
 
-					std::vector<std::string> sink_info = cleanupPortNameInfo(sinkname);
-					conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
+						std::vector<std::string> sink_info = cleanupPortNameInfo(sinkname);
+						conn.push_back(SetConnectionInfo(src_info[0], src_info[1], sink_info[0], sink_info[1]));
+					} else {
+						//std::cout << "ignoring hidden sink port " << sinkname << std::endl;
+					}
 			});
 		}
 		jack_free(sources);
 	}
 
 	return conn;
+}
+
+void ProcessAudioJack::disconnect(const std::vector<SetConnectionInfo>& connections) {
+	for (auto c: connections) {
+		std::string source = c.source_name + ":" + c.source_port_name;
+		std::string sink = c.sink_name + ":" + c.sink_port_name;
+		jack_disconnect(mJackClient, source.c_str(), sink.c_str());
+	}
 }
 
 bool ProcessAudioJack::isActive() {

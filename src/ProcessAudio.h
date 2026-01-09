@@ -26,6 +26,8 @@ class ProcessAudio {
 		//get the current connection config
 		virtual std::vector<SetConnectionInfo> connections() { return {}; }
 
+		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) { }
+
 		virtual void updatePorts() {}
 
 		//transport handlers
