@@ -2905,14 +2905,12 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				std::string meta = params["meta"].get<std::string>();
-				//TODO what about meta
 				auto info = setInfo();
-				if (info.instances.size() && name != UNTITLED_SET_NAME) {
+				if (name != UNTITLED_SET_NAME) {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
 					mSetDirtyParam->push_value(false);
-					//TODO copy set presets??
 
 					const std::string presetName = "initial";
 					saveSetPreset(name, presetName);
@@ -3400,11 +3398,9 @@ void Controller::registerCommands() {
 				}
 
 				SetInfo info = SetInfo::fromJson(setData);
-				if (info.instances.size() > 0) {
-					mDB->setSave(fileName, info);
-					storeSetContent(setData, mDB, fileName);
-					updateSetNames();
-				}
+				mDB->setSave(fileName, info);
+				storeSetContent(setData, mDB, fileName);
+				updateSetNames();
 			}
 
 			reportCommandResult(id, {
