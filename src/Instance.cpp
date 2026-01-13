@@ -1423,6 +1423,8 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 		mParamInterface->sendMessage(tag, static_cast<RNBO::number>(val.get<float>()));
 	} else if (val.get_type() == ossia::val_type::INT) {
 		mParamInterface->sendMessage(tag, static_cast<RNBO::number>(val.get<int>()));
+	} else if (val.get_type() == ossia::val_type::BOOL) {
+		mParamInterface->sendMessage(tag, static_cast<RNBO::number>(val.get<bool>() ? 1 : 0));
 	} else if (val.get_type() == ossia::val_type::LIST) {
 		auto list = val.get<std::vector<ossia::value>>();
 		//empty list, bang
@@ -1434,6 +1436,8 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 				v = static_cast<RNBO::number>(list[0].get<int>());
 			} else if (list[0].get_type() == ossia::val_type::FLOAT) {
 				v = static_cast<RNBO::number>(list[0].get<float>());
+			} else if (list[0].get_type() == ossia::val_type::BOOL) {
+				v = static_cast<RNBO::number>(list[0].get<bool>() ? 1 : 0);
 			} else {
 				std::cerr << "only numeric items are allowed in lists, aborting message" << std::endl;
 			}
@@ -1446,6 +1450,8 @@ void Instance::handleInportMessage(RNBO::MessageTag tag, const ossia::value& val
 					l->push(static_cast<RNBO::number>(v.get<int>()));
 				else if (v.get_type() == ossia::val_type::FLOAT)
 					l->push(static_cast<RNBO::number>(v.get<float>()));
+				else if (v.get_type() == ossia::val_type::BOOL)
+					l->push(static_cast<RNBO::number>(v.get<bool>() ? 1 : 0));
 				else {
 					std::cerr << "only numeric values are allowed in lists, aborting message" << std::endl;
 					return;
