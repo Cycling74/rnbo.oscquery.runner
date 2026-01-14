@@ -591,6 +591,52 @@ namespace {
 		return sanitizeName(rnboVersion) / tarname;
 	}
 
+class callback_protocol: public ossia::net::protocol_base {
+public:
+	using callback_t = std::function<void(const std::string&, const ossia::value& v)>;
+	callback_protocol(const callback_protocol&) = delete;
+	callback_protocol(callback_protocol&&) = delete;
+	callback_protocol& operator=(const callback_protocol&) = delete;
+	callback_protocol& operator=(callback_protocol&&) = delete;
+
+	callback_protocol(callback_t cb): protocol_base(flags{SupportsMultiplex}), mCallback(cb) {
+	}
+
+	virtual ~callback_protocol() { }
+
+	virtual bool pull(ossia::net::parameter_base&) override {
+		return false;
+	}
+
+	virtual bool push(const ossia::net::parameter_base& param, const ossia::value& v) override {
+		const std::string& addr = param.get_node().osc_address();
+		mCallback(addr, v);
+		return true;
+	}
+
+	virtual bool push_raw(const ossia::net::full_parameter_data& param) override {
+		const std::string& addr = param.address;
+		mCallback(addr, param.value());
+		return true;
+	}
+
+	virtual bool echo_incoming_message(const ossia::net::message_origin_identifier& id, const ossia::net::parameter_base& param, const ossia::value& v) override {
+		const std::string& addr = param.get_node().osc_address();
+		mCallback(addr, v);
+		return true;
+	}
+
+	virtual bool observe(ossia::net::parameter_base& param, bool) override {
+		return true;
+	}
+
+	virtual bool update(ossia::net::node_base& node_base) override {
+		return false;
+	}
+private:
+	callback_t mCallback;
+};
+
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
@@ -617,7 +663,20 @@ Controller::Controller(std::string server_name) {
 	mServer->set_echo(true);
 
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
-	mServer->on_message.connect<&Controller::onMessage>(this);
+
+	//create protocol that simply gets osc address and potentially forwards to other parameters
+	auto callback_proto = new callback_protocol([this](const std::string& addr, const ossia::value& val) {
+		std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+		auto it = mOSCToParam.find(addr);
+		if (it != mOSCToParam.end()) {
+			//queue updates because this callback may happen inside a mutex locked parameter update
+			for (auto localaddr: it->second) {
+				mOSCMappedUpdateQueue.push(std::make_pair(localaddr, val));
+			}
+		}
+	});
+	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(callback_proto));
+
 	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
 
 	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
@@ -2481,6 +2540,21 @@ bool Controller::processEvents() {
 			ossia::net::poll_network_context(*mOssiaContext);
 		}
 
+		//process any updates that have come from mapped OSC
+		{
+			auto& root = mServer->get_root_node();
+			std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+			while (auto update = mOSCMappedUpdateQueue.tryPop()) {
+				auto node = ossia::net::find_node(root, update->first);
+				if (node != nullptr) {
+					auto param = node->get_parameter();
+					if (param) {
+						param->push_value(update->second);
+					}
+				}
+			}
+		}
+
 		if (mProcessNext < now) {
 			mProcessNext = now + process_poll_period;
 		} else {
@@ -2669,29 +2743,6 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	if (!message_sent) {
 		mProtocol->push_raw({addr, v});
 		onUnhandledOSC(addr, v);
-	}
-}
-
-void Controller::onMessage(const ossia::net::parameter_base& param) {
-	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
-
-	ossia::net::node_base& node = param.get_node();
-	auto addr = node.osc_address();
-	auto it = mOSCToParam.find(addr);
-	if (it == mOSCToParam.end()) {
-		return;
-	}
-
-	auto& root = mServer->get_root_node();
-	const auto val = param.value();
-	for (auto localaddr: it->second) {
-		auto node = ossia::net::find_node(root, localaddr);
-		if (node != nullptr) {
-			auto param = node->get_parameter();
-			if (param) {
-				param->push_value(val);
-			}
-		}
 	}
 }
 

@@ -56,7 +56,6 @@ class Controller {
 
 		//for calling back from mapped params and ports
 		void dispatchOSC(const std::string& addr, const ossia::value& value);
-		void onMessage(const ossia::net::parameter_base& param);
 		//for calling from incoming OSC -> mapped params and ports
 		void onUnhandledOSC(ossia::string_view addr, const ossia::value& val);
 
@@ -66,6 +65,8 @@ class Controller {
 		//OSC addr -> local addresss eg [/rnbo/inst/0/params/foo/normalized]
 		std::recursive_mutex mOSCMapMutex;
 		std::unordered_map<std::string, std::set<std::string>> mOSCToParam;
+		//for messages that call back from parameter updates into other parameter updates
+		Queue<std::pair<std::string, ossia::value>> mOSCMappedUpdateQueue;
 
 		void doLoadSet(std::string name);
 
