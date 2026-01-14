@@ -56,6 +56,7 @@ class Controller {
 
 		//for calling back from mapped params and ports
 		void dispatchOSC(const std::string& addr, const ossia::value& value);
+		void onMessage(const ossia::net::parameter_base& param);
 		//for calling from incoming OSC -> mapped params and ports
 		void onUnhandledOSC(ossia::string_view addr, const ossia::value& val);
 

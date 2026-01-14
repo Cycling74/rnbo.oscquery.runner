@@ -617,6 +617,7 @@ Controller::Controller(std::string server_name) {
 	mServer->set_echo(true);
 
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(serv_proto));
+	mServer->on_message.connect<&Controller::onMessage>(this);
 	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
 
 	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
@@ -2671,12 +2672,33 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	}
 }
 
+void Controller::onMessage(const ossia::net::parameter_base& param) {
+	ossia::net::node_base& node = param.get_node();
+	auto addr = node.osc_address();
+	auto it = mOSCToParam.find(addr);
+	if (it == mOSCToParam.end()) {
+		return;
+	}
+
+	auto& root = mServer->get_root_node();
+	const auto val = param.value();
+	for (auto localaddr: it->second) {
+		auto node = ossia::net::find_node(root, localaddr);
+		if (node != nullptr) {
+			auto param = node->get_parameter();
+			if (param) {
+				param->push_value(val);
+			}
+		}
+	}
+}
 
 void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value& val) {
 	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
 
 	//c++17 can't use string_view for lookup: https://www.cppstories.com/2021/heterogeneous-access-cpp20/
 	std::string addr(addrview.begin(), addrview.end());
+
 	auto it = mOSCToParam.find(addr);
 	if (it == mOSCToParam.end()) {
 		return;
