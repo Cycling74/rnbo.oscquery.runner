@@ -2732,9 +2732,16 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	//based on code example from jcelerier
 	auto nodes = ossia::net::find_nodes(mServer->get_root_node(), addr);
 	bool message_sent = false;
+
+	bool isimpulse = v.get_type() == ossia::val_type::IMPULSE;
 	for (auto& n : nodes) {
 		if (auto param = n->get_parameter()) {
-			param->push_value(v);
+			//query
+			if (isimpulse && param->get_value_type() != ossia::val_type::IMPULSE) {
+				param->push_value();
+			} else {
+				param->push_value(v);
+			}
 			message_sent = true;
 		}
 	}
