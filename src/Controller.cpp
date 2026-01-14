@@ -2673,6 +2673,8 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 }
 
 void Controller::onMessage(const ossia::net::parameter_base& param) {
+	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+
 	ossia::net::node_base& node = param.get_node();
 	auto addr = node.osc_address();
 	auto it = mOSCToParam.find(addr);
@@ -3931,23 +3933,6 @@ void Controller::registerCommands() {
 
 	};
 
-	//clear all but oscquery
-	auto listeners_clear = [this]() {
-		//deleting invalidates iterator, so we loop until we haven't removed any
-		bool found = true;
-		while (found) {
-			found = false;
-			for (auto& p: mProtocol->get_protocols()) {
-				auto o = dynamic_cast<ossia::oscquery_asio::oscquery_server_protocol*>(p.get());
-				if (!o) {
-					mProtocol->stop_expose_to(*p);
-					found = true;
-					break;
-				}
-			}
-		}
-	};
-
 	mCommandHandlers.insert({
 			"listener_add",
 			[this, validateListenerCmd](const std::string& method, const std::string& id, const RNBO::Json& params) {
@@ -3975,18 +3960,27 @@ void Controller::registerCommands() {
 	});
 	mCommandHandlers.insert({
 			"listener_del",
-			[this, validateListenerCmd, listeners_clear](const std::string& method, const std::string& id, const RNBO::Json& params) {
+			[this, validateListenerCmd](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::pair<std::string, uint16_t> key;
 				if (!validateListenerCmd(id, params, key))
 					return;
 
-				//TODO visit listeners and only remove the one we care to remove.
-				//at this point, finding the type is hard so we just remove them all and then add back the ones we care about
 				if (mDB->listenersDel(key.first, key.second)) {
-
+					std::string lookup = key.first + ":" + std::to_string(key.second);
 					std::lock_guard<std::mutex> guard(mOssiaContextMutex);
-					listeners_clear();
-					restoreListeners();
+					auto it = mListenerProtocol.find(lookup);
+					if (it == mListenerProtocol.end()) {
+						std::string msg = "failed to find listener protocol for key " + lookup;
+						throw std::runtime_error(msg);
+					}
+					for (auto& p: mProtocol->get_protocols()) {
+						if (it->second == reinterpret_cast<std::uintptr_t>(p.get())) {
+							mProtocol->stop_expose_to(*p);
+							break;
+						}
+					}
+					mListenerProtocol.erase(it);
+					updateListenersList();
 				}
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
@@ -3997,14 +3991,24 @@ void Controller::registerCommands() {
 	});
 	mCommandHandlers.insert({
 			"listener_clear",
-			[this, validateListenerCmd, listeners_clear](const std::string& method, const std::string& id, const RNBO::Json& params) {
+			[this, validateListenerCmd](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::pair<std::string, uint16_t> key;
 				if (!validateListenerCmd(id, params, key))
 					return;
 
 				std::lock_guard<std::mutex> guard(mOssiaContextMutex);
 				mDB->listenersClear();
-				listeners_clear();
+
+				for (auto it: mListenerProtocol) {
+					for (auto& p: mProtocol->get_protocols()) {
+						if (it.second == reinterpret_cast<std::uintptr_t>(p.get())) {
+							mProtocol->stop_expose_to(*p);
+							break;
+						}
+					}
+				}
+				mListenerProtocol.clear();
+
 				updateListenersList();
 				reportCommandResult(id, {
 					{"code", static_cast<unsigned int>(ListenerCommandStatus::Completed)},
@@ -4408,6 +4412,10 @@ void Controller::listenersAddProtocol(const std::string& ip, uint16_t port) {
 				}}
 			}
 		);
+
+	//keep track
+	std::string key = ip + ":" + std::to_string(port);
+	mListenerProtocol.insert({key, reinterpret_cast<std::uintptr_t>(protocol.get())});
 	mProtocol->expose_to(std::move(protocol));
 }
 

@@ -207,6 +207,7 @@ class Controller {
 		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mProcessNext;
 
 		ossia::net::parameter_base * mListenersListParam = nullptr;
+		std::unordered_map<std::string, std::uintptr_t> mListenerProtocol; //map of host:port -> pointer so we can remove registrations
 
 		float mInstFadeInMs = 20.0f;
 		float mInstFadeOutMs = 20.0f;
