@@ -49,6 +49,7 @@ struct SetInfo {
 	std::vector<SetInstanceInfo> instances;
 	std::string meta = "{}";
 	std::string created_at;
+	std::string name;
 
 	RNBO::Json toJson();
 	static SetInfo fromJson(const RNBO::Json& json);

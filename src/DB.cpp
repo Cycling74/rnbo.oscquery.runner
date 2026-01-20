@@ -1249,6 +1249,7 @@ boost::optional<SetInfo> DB::setGet(
 		}
 
 		set_id = query.getColumn(0);
+		info.name = name;
 		info.meta = getStringColumn(query, 1);
 		info.created_at = getStringColumn(query, 2);
 	}
@@ -1882,7 +1883,8 @@ RNBO::Json SetInfo::toJson() {
 		{"created_at", created_at},
 		{"meta", m},
 		{"instances", inst},
-		{"connections", conn}
+		{"connections", conn},
+		{"name", name}
 	};
 }
 
@@ -1902,6 +1904,9 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 			}
 			if (json.contains("created_at") && json["created_at"].is_string()) {
 				info.created_at = json["created_at"].get<std::string>();
+			}
+			if (json.contains("name") && json["name"].is_string()) {
+				info.name = json["name"].get<std::string>();
 			}
 		} else {
 			//invalid
