@@ -974,19 +974,9 @@ void Instance::processEvents() {
 	{
 		std::tuple<std::string, RNBO::ConstPresetPtr, std::string> preset;
 		while (mPresetSaveQueue->try_dequeue(preset)) {
-			RNBO::Json data;
-			std::string name = std::get<0>(preset);
-
-			data["runner_preset"] = RNBO::convertPresetToJSONObj(*std::get<1>(preset));
-
+			RNBO::Json data = presetToJSON(*std::get<1>(preset));
 			std::string set_name = std::get<2>(preset);
-
-			//add dataref mapping
-			RNBO::Json datarefs = RNBO::Json::object();
-			if (mDataHandler) {
-				datarefs = mDataHandler->fileMappingJson();
-			}
-			data["datarefs"] = datarefs;
+			std::string name = std::get<0>(preset);
 
 			if (set_name.size()) {
 				std::string patcherPresetName;
@@ -1186,7 +1176,7 @@ bool Instance::loadJsonPreset(const std::string& preset, std::string name, std::
 	//set preset latest so we can correctly send loaded param
 	std::string last;
 	std::string lastsetpreset;
-	{
+	if (name.size()) {
 		std::lock_guard<std::mutex> guard(mPresetMutex);
 		last = mPresetNameLatest;
 		lastsetpreset = mSetPresetNameLatest;
@@ -1195,41 +1185,10 @@ bool Instance::loadJsonPreset(const std::string& preset, std::string name, std::
 	}
 	try {
 		RNBO::Json j = RNBO::Json::parse(preset);
-
-		//added data to the preset JSON to support datarefs
-		//using a special key "runner_preset" to specify this format
-		//"runner_preset" contains the actual rnbo formatted JSON preset
-		if (j.is_object()) {
-			bool trydatarefs = false;
-			RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
-			if (j["runner_preset"].is_object()) {
-				trydatarefs = true;
-				convertJSONObjToPreset(j["runner_preset"], *unique);
-			} else {
-				convertJSONObjToPreset(j, *unique);
-			}
-			mCore->setPreset(std::move(unique));
-
-			if (trydatarefs && j["datarefs"].is_object()) {
-				auto datarefs = j["datarefs"];
-				//push directly to the nodes so that we queue up changes
-				for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
-					if (!it.value().is_string()) {
-						std::cerr << "dataref value for key " << it.key() << " is not a string" << std::endl;
-						continue;
-					}
-
-					auto nodeit = mDataRefNodes.find(it.key());
-					if (nodeit != mDataRefNodes.end()) {
-						nodeit->second->push_value(it.value().get<std::string>());
-					}
-				}
-			}
-		}
-		return true;
+		return loadJsonPreset(j);
 	} catch (const std::exception& e) {
 		std::cerr << "error setting preset " << e.what() << std::endl;
-		{
+		if (name.size()) {
 			std::lock_guard<std::mutex> guard(mPresetMutex);
 			//revert if preset fails
 			mPresetNameLatest = last;
@@ -1239,11 +1198,50 @@ bool Instance::loadJsonPreset(const std::string& preset, std::string name, std::
 	}
 }
 
+bool Instance::loadJsonPreset(RNBO::Json j) {
+	//added data to the preset JSON to support datarefs
+	//using a special key "runner_preset" to specify this format
+	//"runner_preset" contains the actual rnbo formatted JSON preset
+	if (j.is_object()) {
+		bool trydatarefs = false;
+		RNBO::UniquePresetPtr unique = RNBO::make_unique<RNBO::Preset>();
+		if (j["runner_preset"].is_object()) {
+			trydatarefs = true;
+			convertJSONObjToPreset(j["runner_preset"], *unique);
+		} else {
+			convertJSONObjToPreset(j, *unique);
+		}
+		mCore->setPreset(std::move(unique));
+
+		if (trydatarefs && j["datarefs"].is_object()) {
+			auto datarefs = j["datarefs"];
+			//push directly to the nodes so that we queue up changes
+			for (auto it = datarefs.begin(); it != datarefs.end(); ++it) {
+				if (!it.value().is_string()) {
+					std::cerr << "dataref value for key " << it.key() << " is not a string" << std::endl;
+					continue;
+				}
+
+				auto nodeit = mDataRefNodes.find(it.key());
+				if (nodeit != mDataRefNodes.end()) {
+					nodeit->second->push_value(it.value().get<std::string>());
+				}
+			}
+		}
+	}
+	return true;
+}
+
 RNBO::UniquePresetPtr Instance::getPresetSync() {
 	RNBO::UniquePresetPtr preset = RNBO::make_unique<RNBO::Preset>();
 	auto shared = mCore->getPresetSync();
 	RNBO::copyPreset(*shared, *preset);
 	return preset;
+}
+
+RNBO::Json Instance::getJSONPresetSync() {
+	auto shared = mCore->getPresetSync();
+	return presetToJSON(*shared);
 }
 
 RNBO::Json Instance::currentConfig() {
@@ -1310,6 +1308,20 @@ RNBO::Json Instance::currentConfig() {
 	config["metaoverride"] = meta;
 
 	return config;
+}
+
+RNBO::Json Instance::presetToJSON(const RNBO::Preset& preset) {
+	RNBO::Json data;
+
+	data["runner_preset"] = RNBO::convertPresetToJSONObj(preset);
+
+	//add dataref mapping
+	RNBO::Json datarefs = RNBO::Json::object();
+	if (mDataHandler) {
+		datarefs = mDataHandler->fileMappingJson();
+	}
+	data["datarefs"] = datarefs;
+	return data;
 }
 
 void Instance::updatePresetEntries() {

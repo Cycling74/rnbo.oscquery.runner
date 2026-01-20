@@ -67,10 +67,13 @@ class Instance {
 		//returns true if the preset was found and load is being attempted
 		bool loadPreset(std::string name, std::string set_name = std::string());
 		void loadPreset(unsigned int index);
+		bool loadJsonPreset(const std::string& content, std::string name, std::string setPresetName = std::string());
+		bool loadJsonPreset(RNBO::Json preset);
 
 		//does not save "latest".. used for loading between audio sessions
 		void loadPreset(RNBO::UniquePresetPtr preset);
 		RNBO::UniquePresetPtr getPresetSync();
+		RNBO::Json getJSONPresetSync();
 
 		// get the current configuration for this instance:
 		//  last loaded preset
@@ -97,9 +100,9 @@ class Instance {
 			mConfigChanged = v;
 		}
 	private:
+		RNBO::Json presetToJSON(const RNBO::Preset& preset);
 		bool mPresetsDirty = false;
 
-		bool loadJsonPreset(const std::string& content, std::string name, std::string setPresetName = std::string());
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::function<void(const std::string&, const std::string&)> mPresetLoadedCallback = nullptr;
