@@ -33,6 +33,7 @@ class RnboUpdateServiceProxy;
 //An object which controls the whole show
 class Controller {
 	public:
+		using PendingPresetMap = std::unordered_map<unsigned int, RNBO::Json>;
 		Controller(std::string server_name = "rnbo");
 		~Controller();
 
@@ -68,7 +69,7 @@ class Controller {
 		//for messages that call back from parameter updates into other parameter updates
 		Queue<std::pair<std::string, ossia::value>> mOSCMappedUpdateQueue;
 
-		void doLoadSet(std::string name);
+		void doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset);
 
 		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&, float fadeTime);
@@ -168,7 +169,8 @@ class Controller {
 		std::vector<ossia::value> mSetPresetNames;
 
 		std::mutex mSetLoadPendingMutex;
-		boost::optional<std::string> mSetLoadPending;
+		boost::optional<SetInfo> mSetLoadPending;
+		boost::optional<PendingPresetMap> mSetLoadPendingPreset; //json to load after loading set, used for set reload
 
 		ossia::net::parameter_base * mSetDirtyParam = nullptr;
 

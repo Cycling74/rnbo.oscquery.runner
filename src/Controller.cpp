@@ -908,7 +908,8 @@ Controller::Controller(std::string server_name) {
 #endif
 			"instance_load-multi",
 			"patcherstore",
-			"patcherfilestore"
+			"patcherfilestore",
+			"devicereload"
 		};
 
 		auto n = info->create_child("supported_cmds");
@@ -1189,6 +1190,36 @@ Controller::Controller(std::string server_name) {
 								mCommandQueue.push(cmd.dump());
 							}
 						}
+					}
+				});
+			}
+
+			{
+				auto n = sets->create_child("reload");
+				auto p = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::description_attribute{}, "Reload devices named, if none are named, reload all");
+
+				p->add_callback([this](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::LIST) {
+						std::vector<std::string> names;
+						auto l = v.get<std::vector<ossia::value>>();
+						for (auto n: l) {
+							if (n.get_type() == ossia::val_type::STRING) {
+								names.push_back(n.get<std::string>());
+							}
+						}
+
+						RNBO::Json cmd = {
+							{"method", "instance_set_reload"},
+							{"id", "internal"},
+							{"params",
+								{
+									{"patchers", names}
+								}
+							}
+						};
+						mCommandQueue.push(cmd.dump());
 					}
 				});
 			}
@@ -1821,7 +1852,11 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			f(instNode);
 		};
 
-		auto instance = std::make_shared<Instance>(mDB, factory, name, builder, conf, mProcessAudio, instanceIndex, std::bind(&Controller::dispatchOSC, this, std::placeholders::_1, std::placeholders::_2), std::bind(&Controller::registerOSCMapping, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+		auto instance = std::make_shared<Instance>(
+			mDB, factory, name, builder, conf, mProcessAudio, instanceIndex,
+			std::bind(&Controller::dispatchOSC, this, std::placeholders::_1, std::placeholders::_2),
+			std::bind(&Controller::registerOSCMapping, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
+		);
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
@@ -1870,7 +1905,8 @@ void Controller::loadSet(std::string name) {
 		std::cerr << "cannot activate audio, cannot load set" << std::endl;
 		return;
 	}
-	mSetLoadPending = name;
+	mSetLoadPending = mDB->setGet(name);
+	mSetLoadPendingPreset = boost::none;
 
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -1878,7 +1914,7 @@ void Controller::loadSet(std::string name) {
 	}
 }
 
-void Controller::doLoadSet(std::string setname) {
+void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset) {
 	try {
 		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
@@ -1887,13 +1923,9 @@ void Controller::doLoadSet(std::string setname) {
 			std::swap(presets, mInstanceLastPreset);
 		}
 
-		auto setInfo = mDB->setGet(setname);
-		if (!setInfo)
-			return;
-
 		//load instances
 		std::vector<std::shared_ptr<Instance>> instances;
-		for (const auto& entry: setInfo->instances) {
+		for (const auto& entry: setInfo.instances) {
 			std::string name = entry.patcher_name;
 			unsigned int index = entry.instance_index;
 
@@ -1964,10 +1996,10 @@ void Controller::doLoadSet(std::string setname) {
 		*/
 
 		mProcessAudio->updatePorts();
-		mProcessAudio->connect(setInfo->connections, mFirstSetLoad); //only do control connections when loading first set
+		mProcessAudio->connect(setInfo.connections, mFirstSetLoad); //only do control connections when loading first set
 		mFirstSetLoad = false;
 
-		const bool loadInitial = setname.size() && setname != UNTITLED_SET_NAME;
+		const bool loadInitial = setInfo.name.size() && setInfo.name != UNTITLED_SET_NAME;
 
 		//load presets and start instances
 		{
@@ -1978,8 +2010,17 @@ void Controller::doLoadSet(std::string setname) {
 			mInstancesPendingPresetLoad.clear();
 
 			for (auto inst: instances) {
-				if (loadInitial) {
-					if (inst->loadPreset(mPendingSetPresetName, setname)) {
+				if (preset) {
+					auto p = preset->find(inst->index());
+					if (p != preset->end()) {
+						try {
+							inst->loadJsonPreset(p->second);
+						} catch (...) {
+							std::cerr << "error loading preset for instance " << inst->index() << std::endl;
+						}
+					}
+				} else if (loadInitial) {
+					if (inst->loadPreset(mPendingSetPresetName, setInfo.name)) {
 						mInstancesPendingPresetLoad.insert(inst->index());
 					}
 				}
@@ -1988,12 +2029,12 @@ void Controller::doLoadSet(std::string setname) {
 		}
 
 		if (mSetMetaParam) {
-			mSetMetaParam->push_value_quiet(setInfo->meta);
+			mSetMetaParam->push_value_quiet(setInfo.meta);
 		}
 
 		mSetDirtyParam->push_value(false);
-		mSetCurrentNameParam->push_value(setname);
-		config::set(setname, config::key::SetLastName);
+		mSetCurrentNameParam->push_value(setInfo.name);
+		config::set(setInfo.name, config::key::SetLastName);
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -2002,7 +2043,7 @@ void Controller::doLoadSet(std::string setname) {
 	}
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
-		updateSetViews(setname);
+		updateSetViews(setInfo.name);
 	}
 }
 
@@ -2066,6 +2107,7 @@ bool Controller::loadBuiltIn() {
 
 SetInfo Controller::setInfo() {
 	SetInfo info;
+	info.name = getCurrentSetName();
 
 	if (mSetMetaParam) {
 		auto v = mSetMetaParam->value();
@@ -2573,7 +2615,7 @@ bool Controller::processEvents() {
 			}
 		};
 
-		bool anyInstances = false;
+		bool stoppingInstances = false;
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);
 			if (mProcessAudio)
@@ -2597,23 +2639,32 @@ bool Controller::processEvents() {
 				auto p = *it;
 				p->processEvents();
 				if (p->audioState() == AudioState::Stopped) {
+					//get final state to restore if it has been requested
+					std::lock_guard<std::mutex> pendingguard(mSetLoadPendingMutex);
+					if (mSetLoadPendingPreset) {
+						auto data = p->getJSONPresetSync();
+						mSetLoadPendingPreset->insert({p->index(), data});
+					}
+
 					it = mStoppingInstances.erase(it);
 				} else {
 					it++;
 				}
 			}
-			anyInstances = mInstances.size() > 0 || mStoppingInstances.size() > 0;
+			stoppingInstances = mStoppingInstances.size() > 0;
 		}
 
-		//if we have no instances, look to see if we should load a set
-		if (!anyInstances) {
-			boost::optional<std::string> pending;
+		//if we have no stopping instances, look to see if we should load a set
+		if (!stoppingInstances) {
+			boost::optional<SetInfo> pending;
+			boost::optional<PendingPresetMap> preset;
 			{
 				std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 				mSetLoadPending.swap(pending);
+				mSetLoadPendingPreset.swap(preset);
 			}
 			if (pending) {
-				doLoadSet(pending.get());
+				doLoadSet(pending.get(), preset);
 			}
 		}
 
@@ -2807,9 +2858,7 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
 		auto inst = std::get<0>(*it);
 		auto index = inst->index();
 		inst->stop(fadeTime);
-		if (fadeTime > 0.0f) {
-			mStoppingInstances.push_back(inst);
-		}
+		mStoppingInstances.push_back(inst);
 		it = mInstances.erase(it);
 		if (!mInstancesNode->remove_child(std::to_string(index))) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
@@ -3101,6 +3150,42 @@ void Controller::registerCommands() {
 					updateSetNames();
 				} else {
 					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_reload",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::set<std::string> names;
+				for (auto n: params["patchers"]) {
+					names.insert(n.get<std::string>());
+				}
+
+				{
+					std::lock_guard<std::mutex> pendingguard(mSetLoadPendingMutex);
+
+					//we want to get the preset data
+					mSetLoadPendingPreset = std::unordered_map<unsigned int, RNBO::Json>();
+
+					auto info = setInfo();
+					{
+						std::lock_guard<std::mutex> guard(mBuildMutex);
+						if (names.size() > 0) {
+							for (auto it = info.instances.begin(); it != info.instances.end();) {
+								if (names.count(it->patcher_name) == 0) { //don't reload
+									it = info.instances.erase(it);
+								} else {
+									unloadInstance(guard, it->instance_index);
+									++it;
+								}
+							}
+						} else {
+							clearInstances(guard, mInstFadeOutMs);
+						}
+					}
+
+					mSetLoadPending = info;
 				}
 			}
 	});
