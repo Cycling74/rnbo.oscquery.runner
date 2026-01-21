@@ -53,6 +53,8 @@ struct SetInfo {
 
 	RNBO::Json toJson();
 	static SetInfo fromJson(const RNBO::Json& json);
+
+	bool equal(const SetInfo& other) const;
 };
 
 struct ViewParam {

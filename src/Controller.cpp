@@ -81,6 +81,7 @@ namespace {
 	static const std::chrono::milliseconds process_poll_period(10);
 
 	static const std::chrono::milliseconds datafile_debounce_timeout(50);
+	static const std::chrono::milliseconds dirty_debounce_timeout(25);
 
 	static const std::string last_file_name = "last";
 	static const std::string set_instances_key = "instances";
@@ -1106,7 +1107,6 @@ Controller::Controller(std::string server_name) {
 
 				mSetMetaParam->add_callback([this](const ossia::value&) {
 					queueSave();
-					mSetDirtyParam->push_value(true);
 				});
 			}
 
@@ -1868,7 +1868,6 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 
 			//queue a save whenenever the configuration changes
 			instance->registerConfigChangeCallback([this] {
-					mSetDirtyParam->push_value(true);
 					queueSave();
 			});
 			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
@@ -2032,6 +2031,7 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 			mSetMetaParam->push_value_quiet(setInfo.meta);
 		}
 
+		mSetSavedLast = setInfo;
 		mSetDirtyParam->push_value(false);
 		mSetCurrentNameParam->push_value(setInfo.name);
 		config::set(setInfo.name, config::key::SetLastName);
@@ -2187,6 +2187,7 @@ void Controller::patcherStore(
 void Controller::queueSave() {
 	std::lock_guard<std::mutex> guard(mSaveMutex);
 	mSave = true;
+	mCheckDirtyNext = steady_clock::now() + dirty_debounce_timeout;
 }
 
 void Controller::updatePatchersInfo(std::string addedOrUpdated) {
@@ -2607,12 +2608,7 @@ bool Controller::processEvents() {
 
 		std::string loadedset = getCurrentSetName();
 		auto handleConnectionChange = [this, &loadedset](ConnectionChange change) {
-			//figure out if connections are inconsistent with those in the DB
-			if (change.issource) {
-				if (!mDB->setMatchesConnections(loadedset, change.port, change.connections)) {
-					mSetDirtyParam->push_value(true);
-				}
-			}
+			mCheckDirtyNext = steady_clock::now() + dirty_debounce_timeout;
 		};
 
 		bool stoppingInstances = false;
@@ -2733,6 +2729,15 @@ bool Controller::processEvents() {
 				ossia::set_values(dom, mSetPresetNames);
 				mSetPresetLoadNode->set(ossia::net::domain_attribute{}, dom);
 				mSetPresetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+			}
+		}
+		if (mCheckDirtyNext && *mCheckDirtyNext < now) {
+			mCheckDirtyNext = boost::none;
+			auto info = setInfo();
+			if (mSetSavedLast) {
+				mSetDirtyParam->push_value(mSetSavedLast->equal(info));
+			} else if (info.instances.size() > 0 || info.connections.size() > 0) {
+				mSetDirtyParam->push_value(true);
 			}
 		}
 	} catch (const std::exception& e) {
@@ -2984,7 +2989,6 @@ void Controller::registerCommands() {
 						{"message", "loaded"},
 						{"progress", 100}
 					});
-					mSetDirtyParam->push_value(true);
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -3000,6 +3004,7 @@ void Controller::registerCommands() {
 					std::lock_guard<std::mutex> guard(mBuildMutex);
 					if (index < 0) {
 						clearInstances(guard, mInstFadeOutMs);
+						mSetSavedLast = boost::none;
 					} else {
 						unloadInstance(guard, index);
 					}
@@ -3023,7 +3028,6 @@ void Controller::registerCommands() {
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
-				mSetDirtyParam->push_value(true);
 				reportCommandResult(id, {
 					{"code", 0},
 					{"message", "unloaded"},
@@ -3041,6 +3045,7 @@ void Controller::registerCommands() {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
+					mSetSavedLast = info;
 					mSetDirtyParam->push_value(false);
 
 					const std::string presetName = "initial";
@@ -3122,7 +3127,8 @@ void Controller::registerCommands() {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
 					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
-					mSetDirtyParam->push_value(false);
+					mSetSavedLast = boost::none;
+					mCheckDirtyNext = steady_clock::now() + dirty_debounce_timeout;
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						mSetViewsListNode->clear_children();

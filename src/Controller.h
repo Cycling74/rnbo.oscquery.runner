@@ -172,7 +172,9 @@ class Controller {
 		boost::optional<SetInfo> mSetLoadPending;
 		boost::optional<PendingPresetMap> mSetLoadPendingPreset; //json to load after loading set, used for set reload
 
+		boost::optional<std::chrono::time_point<std::chrono::steady_clock>> mCheckDirtyNext;
 		ossia::net::parameter_base * mSetDirtyParam = nullptr;
+		boost::optional<SetInfo> mSetSavedLast;
 
 		//instance, path to SO, path to config
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;

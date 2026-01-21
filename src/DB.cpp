@@ -1996,3 +1996,17 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 	}
 	return info;
 }
+
+bool SetInfo::equal(const SetInfo& other) const {
+	if (
+		other.name != name ||
+		other.created_at != created_at ||
+		other.instances.size() != instances.size() ||
+		other.connections.size() != connections.size()
+	) {
+		return false;
+	}
+	throw std::runtime_error("unimplemented");
+	//TODO
+	return true;
+}
