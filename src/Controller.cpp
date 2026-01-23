@@ -1290,12 +1290,38 @@ Controller::Controller(std::string server_name) {
 							}
 					});
 				}
+
+				{
+					auto n = mSetPresetLoadNode->create_child("index");
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Load a loaded set preset at a given index. 'initial' is always zero if it exists, the rest are sorted alphabetically");
+					p->add_callback([this, cmdBuilder](const ossia::value& v) {
+							auto setname = getCurrentSetName();
+							if (v.get_type() == ossia::val_type::INT && setname.size() > 0) {
+								auto index = std::min(0, v.get<int>());
+								auto name = mDB->setPresetNameByIndex(setname, index);
+								if (name) {
+									mCommandQueue.push(cmdBuilder("instance_set_preset_load", *name));
+								}
+							}
+					});
+				}
+
 				{
 					auto n = presets->create_child("loaded");
 					auto p = mSetPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "Indicates the last loaded preset");
 				}
+
+				{
+					auto n = presets->create_child("count");
+					auto p = mSetPresetCountParam = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "Indicates the number of set presets");
+				}
+
 				{
 					auto n = presets->create_child("destroy");
 					auto p = n->create_parameter(ossia::val_type::STRING);
@@ -1437,6 +1463,7 @@ Controller::Controller(std::string server_name) {
 			}
 
 			updateSetNames();
+			updateSetPresetNames();
 		}
 	}
 
@@ -2412,6 +2439,7 @@ void Controller::updateSetPresetNames(std::string toadd) {
 		}
 	}
 	mSetPresetNamesUpdated = true;
+	mSetPresetCountParam->push_value(static_cast<int>(mSetPresetNames.size()));
 }
 
 void Controller::saveSetPreset(const std::string& setName, std::string presetName) {

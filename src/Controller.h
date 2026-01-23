@@ -151,6 +151,7 @@ class Controller {
 		ossia::net::node_base * mSetLoadNode = nullptr;
 		ossia::net::node_base * mSetPresetLoadNode = nullptr;
 		ossia::net::parameter_base * mSetPresetLoadedParam = nullptr;
+		ossia::net::parameter_base * mSetPresetCountParam = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 		ossia::net::parameter_base * mSetInitialNameParam = nullptr;
