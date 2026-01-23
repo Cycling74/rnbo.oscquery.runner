@@ -115,13 +115,16 @@ class Instance {
 				Delete,
 				Initial,
 				Load,
+				LoadIndex,
 				Save,
 				Rename
 			};
 			CommandType type;
 			std::string preset;
 			std::string newname;
+			unsigned int index = 0;
 			PresetCommand(CommandType t, std::string p, std::string n = std::string()) : type(t), preset(p), newname(n) {}
+			PresetCommand(CommandType t, int i) : type(t), index(std::max(0, i)) {}
 		};
 
 		struct MetaUpdateCommand {
@@ -250,6 +253,7 @@ class Instance {
 
 		//presets
 		ossia::net::parameter_base * mPresetEntries;
+		ossia::net::parameter_base * mPresetCount;
 		std::mutex mPresetMutex;
 
 		std::string mPresetInitial; //the user indicated initial preset

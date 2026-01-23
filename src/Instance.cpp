@@ -579,6 +579,14 @@ Instance::Instance(
 		{
 			//indicate the presets
 			auto presets = root->create_child("presets");
+
+			{
+				auto n = presets->create_child("count");
+				mPresetCount = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::description_attribute{}, "The count of presets available");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			}
+
 			{
 				auto n = presets->create_child("entries");
 				mPresetEntries = n->create_parameter(ossia::val_type::LIST);
@@ -617,8 +625,9 @@ Instance::Instance(
 				});
 			}
 
+			ossia::net::node_base * loadn;
 			{
-				auto n = presets->create_child("load");
+				auto n = loadn = presets->create_child("load");
 				auto load = n->create_parameter(ossia::val_type::STRING);
 
 				n->set(ossia::net::description_attribute{}, "Load a preset with the given name");
@@ -626,6 +635,19 @@ Instance::Instance(
 				load->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::STRING) {
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Load, val.get<std::string>()));
+					}
+				});
+			}
+
+			{
+				auto n = loadn->create_child("index");
+				auto load = n->create_parameter(ossia::val_type::INT);
+
+				n->set(ossia::net::description_attribute{}, "Load a preset with the given index");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				load->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::INT) {
+						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::LoadIndex, val.get<int>()));
 					}
 				});
 			}
@@ -1028,6 +1050,9 @@ void Instance::processEvents() {
 				case PresetCommand::CommandType::Load:
 					loadPreset(cmd.preset);
 					break;
+				case PresetCommand::CommandType::LoadIndex:
+					loadPreset(cmd.index);
+					break;
 				case PresetCommand::CommandType::Save:
 					{
 						auto name = cmd.preset;
@@ -1331,6 +1356,7 @@ void Instance::updatePresetEntries() {
 			names.push_back(ossia::value(name));
 	});
 	mPresetEntries->push_value(ossia::value(names));
+	mPresetCount->push_value(static_cast<int>(names.size()));
 }
 
 void Instance::handleProgramChange(ProgramChange p) {
