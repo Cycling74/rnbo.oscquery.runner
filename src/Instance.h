@@ -113,6 +113,7 @@ class Instance {
 		struct PresetCommand {
 			enum class CommandType {
 				Delete,
+				DeleteIndex,
 				Initial,
 				Load,
 				LoadIndex,

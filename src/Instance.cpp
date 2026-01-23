@@ -596,8 +596,9 @@ Instance::Instance(
 			}
 
 			//save preset, pass name
+			ossia::net::node_base * saven;
 			{
-				auto n = presets->create_child("save");
+				auto n = saven = presets->create_child("save");
 				auto save = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::description_attribute{}, "Save the current settings as a preset with the given name");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
@@ -606,6 +607,18 @@ Instance::Instance(
 					if (val.get_type() == ossia::val_type::STRING) {
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Save, val.get<std::string>()));
 					}
+				});
+			}
+
+			{
+				auto n = saven->create_child("auto");
+				auto save = n->create_parameter(ossia::val_type::IMPULSE);
+				n->set(ossia::net::description_attribute{}, "Save the current settings as a preset with an auto generated name, should be sorted to the end of the lists");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+				save->add_callback([this](const ossia::value& val) {
+					std::string name = "_auto";
+					mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Save, name));
 				});
 			}
 
@@ -667,8 +680,10 @@ Instance::Instance(
 						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Delete, val.get<std::string>()));
 					}
 				};
+
+				ossia::net::node_base * deleten;
 				{
-					auto n = presets->create_child("delete");
+					auto n = deleten = presets->create_child("delete");
 					auto del = n->create_parameter(ossia::val_type::STRING);
 
 					n->set(ossia::net::description_attribute{}, "Delete a preset with the given name");
@@ -685,6 +700,18 @@ Instance::Instance(
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 
 					del->add_callback(cb);
+				}
+				{
+					auto n = deleten->create_child("index");
+					auto p = n->create_parameter(ossia::val_type::INT);
+
+					n->set(ossia::net::description_attribute{}, "Delete a preset with the given index");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					p->add_callback([this](const ossia::value& val) {
+						if (val.get_type() == ossia::val_type::INT) {
+							mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::DeleteIndex, val.get<int>()));
+						}
+					});
 				}
 			}
 
@@ -1081,6 +1108,17 @@ void Instance::processEvents() {
 						}
 					}
 					break;
+				case PresetCommand::CommandType::DeleteIndex:
+					{
+						//simply look up the name by index, then let ::Delete do the rest
+						auto preset = mDB->preset(mName, cmd.index);
+						if (preset) {
+							cmd.preset = preset->second;
+						} else {
+							break;
+						}
+					}
+				//intentional drop thru
 				case PresetCommand::CommandType::Delete:
 					mDB->presetDestroy(mName, cmd.preset);
 					{
