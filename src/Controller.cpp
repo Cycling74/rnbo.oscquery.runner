@@ -1260,8 +1260,10 @@ Controller::Controller(std::string server_name) {
 
 			{
 				auto presets = sets->create_child("presets");
+
+				ossia::net::node_base * saven;
 				{
-					auto n = presets->create_child("save");
+					auto n = saven = presets->create_child("save");
 					auto p = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 					n->set(ossia::net::description_attribute{}, "Save a loaded set preset with the given name");
@@ -1275,6 +1277,18 @@ Controller::Controller(std::string server_name) {
 							}
 					});
 				}
+
+				{
+					auto n = saven->create_child("auto");
+					auto p = n->create_parameter(ossia::val_type::IMPULSE);
+					n->set(ossia::net::description_attribute{}, "Save a loaded set preset with an automatically generated name");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+					p->add_callback([this, cmdBuilder](const ossia::value& val) {
+						mCommandQueue.push(cmdBuilder("instance_set_preset_save", "_auto"));
+					});
+				}
+
 				{
 					auto n = mSetPresetLoadNode = presets->create_child("load");
 					auto p = n->create_parameter(ossia::val_type::STRING);
@@ -1322,8 +1336,9 @@ Controller::Controller(std::string server_name) {
 					n->set(ossia::net::description_attribute{}, "Indicates the number of set presets");
 				}
 
+				ossia::net::node_base * destroyn;
 				{
-					auto n = presets->create_child("destroy");
+					auto n = destroyn = presets->create_child("destroy");
 					auto p = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 					n->set(ossia::net::description_attribute{}, "Delete a loaded set preset with the given name");
@@ -1335,6 +1350,23 @@ Controller::Controller(std::string server_name) {
 									mCommandQueue.push(cmdBuilder("instance_set_preset_delete", name));
 								}
 							}
+					});
+				}
+
+				{
+					auto n = destroyn->create_child("index");
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Delete a loaded set preset with the given index");
+
+					p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						std::string setname = getCurrentSetName();
+						if (v.get_type() == ossia::val_type::INT && setname.size() > 0) {
+							auto name = mDB->setPresetNameByIndex(setname, std::max(0, v.get<int>()));
+							if (name) {
+								mCommandQueue.push(cmdBuilder("instance_set_preset_delete", name.get()));
+							}
+						}
 					});
 				}
 
@@ -2443,8 +2475,13 @@ void Controller::updateSetPresetNames(std::string toadd) {
 }
 
 void Controller::saveSetPreset(const std::string& setName, std::string presetName) {
-	//ditch the old one
-	mDB->setPresetDestroy(setName, presetName);
+	//find the next auto preset name
+	if (presetName == "_auto") {
+		presetName = mDB->setPresetAutoNext(setName);
+	} else {
+		//ditch the old one
+		mDB->setPresetDestroy(setName, presetName);
+	}
 	//save the new ones
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 	for (auto& i: mInstances) {
