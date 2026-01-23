@@ -1299,7 +1299,7 @@ Controller::Controller(std::string server_name) {
 					p->add_callback([this, cmdBuilder](const ossia::value& v) {
 							auto setname = getCurrentSetName();
 							if (v.get_type() == ossia::val_type::INT && setname.size() > 0) {
-								auto index = std::min(0, v.get<int>());
+								auto index = std::max(0, v.get<int>());
 								auto name = mDB->setPresetNameByIndex(setname, index);
 								if (name) {
 									mCommandQueue.push(cmdBuilder("instance_set_preset_load", *name));
