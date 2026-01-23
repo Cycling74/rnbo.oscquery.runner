@@ -1,6 +1,7 @@
 #include "DB.h"
 #include "Config.h"
 
+#include <regex>
 #include <algorithm>
 #include <set>
 #include <iostream>
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <boost/optional.hpp>
 #include <boost/filesystem.hpp>
+#include <boost/format.hpp>
 #include <boost/none.hpp>
 #include <boost/algorithm/string.hpp>
 
@@ -19,6 +21,7 @@ namespace fs = boost::filesystem;
 
 namespace {
 	const std::string cur_rnbo_version(RNBO_VERSION);
+	const std::regex auto_name_regex(R"(^_auto([0-9]+)$)");
 
 	std::string getStringColumn(SQLite::Statement& query, int col) {
 		const char * s = query.getColumn(col);
@@ -745,7 +748,8 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 
 	SQLite::Statement query(mDB, R"(
 		SELECT name, initial FROM presets
-		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name) ORDER BY created_at DESC
+		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY initial DESC, name LIKE "_auto%" ASC, name ASC, id ASC
 	)");
 	query.bind(1, patchername);
 	query.bind(2, rnbo_version);
@@ -790,7 +794,7 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 	SQLite::Statement query(mDB, R"(
 		SELECT content, name FROM presets WHERE patcher_id IN
 		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
-		ORDER BY initial DESC, name ASC, id ASC
+		ORDER BY initial DESC, name LIKE "_auto%" ASC, name ASC, id ASC
 		LIMIT 1 OFFSET ?1
 	)");
 
@@ -809,21 +813,43 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 	return boost::none;
 }
 
-void DB::presetSave(const std::string& patchername, const std::string& presetName, const std::string& preset) {
+void DB::presetSave(const std::string& patchername, std::string presetName, const std::string& preset) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-	//XXX make sure to update patcherStore preset migration with any changes to the preset structure
-	SQLite::Statement query(mDB, R"(
-		INSERT INTO presets (patcher_id, name, content)
-		SELECT MAX(id), ?1, ?2 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
-		ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime')
-	)");
+	//generate name
+	if (presetName == "_auto") {
+		int max = 0;
+		SQLite::Statement query(mDB, R"(
+			SELECT name FROM presets
+			WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name) AND name LIKE '_auto%' ORDER BY created_at DESC
+		)");
+		query.bind(1, patchername);
+		query.bind(2, cur_rnbo_version);
+		while (query.executeStep()) {
+			std::string name = getStringColumn(query, 0);
+			std::smatch match;
+			if (std::regex_match(name, match, auto_name_regex)) {
+				int i = stoi(match[1].str());
+				max = std::max(i, max);
+			}
+		}
+		presetName += str(boost::format("%04d") % (max + 1));
+	}
 
-	query.bind(1, presetName);
-	query.bind(2, preset);
-	query.bind(3, patchername);
-	query.bind(4, cur_rnbo_version);
-	query.exec();
+	{
+		//XXX make sure to update patcherStore preset migration with any changes to the preset structure
+		SQLite::Statement query(mDB, R"(
+			INSERT INTO presets (patcher_id, name, content)
+			SELECT MAX(id), ?1, ?2 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
+			ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime')
+		)");
+
+		query.bind(1, presetName);
+		query.bind(2, preset);
+		query.bind(3, patchername);
+		query.bind(4, cur_rnbo_version);
+		query.exec();
+	}
 }
 
 
@@ -914,7 +940,7 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		ORDER BY name == 'initial' DESC, name ASC
+		ORDER BY name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC
 	)");
 	query.bind(1, setname);
 	query.bind(2, rnbo_version);
@@ -924,6 +950,31 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 	}
 	return names;
 }
+
+std::string DB::setPresetAutoNext(const std::string& setname) {
+	std::lock_guard<std::mutex> guard(mMutex);
+	int max = 0;
+
+	SQLite::Statement query(mDB, R"(
+		SELECT DISTINCT name FROM sets_presets
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		AND name LIKE "_auto%"
+		ORDER BY name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC
+	)");
+	query.bind(1, setname);
+	query.bind(2, cur_rnbo_version);
+	while (query.executeStep()) {
+		std::string name = getStringColumn(query, 0);
+		std::smatch match;
+		if (std::regex_match(name, match, auto_name_regex)) {
+			int i = stoi(match[1].str());
+			max = std::max(i, max);
+		}
+	}
+
+	return "_auto" + str(boost::format("%04d") % (max + 1));
+}
+
 
 boost::optional<std::string> DB::setPresetNameByIndex(
 		const std::string& setName,
@@ -937,7 +988,7 @@ boost::optional<std::string> DB::setPresetNameByIndex(
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		ORDER BY name == 'initial' DESC, name ASC
+		ORDER BY name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC
 		LIMIT 1 OFFSET ?3
 	)");
 	query.bind(1, setName);

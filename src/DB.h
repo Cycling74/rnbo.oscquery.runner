@@ -120,9 +120,10 @@ class DB {
 				const std::string& patchername,
 				unsigned int index
 		);
+		// if you save with "_auto" you'll get an auto generated name that is sorted at the end of the list
 		void presetSave(
 				const std::string& patchername,
-				const std::string& presetName,
+				std::string presetName,
 				const std::string& preset
 		);
 		void presetSetInitial(
@@ -140,6 +141,8 @@ class DB {
 		);
 
 		std::vector<std::string> setPresets(const std::string& setName, std::string rnbo_version = std::string());
+
+		std::string setPresetAutoNext(const std::string& setName);
 
 		//get all presets for a set perset
 		void setPresets(
