@@ -538,6 +538,16 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 					mMidiPortConnectionsChanged = true;
 				});
 			}
+
+			{
+				auto n = control->create_child("midi_reset");
+				n->set(ossia::net::description_attribute{}, "Send MIDI reset out via graphreset port");
+				auto p = n->create_parameter(ossia::val_type::IMPULSE);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+				p->add_callback([this](const ossia::value& val) {
+					mSendReset.store(true);
+				});
+			}
 	});
 	createClient(false);
 }
@@ -577,6 +587,16 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 				break;
 			default:
 				break;
+		}
+	}
+
+	{
+		bool t = true;
+		if (mSendReset.compare_exchange_weak(t, false)) {
+			const std::array<uint8_t, 1> r = { 0xFF };
+			auto midiOutBuf = jack_port_get_buffer(mResetMidiOut, nframes);
+			jack_midi_clear_buffer(midiOutBuf);
+			jack_midi_event_write(midiOutBuf, 0, r.data(), r.size());
 		}
 	}
 }
@@ -1228,6 +1248,12 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					"midiin",
 					JACK_DEFAULT_MIDI_TYPE,
 					JackPortFlags::JackPortIsInput,
+					0
+			);
+			mResetMidiOut = jack_port_register(mJackClient,
+					"graphreset",
+					JACK_DEFAULT_MIDI_TYPE,
+					JackPortFlags::JackPortIsOutput,
 					0
 			);
 

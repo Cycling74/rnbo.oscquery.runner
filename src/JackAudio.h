@@ -148,6 +148,9 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mMidiInParam = nullptr;
 		jack_port_t * mJackMidiIn;
 
+		jack_port_t * mResetMidiOut;
+		std::atomic<bool> mSendReset = false;
+
 		//working buffer for port getting port aliases
 		char * mJackPortAliases[2];
 
