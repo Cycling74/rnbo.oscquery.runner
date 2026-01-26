@@ -542,7 +542,7 @@ ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(Progr
 			{
 				auto n = control->create_child("midi_reset");
 				n->set(ossia::net::description_attribute{}, "Send MIDI reset out via graphreset port");
-				auto p = n->create_parameter(ossia::val_type::IMPULSE);
+				auto p = mSendResetParam = n->create_parameter(ossia::val_type::IMPULSE);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 				p->add_callback([this](const ossia::value& val) {
 					mSendReset.store(true);
@@ -1619,6 +1619,12 @@ void ProcessAudioJack::updatePorts() {
 
 	delete [] aliases[0];
 	delete [] aliases[1];
+}
+
+void ProcessAudioJack::sendReset() {
+	//bypass callbacks
+	mSendReset.store(true);
+	mSendResetParam->push_value_quiet(ossia::impulse{});
 }
 
 void ProcessAudioJack::portRenamed(jack_port_id_t id, const char * /*old_name*/, const char * /*new_name*/) {

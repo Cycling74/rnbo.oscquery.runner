@@ -29,6 +29,7 @@ class ProcessAudio {
 		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) { }
 
 		virtual void updatePorts() {}
+		virtual void sendReset() {}
 
 		//transport handlers
 		virtual void handleTransportState(bool running) = 0;

@@ -57,6 +57,8 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void handleTransportTimeSig(double numerator, double denominator) override;
 
 		virtual void updatePorts() override;
+		virtual void sendReset() override;
+
 		void portRenamed(jack_port_id_t port, const char *old_name, const char *new_name);
 		void jackPortRegistration(jack_port_id_t id, int reg);
 		void portConnected(jack_port_id_t a, jack_port_id_t b, bool connected);
@@ -150,6 +152,7 @@ class ProcessAudioJack : public ProcessAudio {
 
 		jack_port_t * mResetMidiOut;
 		std::atomic<bool> mSendReset = false;
+		ossia::net::parameter_base * mSendResetParam = nullptr;
 
 		//working buffer for port getting port aliases
 		char * mJackPortAliases[2];

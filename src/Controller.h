@@ -179,6 +179,7 @@ class Controller {
 		std::vector<std::tuple<std::shared_ptr<Instance>, boost::filesystem::path, boost::filesystem::path>> mInstances;
 
 		std::vector<std::shared_ptr<Instance>> mStoppingInstances;
+		bool mResetPending = false;
 
 		ossia::net::parameter_base * mDiskSpaceParam = nullptr;
 		ossia::net::parameter_base * mDataFileDirMTimeParam = nullptr;

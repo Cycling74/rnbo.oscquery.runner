@@ -34,7 +34,6 @@
 #include <ossia/network/base/parameter_data.hpp>
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
-#include <ossia/network/generic/generic_parameter.hpp>
 
 #include <sys/types.h>
 #include <signal.h>
@@ -2719,8 +2718,12 @@ bool Controller::processEvents() {
 			stoppingInstances = mStoppingInstances.size() > 0;
 		}
 
-		//if we have no stopping instances, look to see if we should load a set
+		//if we have no stopping instances, look to see if we should load a set and/or send a reset
 		if (!stoppingInstances) {
+			if (mResetPending) {
+				mResetPending = false;
+				mProcessAudio->sendReset();
+			}
 			boost::optional<SetInfo> pending;
 			boost::optional<PendingPresetMap> preset;
 			{
@@ -2939,6 +2942,7 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
 	}
 
 	mProcessAudio->disconnect(disconnect);
+	mResetPending = true; //send reset after unload
 }
 
 void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index) {
