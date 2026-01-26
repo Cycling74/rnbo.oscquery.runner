@@ -148,9 +148,9 @@ class ProcessAudioJack : public ProcessAudio {
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
 
 		ossia::net::parameter_base * mMidiInParam = nullptr;
-		jack_port_t * mJackMidiIn;
+		jack_port_t * mJackMidiIn = nullptr;
 
-		jack_port_t * mResetMidiOut;
+		jack_port_t * mResetMidiOut = nullptr;
 		std::atomic<bool> mSendReset = false;
 		ossia::net::parameter_base * mSendResetParam = nullptr;
 
