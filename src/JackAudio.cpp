@@ -591,11 +591,12 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
 	}
 
 	{
+		auto midiOutBuf = jack_port_get_buffer(mResetMidiOut, nframes);
+		jack_midi_clear_buffer(midiOutBuf);
+
 		bool t = true;
 		if (mSendReset.compare_exchange_weak(t, false)) {
 			const std::array<uint8_t, 1> r = { 0xFF };
-			auto midiOutBuf = jack_port_get_buffer(mResetMidiOut, nframes);
-			jack_midi_clear_buffer(midiOutBuf);
 			jack_midi_event_write(midiOutBuf, 0, r.data(), r.size());
 		}
 	}
