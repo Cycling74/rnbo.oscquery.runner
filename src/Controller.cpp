@@ -2936,7 +2936,7 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
 	//disconnect any connections that don't flow thru rnbo instances
 	std::vector<SetConnectionInfo> disconnect;
 	for (auto& c: info.connections) {
-		if (c.sink_instance_index < 0 && c.source_instance_index < 0 && c.sink_name != "rnbo-control") {
+		if (c.sink_instance_index < 0 && c.source_instance_index < 0 && c.sink_name != "rnbo-control" && c.source_name != "rnbo-control") {
 			disconnect.push_back(c);
 		}
 	}
