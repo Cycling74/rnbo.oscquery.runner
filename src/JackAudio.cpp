@@ -1779,10 +1779,11 @@ void ProcessAudioJack::connectToMidiIf(jack_port_t * port) {
 			auto flags = jack_port_flags(port);
 			auto name = jack_port_name(port);
 
-			//we don't want through, reconnecting to ports we're already connected to, or inputs
-			if (is_through(name) || jack_port_connected_to(mJackMidiIn, name) || flags & JackPortFlags::JackPortIsInput) {
+			//we don't want through
+			if (is_through(name)) {
 				return;
 			}
+
 			//check aliases and don't auto connect to rnbo midi outputs or through
 			auto count = jack_port_get_aliases(port, mJackPortAliases);
 			for (auto i = 0; i < count; i++) {
@@ -1791,7 +1792,11 @@ void ProcessAudioJack::connectToMidiIf(jack_port_t * port) {
 					return;
 				}
 			}
-			jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
+ 			if (!jack_port_connected_to(mJackMidiIn, name) && flags & JackPortFlags::JackPortIsOutput) {
+				jack_connect(mJackClient, name, jack_port_name(mJackMidiIn));
+			} else if (!jack_port_connected_to(mResetMidiOut, name) && flags & JackPortFlags::JackPortIsInput) {
+				jack_connect(mJackClient, jack_port_name(mResetMidiOut), name);
+			}
 		}
 	}
 }
