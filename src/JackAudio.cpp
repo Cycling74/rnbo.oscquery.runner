@@ -2118,6 +2118,11 @@ InstanceAudioJack::InstanceAudioJack(
 					JackPortFlags::JackPortIsInput,
 					0
 			);
+
+			//add alias so we can avoid connecting control to it
+			std::string alias = std::string(jack_get_client_name(mJackClient)) + ":rnbomidiin1";
+			jack_port_set_alias(mJackMidiIn, alias.c_str());
+
 			auto n = jack->create_child("midi_ins");
 			auto midi_ins = n->create_parameter(ossia::val_type::LIST);
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
