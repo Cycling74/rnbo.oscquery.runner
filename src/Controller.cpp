@@ -2856,7 +2856,7 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	for (auto& n : nodes) {
 		if (auto param = n->get_parameter()) {
 			//query
-			if (isimpulse && param->get_value_type() != ossia::val_type::IMPULSE) {
+			if (isimpulse && param->get_value_type() != ossia::val_type::IMPULSE && param->get_access() != ossia::access_mode::SET) {
 				param->push_value();
 			} else {
 				param->push_value(v);
