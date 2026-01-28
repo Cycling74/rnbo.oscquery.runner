@@ -161,17 +161,18 @@ bool JackAudioRecord::open() {
 				n->set(ossia::net::description_attribute{}, "Start capturing with the given string as the file name template, empty string gives the default: " + default_filename_templ);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 				p->add_callback([this](const ossia::value& val) {
+					std::string tmpl = default_filename_templ;
 					if (val.get_type() == ossia::val_type::STRING) {
-						//stop recording, set template (one shot) and start recording
-						endRecording(true);
-						auto tmpl = val.get<std::string>();
-						if (tmpl.size() == 0) {
-							tmpl = default_filename_templ;
+						auto v = val.get<std::string>();
+						if (v.size() > 0 && v != "impulse") {
+							tmpl = v;
 						}
-						mFileNameTmpl = tmpl;
-						mActiveParam->push_value_quiet(true);
-						startRecording();
 					}
+					//stop recording, set template (one shot) and start recording
+					endRecording(true);
+					mFileNameTmpl = tmpl;
+					mActiveParam->push_value_quiet(true);
+					startRecording();
 				});
 			}
 
