@@ -711,6 +711,23 @@ oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "db_backup", "id": "foo
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "db_restore", "id": "foo", "params": {"name": "foo.sqlite"}}'
 ```
 
+### Packages
+
+Packages are simply tar files with a custom extension `.rnbopack`
+
+You can open the tar file and edit it and the tar it again, but if you do that
+on a mac you may have some errors installing because mac's tar creates some
+extra files that the runner doesn't expect.
+
+To correctly tar a directory on mac you can use these extra flags:
+
+```
+tar cvf the-name-of-my-pack-RNBOVERSION.rnbopack --no-mac-metadata --no-xattrs the-name-of-my-pack-RNBOVERSION
+```
+
+The runner expects that `the-name-of-my-pack-RNBOVERSION.rnbopack` has a single directory in it named `the-name-of-my-pack-RNBOVERSION`
+You'll want to replace the `RNBOVERSION` with the actual version of RNBO that the package is targeted for.
+
 ### Metadata
 
 If you have your own uses for the `meta` entry, you can add anything you'd like but it has to be a `JSON` key-value map at the top level.
