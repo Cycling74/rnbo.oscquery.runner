@@ -505,6 +505,36 @@ CREATE TABLE sets_views_params
 
 	});
 
+	//add `preset_index` to presets
+	do_migration(18, [](SQLite::Database& db) {
+		db.exec("ALTER TABLE sets_presets ADD COLUMN preset_index INTEGER NOT NULL DEFAULT 0");
+		db.exec("ALTER TABLE presets ADD COLUMN preset_index INTEGER NOT NULL DEFAULT 0");
+
+		db.exec("CREATE INDEX sets_presets_index_index ON sets_presets(set_id, preset_index)");
+		db.exec("CREATE INDEX presets_index_index ON presets(patcher_id, preset_index)");
+
+		db.exec(R"(
+			UPDATE sets_presets
+			SET preset_index = q.preset_index
+			FROM (
+				SELECT id,
+					ROW_NUMBER() OVER (PARTITION BY set_id, set_instance_index ORDER BY set_id, name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC, set_instance_index)  - 1 AS preset_index
+					FROM sets_presets
+				) AS q
+			WHERE q.id = sets_presets.id
+		)");
+		db.exec(R"(
+			UPDATE presets
+			SET preset_index = q.preset_index
+			FROM (
+				SELECT id,
+					ROW_NUMBER() OVER (PARTITION BY patcher_id ORDER BY patcher_id, initial DESC, name ASC) - 1 AS preset_index
+					FROM presets ORDER BY patcher_id, initial DESC, name ASC
+				) as q
+			WHERE q.id = presets.id
+		)");
+	});
+
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
 }
