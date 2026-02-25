@@ -633,8 +633,8 @@ void DB::patcherStore(
 	if (old_id) {
 		if (migrate_presets) {
 			SQLite::Statement query(mDB, R"(
-				INSERT INTO presets (patcher_id, name, content, initial, created_at, updated_at)
-				SELECT ?2, name, content, initial, created_at, updated_at FROM presets WHERE patcher_id = ?1)");
+				INSERT INTO presets (patcher_id, name, content, initial, created_at, updated_at, preset_index)
+				SELECT ?2, name, content, initial, created_at, updated_at, preset_index FROM presets WHERE patcher_id = ?1)");
 			query.bind(1, old_id);
 			query.bind(2, new_id);
 			query.exec();
@@ -822,10 +822,11 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT content, name FROM presets WHERE patcher_id IN
-		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
-		ORDER BY initial DESC, name LIKE "_auto%" ASC, name ASC, id ASC
-		LIMIT 1 OFFSET ?1
+		SELECT content, name FROM presets
+			WHERE
+				patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+			AND preset_index = ?1
+		LIMIT 1
 	)");
 
 	query.bind(1, index);
@@ -843,7 +844,7 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 	return boost::none;
 }
 
-void DB::presetSave(const std::string& patchername, std::string presetName, const std::string& preset) {
+void DB::presetSave(const std::string& patchername, std::string presetName, const std::string& preset, int index) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	//generate name
@@ -866,18 +867,34 @@ void DB::presetSave(const std::string& patchername, std::string presetName, cons
 		presetName += str(boost::format("%04d") % (max + 1));
 	}
 
+	//compute index
+	if (index < 0) {
+		SQLite::Statement query(mDB, R"(
+			SELECT MAX(preset_index) + 1 FROM presets
+			WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		)");
+		query.bind(1, patchername);
+		query.bind(2, cur_rnbo_version);
+		if (query.executeStep()) {
+			index = query.getColumn(0);
+		} else {
+			index = 0;
+		}
+	}
+
 	{
 		//XXX make sure to update patcherStore preset migration with any changes to the preset structure
 		SQLite::Statement query(mDB, R"(
-			INSERT INTO presets (patcher_id, name, content)
-			SELECT MAX(id), ?1, ?2 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
-			ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime')
+			INSERT INTO presets (patcher_id, name, content, preset_index)
+			SELECT MAX(id), ?1, ?2, ?5 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
+			ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime'), preset_index=excluded.preset_index
 		)");
 
 		query.bind(1, presetName);
 		query.bind(2, preset);
 		query.bind(3, patchername);
 		query.bind(4, cur_rnbo_version);
+		query.bind(5, index);
 		query.exec();
 	}
 }

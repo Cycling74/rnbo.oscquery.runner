@@ -115,7 +115,7 @@ class DB {
 		);
 
 		//content, name
-		//get preset by index, initial preset is always 0, then sorted by name
+		//get preset by index
 		boost::optional<std::pair<std::string, std::string>> preset(
 				const std::string& patchername,
 				unsigned int index
@@ -124,7 +124,8 @@ class DB {
 		void presetSave(
 				const std::string& patchername,
 				std::string presetName,
-				const std::string& preset
+				const std::string& preset,
+				int index = -1 //optional index
 		);
 		void presetSetInitial(
 				const std::string& patchername,
