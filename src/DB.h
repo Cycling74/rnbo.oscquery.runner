@@ -107,8 +107,8 @@ class DB {
 
 		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial)> f, std::string rnbo_version = std::string());
 
-		//content, name
-		boost::optional<std::pair<std::string, std::string>> preset(
+		//content, name, index
+		boost::optional<std::tuple<std::string, std::string, int>> preset(
 				const std::string& patchername,
 				const std::string& presetName,
 				std::string rnbo_version = std::string()
@@ -116,7 +116,7 @@ class DB {
 
 		//content, name
 		//get preset by index
-		boost::optional<std::pair<std::string, std::string>> preset(
+		boost::optional<std::tuple<std::string, std::string, int>> preset(
 				const std::string& patchername,
 				unsigned int index
 		);

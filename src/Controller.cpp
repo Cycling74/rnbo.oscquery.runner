@@ -533,7 +533,8 @@ namespace {
 				for (auto name: presetnames) {
 					auto preset = db->preset(patchername, name, rnboVersion);
 					if (preset) {
-						RNBO::Json presetJson = RNBO::Json::parse(preset->first);
+						RNBO::Json presetJson = RNBO::Json::parse(std::get<0>(*preset));
+						presetJson["presetindex"] = std::get<2>(*preset);
 
 						if (config.include_datafiles) {
 							append_datarefs(presetJson);
@@ -2252,7 +2253,12 @@ void Controller::patcherStore(
 	if (conf.contains("presets")) {
 		for (auto& kv: conf["presets"].items()) {
 			assert(kv.value().is_object());
-			mDB->presetSave(name, kv.key(), kv.value().dump());
+			RNBO::Json v = kv.value();
+			int presetindex = -1;
+			if (v.contains("presetindex") && v["presetindex"].is_number()) {
+				presetindex = v["presetindex"];
+			}
+			mDB->presetSave(name, kv.key(), v.dump(), presetindex);
 		}
 	}
 
@@ -2649,7 +2655,12 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 				RNBO::Json presets = readJson(contentdir / fs::path(entry["presets"].get<std::string>()));
 				for (auto& kv: presets.items()) {
 					assert(kv.value().is_object());
-					mDB->presetSave(name, kv.key(), kv.value().dump());
+					RNBO::Json v = kv.value();
+					int presetindex = -1;
+					if (v.contains("presetindex") && v["presetindex"].is_number()) {
+						presetindex = v["presetindex"];
+					}
+					mDB->presetSave(name, kv.key(), kv.value().dump(), presetindex);
 				}
 			}
 		}
@@ -3717,7 +3728,9 @@ void Controller::registerCommands() {
 			for (auto name: names) {
 				auto preset = mDB->preset(patcherName, name, rnboVersion);
 				if (preset) {
-					content[name] = RNBO::Json::parse(preset->first);
+					RNBO::Json v = RNBO::Json::parse(std::get<0>(*preset));
+					v["presetindex"] = std::get<2>(*preset);
+					content[name] = v;
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "preset does not exist");
 					return;

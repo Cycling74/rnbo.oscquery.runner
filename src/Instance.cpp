@@ -1129,7 +1129,7 @@ void Instance::processEvents() {
 						//simply look up the name by index, then let ::Delete do the rest
 						auto preset = mDB->preset(mName, cmd.index);
 						if (preset) {
-							cmd.preset = preset->second;
+							cmd.preset = std::get<1>(*preset);
 						} else {
 							break;
 						}
@@ -1219,8 +1219,8 @@ bool Instance::loadPreset(std::string name, std::string set_name) {
 			}
 		}
 		if (p) {
-			preset = p->first;
-			name = p->second;
+			preset = std::get<0>(*p);
+			name = std::get<1>(*p);
 		}
 	}
 
@@ -1241,7 +1241,7 @@ bool Instance::loadPreset(std::string name, std::string set_name) {
 void Instance::loadPreset(unsigned int index) {
 	auto preset = mDB->preset(mName, index);
 	if (preset) {
-		loadJsonPreset(preset->first, preset->second);
+		loadJsonPreset(std::get<0>(*preset), std::get<1>(*preset));
 	} else {
 		std::cerr << "couldn't find preset with index: " << index << std::endl;
 	}

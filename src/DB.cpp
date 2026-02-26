@@ -792,14 +792,14 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 	}
 }
 
-boost::optional<std::pair<std::string, std::string>> DB::preset(const std::string& patchername, const std::string& presetName, std::string rnbo_version) {
+boost::optional<std::tuple<std::string, std::string, int>> DB::preset(const std::string& patchername, const std::string& presetName, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT content, name FROM presets WHERE name = ?1 AND patcher_id IN
+		SELECT content, name, preset_index FROM presets WHERE name = ?1 AND patcher_id IN
 		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
 	)");
 
@@ -813,16 +813,18 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 		s = query.getColumn(1);
 		std::string name(s);
 
-		return std::make_pair(content, name);
+		int presetindex = query.getColumn(2);
+
+		return {{content, name, presetindex}};
 	}
 	return boost::none;
 }
 
-boost::optional<std::pair<std::string, std::string>> DB::preset(const std::string& patchername, unsigned int index) {
+boost::optional<std::tuple<std::string, std::string, int>> DB::preset(const std::string& patchername, unsigned int index) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT content, name FROM presets
+		SELECT content, name, preset_index FROM presets
 			WHERE
 				patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
 			AND preset_index = ?1
@@ -839,7 +841,9 @@ boost::optional<std::pair<std::string, std::string>> DB::preset(const std::strin
 		s = query.getColumn(1);
 		std::string name(s);
 
-		return std::make_pair(content, name);
+		int presetindex = query.getColumn(2);
+
+		return {{content, name, presetindex}};
 	}
 	return boost::none;
 }
