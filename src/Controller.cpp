@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <utility>
 #include <chrono>
+#include <iterator>  // for std::back_inserter
 #include <algorithm>
 #include <libbase64.h>
 #include <iomanip>
@@ -1342,11 +1343,19 @@ Controller::Controller(std::string server_name) {
 					});
 				}
 
+				ossia::net::node_base * loadedn;
 				{
-					auto n = presets->create_child("loaded");
+					auto n = loadedn = presets->create_child("loaded");
 					auto p = mSetPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "Indicates the last loaded preset");
+				}
+
+				{
+					auto n = loadedn->create_child("index");
+					auto p = mSetPresetLoadedIndexParam = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "Indicates the index of last loaded preset");
 				}
 
 				{
@@ -1354,6 +1363,13 @@ Controller::Controller(std::string server_name) {
 					auto p = mSetPresetCountParam = n->create_parameter(ossia::val_type::INT);
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "Indicates the number of set presets");
+				}
+
+				{
+					auto n = presets->create_child("indexes");
+					auto p = mSetPresetIndexesParam = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "A list of indexes for set presets, you can use these to load or destroy by index");
 				}
 
 				ossia::net::node_base * destroyn;
@@ -2479,11 +2495,12 @@ void Controller::updateSetInitialName(std::string name) {
 	mSetInitialNameParam->push_value(name);
 }
 
-void Controller::updateSetPresetNames(std::string toadd) {
+void Controller::updateSetPresetNames(std::string toadd, int presetindex) {
 	std::lock_guard<std::mutex> guard(mSetPresetNamesMutex);
 	mSetPresetNames.clear();
 
 	std::string setname = getCurrentSetName();
+	std::vector<ossia::value> indexes;
 	if (setname.size()) {
 		std::vector<std::string> presetNames = mDB->setPresets(setname);
 		for (auto name: presetNames) {
@@ -2494,12 +2511,26 @@ void Controller::updateSetPresetNames(std::string toadd) {
 		if (toadd.size()) {
 			mSetPresetNames.push_back(toadd);
 		}
+
+		auto _indexes = mDB->setPresetIndexes(setname);
+		indexes.reserve(_indexes.size());
+
+		if (presetindex >= 0) {
+			_indexes.push_back(presetindex);
+			std::sort(_indexes.begin(), _indexes.end());
+		}
+
+		std::transform(
+			_indexes.begin(), _indexes.end(), std::back_inserter(indexes),
+			[](int n) { return ossia::value(n); });
+
 	}
 	mSetPresetNamesUpdated = true;
 	mSetPresetCountParam->push_value(static_cast<int>(mSetPresetNames.size()));
+	mSetPresetIndexesParam->push_value(indexes);
 }
 
-std::string Controller::saveSetPreset(const std::string& setName, std::string presetName, int presetindex) {
+std::tuple<std::string, int> Controller::saveSetPreset(const std::string& setName, std::string presetName, int presetindex) {
 	//delete anything at that presetindex
 	if (presetindex >= 0) {
 		auto oldname = mDB->setPresetNameByIndex(setName, presetindex);
@@ -2523,7 +2554,7 @@ std::string Controller::saveSetPreset(const std::string& setName, std::string pr
 	for (auto& i: mInstances) {
 		std::get<0>(i)->savePreset(presetName, setName, presetindex);
 	}
-	return presetName;
+	return { presetName, presetindex };
 }
 
 void Controller::loadSetPreset(const std::string& setName, std::string presetName) {
@@ -2548,7 +2579,11 @@ void Controller::handleInstancePresetLoad(unsigned int index, const std::string&
 	//we got the final instance preset loaded, report it
 	mInstancesPendingPresetLoad.erase(index);
 	if (mInstancesPendingPresetLoad.size() == 0) {
+		std::string currentSetName = getCurrentSetName();
 		mSetPresetLoadedParam->push_value(setPresetName);
+		mSetPresetLoadedIndexParam->push_value(mDB->setPresetIndexByName(currentSetName, setPresetName).value_or(-1));
+
+		//XXX should we trigger soemthing to update preset lists?
 	}
 }
 
@@ -3125,6 +3160,7 @@ void Controller::registerCommands() {
 					const std::string empty;
 					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
 					mSetPresetLoadedParam->push_value(empty);
+					mSetPresetLoadedIndexParam->push_value(-1);
 
 					updateSetPresetNames();
 					{
@@ -3164,7 +3200,7 @@ void Controller::registerCommands() {
 					});
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
-					updateSetPresetNames(presetName);
+					updateSetPresetNames(presetName, 0);
 
 					//set views
 					{
@@ -3180,6 +3216,8 @@ void Controller::registerCommands() {
 						}
 					}
 					mSetPresetLoadedParam->push_value(presetName);
+					mSetPresetLoadedIndexParam->push_value(mDB->setPresetIndexByName(name, presetName).value_or(-1));
+
 					config::set(name, config::key::SetLastName);
 				} else {
 					reportCommandError(id, 1, "failed");
@@ -3313,7 +3351,9 @@ void Controller::registerCommands() {
 				std::string setname = getCurrentSetName();
 				ensureSet(setname);
 				if (setname.size()) {
-					name = saveSetPreset(setname, name, presetindex);
+					auto res = saveSetPreset(setname, name, presetindex);
+					name = std::get<0>(res);
+					presetindex = std::get<1>(res);
 
 					reportCommandResult(id, {
 						{"code", 0},
@@ -3322,8 +3362,9 @@ void Controller::registerCommands() {
 					});
 
 					//saving is async so we force "name" into the list
-					updateSetPresetNames(name);
+					updateSetPresetNames(name, presetindex);
 					mSetPresetLoadedParam->push_value(name);
+					mSetPresetLoadedIndexParam->push_value(presetindex);
 				} else {
 					std::cerr << "no current set name, cannot save preset" << std::endl;
 					reportCommandError(id, 1, "failed");
@@ -3366,6 +3407,7 @@ void Controller::registerCommands() {
 					});
 					if (name == getCurrentSetPresetName()) {
 						mSetPresetLoadedParam->push_value("");
+						mSetPresetLoadedIndexParam->push_value(-1);
 					}
 					updateSetPresetNames();
 				} else {

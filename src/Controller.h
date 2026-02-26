@@ -117,10 +117,10 @@ class Controller {
 		void removeSetView(int index);
 		void reportSetViewOrder(const std::string& setname);
 
-		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
-		void updateSetPresetNames(std::string toadd = std::string());
-		//returns name
-		std::string saveSetPreset(const std::string& setName, std::string presetName, int index = -1);
+		//since preset save is async, we can optional add "toadd" even if it isn't in the DB (along with presetindex
+		void updateSetPresetNames(std::string toadd = std::string(), int presetindex = -1);
+		//returns name, preset_index
+		std::tuple<std::string, int> saveSetPreset(const std::string& setName, std::string presetName, int index = -1);
 		void loadSetPreset(const std::string& setName, std::string presetName);
 		void handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName);
 
@@ -152,7 +152,9 @@ class Controller {
 		ossia::net::node_base * mSetLoadNode = nullptr;
 		ossia::net::node_base * mSetPresetLoadNode = nullptr;
 		ossia::net::parameter_base * mSetPresetLoadedParam = nullptr;
+		ossia::net::parameter_base * mSetPresetLoadedIndexParam = nullptr;
 		ossia::net::parameter_base * mSetPresetCountParam = nullptr;
+		ossia::net::parameter_base * mSetPresetIndexesParam = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 		ossia::net::parameter_base * mSetInitialNameParam = nullptr;
