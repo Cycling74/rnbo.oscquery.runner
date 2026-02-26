@@ -106,6 +106,7 @@ class DB {
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f, std::string rnbo_version = std::string());
 
 		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial)> f, std::string rnbo_version = std::string());
+		std::vector<int> presetIndexes(const std::string& patchername, std::string rnbo_version = std::string());
 
 		//content, name, index
 		boost::optional<std::tuple<std::string, std::string, int>> preset(
@@ -136,12 +137,19 @@ class DB {
 				const std::string& oldName,
 				const std::string& newName
 		);
+		//change the index for a preset with the given name, potentially overwriting an existing preset at that index
+		void presetReindex(
+				const std::string& patchername,
+				const std::string& name,
+				const int index
+		);
 		void presetDestroy(
 				const std::string& patchername,
 				const std::string& presetName
 		);
 
 		std::vector<std::string> setPresets(const std::string& setName, std::string rnbo_version = std::string());
+		std::vector<int> setPresetIndexes(const std::string& setName, std::string rnbo_version = std::string());
 
 		std::string setPresetAutoNext(const std::string& setName);
 
@@ -156,6 +164,11 @@ class DB {
 		boost::optional<std::string> setPresetNameByIndex(
 				const std::string& setName,
 				unsigned int index,
+				std::string rnbo_version = std::string());
+
+		boost::optional<int> setPresetIndexByName(
+				const std::string& setName,
+				const std::string& presetName,
 				std::string rnbo_version = std::string());
 
 		int setPresetIndexNext(

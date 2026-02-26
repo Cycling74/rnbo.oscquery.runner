@@ -779,7 +779,7 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 	SQLite::Statement query(mDB, R"(
 		SELECT name, initial FROM presets
 		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		ORDER BY initial DESC, name LIKE "_auto%" ASC, name ASC, id ASC
+		ORDER BY preset_index
 	)");
 	query.bind(1, patchername);
 	query.bind(2, rnbo_version);
@@ -790,6 +790,25 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 		int initial = query.getColumn(1);
 		f(name, (bool)initial);
 	}
+}
+
+std::vector<int> DB::presetIndexes(const std::string& patchername, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::vector<int> indexes;
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, R"(
+		SELECT preset_index FROM presets
+		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY preset_index
+	)");
+	query.bind(1, patchername);
+	query.bind(2, rnbo_version);
+	while (query.executeStep()) {
+		indexes.push_back(query.getColumn(0));
+	}
+	return indexes;
 }
 
 boost::optional<std::tuple<std::string, std::string, int>> DB::preset(const std::string& patchername, const std::string& presetName, std::string rnbo_version) {
@@ -976,6 +995,42 @@ void DB::presetRename(const std::string& patchername, const std::string& oldName
 
 }
 
+void DB::presetReindex(const std::string& patchername, const std::string& name, int index) {
+	std::lock_guard<std::mutex> guard(mMutex);
+	//delete any existing at that index that don't match this name
+	{
+		SQLite::Statement query(mDB, R"(
+			DELETE FROM presets
+			WHERE preset_index = ?4 AND name != ?3 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?2 GROUP BY name)
+		)");
+
+		query.bind(1, patchername);
+		query.bind(2, cur_rnbo_version);
+		query.bind(3, name);
+		query.bind(4, index);
+		query.exec();
+	}
+
+	{
+		SQLite::Statement query(mDB, R"(
+			UPDATE presets
+				SET preset_index=?4
+			FROM
+				(SELECT MAX(patchers.id) as patcher_id, presets.id FROM patchers
+					JOIN presets ON presets.patcher_id = patchers.id
+				WHERE patchers.name = ?1 AND patchers.runner_rnbo_version = ?2 AND presets.name = ?3
+				GROUP BY patchers.name) as p
+			WHERE p.id = presets.id
+		)");
+
+		query.bind(1, patchername);
+		query.bind(2, cur_rnbo_version);
+		query.bind(3, name);
+		query.bind(4, index);
+		query.exec();
+	}
+}
+
 void DB::presetDestroy(const std::string& patchername, const std::string& presetName) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
@@ -1011,6 +1066,26 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 		names.push_back(std::string(s));
 	}
 	return names;
+}
+
+std::vector<int> DB::setPresetIndexes(const std::string& setName, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::lock_guard<std::mutex> guard(mMutex);
+	std::vector<int> indexes;
+
+	SQLite::Statement query(mDB, R"(
+		SELECT DISTINCT preset_index FROM sets_presets
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		ORDER BY preset_index
+	)");
+	query.bind(1, setName);
+	query.bind(2, rnbo_version);
+	while (query.executeStep()) {
+		indexes.push_back(query.getColumn(0));
+	}
+	return indexes;
 }
 
 std::string DB::setPresetAutoNext(const std::string& setname) {
@@ -1059,6 +1134,30 @@ boost::optional<std::string> DB::setPresetNameByIndex(
 	if (query.executeStep()) {
 		const char * s = query.getColumn(0);
 		return { std::string(s) };
+	}
+	return boost::none;
+}
+
+boost::optional<int> DB::setPresetIndexByName(
+		const std::string& setName,
+		const std::string& presetName,
+		std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, R"(
+		SELECT DISTINCT preset_index FROM sets_presets
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		AND name = ?3
+		LIMIT 1
+	)");
+	query.bind(1, setName);
+	query.bind(2, rnbo_version);
+	query.bind(3, presetName);
+	if (query.executeStep()) {
+		int preset_index = query.getColumn(0);
+		return { preset_index };
 	}
 	return boost::none;
 }
