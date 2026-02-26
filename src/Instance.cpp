@@ -213,7 +213,7 @@ Instance::Instance(
 
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string, int>, 32>>(32);
 
-	mDB->presets(mName, [this](const std::string& name, bool initial) {
+	mDB->presets(mName, [this](const std::string& name, bool initial, int /*presetindex*/) {
 			if (initial) {
 				mPresetInitial = name;
 			}
@@ -588,11 +588,17 @@ Instance::Instance(
 			}
 
 			{
+				auto n = presets->create_child("indexes");
+				mPresetIndexes = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::description_attribute{}, "Indexes of presets that can be loaded or deleted by index");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			}
+
+			{
 				auto n = presets->create_child("entries");
 				mPresetEntries = n->create_parameter(ossia::val_type::LIST);
 				n->set(ossia::net::description_attribute{}, "A list of presets that can be loaded");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-				updatePresetEntries();
 			}
 
 			//save preset, pass name
@@ -652,6 +658,22 @@ Instance::Instance(
 				});
 			}
 
+			{
+				auto n = presets->create_child("reindex");
+				auto reindex = n->create_parameter(ossia::val_type::LIST);
+				n->set(ossia::net::description_attribute{}, "change the index for a preset, potentially ovewriting a preset at that index, arguments: name, index");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+				reindex->add_callback([this](const ossia::value& val) {
+					if (val.get_type() == ossia::val_type::LIST) {
+						auto l = val.get<std::vector<ossia::value>>();
+						if (l.size() == 2 && l[0].get_type() == ossia::val_type::STRING && l[1].get_type() == ossia::val_type::INT) {
+							mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Reindex, l[0].get<std::string>(), l[1].get<int>()));
+						}
+					}
+				});
+			}
+
 			ossia::net::node_base * loadn;
 			{
 				auto n = loadn = presets->create_child("load");
@@ -679,11 +701,20 @@ Instance::Instance(
 				});
 			}
 
+			ossia::net::node_base * loadedn;
 			{
-				auto n = presets->create_child("loaded");
+				auto n = loadedn = presets->create_child("loaded");
 				mPresetLoadedParam = n->create_parameter(ossia::val_type::STRING);
 
 				n->set(ossia::net::description_attribute{}, "Indicates that a preset was loaded. A name with a / indiciates a set preset where the format is setname/setpresetname");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			}
+
+			{
+				auto n = loadedn->create_child("index");
+				mPresetLoadedIndexParam = n->create_parameter(ossia::val_type::INT);
+
+				n->set(ossia::net::description_attribute{}, "Indicates the index of the latest loaded preset");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			}
 
@@ -779,6 +810,8 @@ Instance::Instance(
 					}
 				});
 			}
+
+			updatePresetEntries();
 		}
 
 		try {
@@ -1148,6 +1181,7 @@ void Instance::processEvents() {
 						if (mPresetNameLatest == cmd.preset) {
 							mPresetNameLatest.clear();
 							mPresetLoadedParam->push_value(mPresetNameLatest);
+							mPresetLoadedIndexParam->push_value(-1);
 						}
 						updated = true;
 					}
@@ -1170,6 +1204,11 @@ void Instance::processEvents() {
 						updated = true;
 					}
 					break;
+				case PresetCommand::CommandType::Reindex:
+					{
+						mDB->presetReindex(mName, cmd.preset, cmd.index);
+						updated = true;
+					}
 			}
 			if (c++ > 10)
 				break;
@@ -1406,11 +1445,32 @@ RNBO::Json Instance::presetToJSON(const RNBO::Preset& preset) {
 void Instance::updatePresetEntries() {
 	std::lock_guard<std::mutex> guard(mPresetMutex);
 	std::vector<ossia::value> names;
-	mDB->presets(mName, [&names](const std::string& name, bool /*initial*/) {
-			names.push_back(ossia::value(name));
+	std::vector<ossia::value> indexes;
+
+	int loadedi = -1;
+	mDB->presets(mName, [&names, &indexes, &loadedi, this](const std::string& name, bool /*initial*/, int presetindex) {
+		names.push_back(ossia::value(name));
+		indexes.push_back(ossia::value(presetindex));
+
+		if (name == mPresetNameLatest) {
+			loadedi = presetindex;
+		}
 	});
+
 	mPresetEntries->push_value(ossia::value(names));
 	mPresetCount->push_value(static_cast<int>(names.size()));
+	mPresetIndexes->push_value(ossia::value(indexes));
+
+	if (loadedi < 0) {
+		if (mPresetNameLatest.size() > 0) {
+			//no longer exists
+			mPresetNameLatest.clear();
+			mPresetLoadedParam->push_value(mPresetNameLatest);
+			mPresetLoadedIndexParam->push_value(-1);
+		}
+	} else if (mPresetLoadedIndexParam && (mPresetLoadedIndexParam->get_value_type() != ossia::val_type::INT || mPresetLoadedIndexParam->value().get<int>() != loadedi)) {
+			mPresetLoadedIndexParam->push_value(loadedi);
+	}
 }
 
 void Instance::handleProgramChange(ProgramChange p) {
@@ -1639,8 +1699,12 @@ void Instance::handleParamUpdate(RNBO::ParameterIndex index, RNBO::ParameterValu
 void Instance::handlePresetEvent(const RNBO::PresetEvent& e) {
 	if (mPresetLoadedParam && e.getType() == RNBO::PresetEvent::Type::SettingEnd) {
 		std::lock_guard<std::mutex> guard(mPresetMutex);
-		mPresetLoadedParam->push_value(mPresetNameLatest);
 
+		auto p = mDB->preset(mName, mPresetNameLatest);
+		if (p) {
+			mPresetLoadedParam->push_value(std::get<1>(*p));
+			mPresetLoadedIndexParam->push_value(std::get<2>(*p));
+		}
 		if (mPresetLoadedCallback) {
 			mPresetLoadedCallback(mPresetNameLatest, mSetPresetNameLatest);
 		}

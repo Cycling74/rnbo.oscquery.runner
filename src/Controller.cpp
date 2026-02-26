@@ -523,7 +523,7 @@ namespace {
 
 				std::vector<std::string> presetnames;
 				std::string initialpreset;
-				db->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial) {
+				db->presets(patchername, [&presetnames, &initialpreset](const std::string& n, bool isinitial, int /*presetindex*/) {
 						presetnames.push_back(n);
 						if (isinitial) {
 						initialpreset = n;
@@ -3764,7 +3764,7 @@ void Controller::registerCommands() {
 			readContent.clear();
 
 			std::vector<std::string> names;
-			mDB->presets(patcherName, [&names](const std::string& n, bool) { names.push_back(n); }, rnboVersion);
+			mDB->presets(patcherName, [&names](const std::string& n, bool, int) { names.push_back(n); }, rnboVersion);
 
 			RNBO::Json content = RNBO::Json::object();
 			for (auto name: names) {

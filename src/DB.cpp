@@ -770,14 +770,14 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 	}
 }
 
-void DB::presets(const std::string& patchername, std::function<void(const std::string&, bool)> f, std::string rnbo_version) {
+void DB::presets(const std::string& patchername, std::function<void(const std::string&, bool, int)> f, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT name, initial FROM presets
+		SELECT name, initial, preset_index FROM presets
 		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		ORDER BY preset_index
 	)");
@@ -788,7 +788,8 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 		std::string name(s);
 
 		int initial = query.getColumn(1);
-		f(name, (bool)initial);
+		int presetindex = query.getColumn(2);
+		f(name, (bool)initial, presetindex);
 	}
 }
 

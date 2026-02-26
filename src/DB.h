@@ -105,7 +105,7 @@ class DB {
 
 		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&)> f, std::string rnbo_version = std::string());
 
-		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial)> f, std::string rnbo_version = std::string());
+		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial, int presetindex)> f, std::string rnbo_version = std::string());
 		std::vector<int> presetIndexes(const std::string& patchername, std::string rnbo_version = std::string());
 
 		//content, name, index

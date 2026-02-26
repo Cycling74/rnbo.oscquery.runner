@@ -118,7 +118,8 @@ class Instance {
 				Load,
 				LoadIndex,
 				Save,
-				Rename
+				Rename,
+				Reindex
 			};
 			CommandType type;
 			std::string preset;
@@ -255,6 +256,7 @@ class Instance {
 
 		//presets
 		ossia::net::parameter_base * mPresetEntries;
+		ossia::net::parameter_base * mPresetIndexes;
 		ossia::net::parameter_base * mPresetCount;
 		std::mutex mPresetMutex;
 
@@ -264,6 +266,7 @@ class Instance {
 
 		ossia::net::parameter_base* mPresetInitialParam = nullptr;
 		ossia::net::parameter_base* mPresetLoadedParam = nullptr;
+		ossia::net::parameter_base* mPresetLoadedIndexParam = nullptr;
 		ossia::net::parameter_base* mPresetProgramChangeChannelParam;
 		int mPresetProgramChangeChannel = 0; //omni, 17 == none
 
