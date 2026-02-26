@@ -206,7 +206,7 @@ namespace {
 
 					db->setPresets(
 							name, presetName,
-							[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName) {
+							[&preset](const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName, int presetIndex) {
 							RNBO::Json entry;
 							entry["patchername"] = patcherName;
 							entry["instanceindex"] = static_cast<int>(instanceIndex);
@@ -215,6 +215,7 @@ namespace {
 							} else {
 								entry["content"] = RNBO::Json::parse(content);
 							}
+							entry["presetindex"] = presetIndex;
 							preset.push_back(entry);
 							}, rnboVersion);
 
@@ -261,6 +262,11 @@ namespace {
 						if (entry["patchername"].is_string() && entry["instanceindex"].is_number()) {
 							std::string patchername = entry["patchername"];
 							std::string patcherPresetName;
+							int presetindex = -1;
+							if (entry.contains("presetindex") && entry["presetindex"].is_number()) {
+								presetindex = entry["presetindex"];
+							}
+
 							unsigned int instanceindex = static_cast<unsigned int>(entry["instanceindex"].get<int>());
 							RNBO::Json content = RNBO::Json::object();
 							if (entry.contains("content") && entry["content"].is_object())
@@ -268,7 +274,7 @@ namespace {
 							if (entry.contains("presetname") && entry["presetname"].is_string()) {
 								patcherPresetName = entry["presetname"];
 							}
-							db->setPresetSave(patchername, presetName, setname, instanceindex, content.dump(), patcherPresetName);
+							db->setPresetSave(patchername, presetName, setname, instanceindex, content.dump(), patcherPresetName, presetindex);
 						} else {
 							std::cerr << "don't know how to handle set: " << setname << " preset: " << presetName << " entry" << std::endl;
 						}
@@ -1083,14 +1089,15 @@ Controller::Controller(std::string server_name) {
 		{
 			auto sets = ctl->create_child("sets");
 
-			auto cmdBuilder = [](std::string method, const std::string& name, std::string meta = std::string()) -> std::string {
+			auto cmdBuilder = [](std::string method, const std::string& name, std::string meta = std::string(), int index = -1) -> std::string {
 				RNBO::Json cmd = {
 					{"method", method},
 					{"id", "internal"},
 					{"params",
 						{
 							{"name", name},
-							{"meta", meta}
+							{"meta", meta},
+							{"index", index}
 						}
 					}
 				};
@@ -1285,6 +1292,19 @@ Controller::Controller(std::string server_name) {
 
 					p->add_callback([this, cmdBuilder](const ossia::value& val) {
 						mCommandQueue.push(cmdBuilder("instance_set_preset_save", "_auto"));
+					});
+				}
+
+				{
+					auto n = saven->create_child("index");
+					auto p = n->create_parameter(ossia::val_type::INT);
+					n->set(ossia::net::description_attribute{}, "Save a loaded set preset at the given index with an automatically generated name");
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+					p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::INT) {
+							mCommandQueue.push(cmdBuilder("instance_set_preset_save", "_auto", "", v.get<int>()));
+						}
 					});
 				}
 
@@ -2473,7 +2493,18 @@ void Controller::updateSetPresetNames(std::string toadd) {
 	mSetPresetCountParam->push_value(static_cast<int>(mSetPresetNames.size()));
 }
 
-void Controller::saveSetPreset(const std::string& setName, std::string presetName) {
+std::string Controller::saveSetPreset(const std::string& setName, std::string presetName, int presetindex) {
+	//delete anything at that presetindex
+	if (presetindex >= 0) {
+		auto oldname = mDB->setPresetNameByIndex(setName, presetindex);
+		if (oldname) {
+			mDB->setPresetDestroy(setName, oldname.get());
+		}
+	} else {
+		//get next presetindex
+		presetindex = mDB->setPresetIndexNext(setName);
+	}
+
 	//find the next auto preset name
 	if (presetName == "_auto") {
 		presetName = mDB->setPresetAutoNext(setName);
@@ -2484,8 +2515,9 @@ void Controller::saveSetPreset(const std::string& setName, std::string presetNam
 	//save the new ones
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 	for (auto& i: mInstances) {
-		std::get<0>(i)->savePreset(presetName, setName);
+		std::get<0>(i)->savePreset(presetName, setName, presetindex);
 	}
+	return presetName;
 }
 
 void Controller::loadSetPreset(const std::string& setName, std::string presetName) {
@@ -3113,7 +3145,7 @@ void Controller::registerCommands() {
 					mSetDirtyParam->push_value(false);
 
 					const std::string presetName = "initial";
-					saveSetPreset(name, presetName);
+					saveSetPreset(name, presetName, 0);
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "saved"},
@@ -3265,10 +3297,13 @@ void Controller::registerCommands() {
 			"instance_set_preset_save",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
+				int presetindex = params["index"].get<int>();
+
 				std::string setname = getCurrentSetName();
 				ensureSet(setname);
 				if (setname.size()) {
-					saveSetPreset(setname, name);
+					name = saveSetPreset(setname, name, presetindex);
+
 					reportCommandResult(id, {
 						{"code", 0},
 						{"message", "saved"},

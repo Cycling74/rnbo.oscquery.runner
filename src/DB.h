@@ -149,14 +149,17 @@ class DB {
 		void setPresets(
 				const std::string& setName,
 				const std::string& presetName,
-				std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName)> func,
+				std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName, int presetIndex)> func,
 				std::string rnbo_version = std::string());
 
 		//find the name of a set preset by index
-		//"initial" is always at 0, otherwise sorted by name
 		boost::optional<std::string> setPresetNameByIndex(
 				const std::string& setName,
 				unsigned int index,
+				std::string rnbo_version = std::string());
+
+		int setPresetIndexNext(
+				const std::string& setName,
 				std::string rnbo_version = std::string());
 
 		//pair is content and potential patcher preset name
@@ -174,7 +177,8 @@ class DB {
 				const std::string& setName,
 				unsigned int instanceIndex,
 				const std::string& content,
-				std::string patcherPresetName = std::string()
+				std::string patcherPresetName = std::string(),
+				int presetIndex = -1
 		);
 
 		void setPresetRename(

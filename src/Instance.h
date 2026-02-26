@@ -63,7 +63,7 @@ class Instance {
 		//process any events in the current thread
 		void processEvents();
 
-		void savePreset(std::string name, std::string set_name = std::string());
+		void savePreset(std::string name, std::string set_name = std::string(), int index = -1);
 		//returns true if the preset was found and load is being attempted
 		bool loadPreset(std::string name, std::string set_name = std::string());
 		void loadPreset(unsigned int index);
@@ -123,8 +123,9 @@ class Instance {
 			CommandType type;
 			std::string preset;
 			std::string newname;
-			unsigned int index = 0;
+			int index = -1;
 			PresetCommand(CommandType t, std::string p, std::string n = std::string()) : type(t), preset(p), newname(n) {}
+			PresetCommand(CommandType t, std::string p, int i) : type(t), preset(p), index(i) {}
 			PresetCommand(CommandType t, int i) : type(t), index(std::max(0, i)) {}
 		};
 
@@ -211,8 +212,8 @@ class Instance {
 		ossia::net::parameter_base* mActiveParam;
 		ossia::net::parameter_base* mMIDIOutParam;
 
-		//preset name, preset ptr, set name (maybe empty)
-		std::unique_ptr<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>> mPresetSaveQueue;
+		//preset name, preset ptr, set name (maybe empty), preset_index
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string, int>, 32>> mPresetSaveQueue;
 
 		//only accessed in the data ref thread
 		std::unordered_map<std::string, std::shared_ptr<std::vector<float>>> mDataRefs;

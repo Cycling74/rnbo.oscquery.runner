@@ -211,7 +211,7 @@ Instance::Instance(
 		mCore->setExternalDataHandler(mDataHandler.get());
 	}
 
-	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string>, 32>>(32);
+	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string, int>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial) {
 			if (initial) {
@@ -623,6 +623,20 @@ Instance::Instance(
 			}
 
 			{
+				auto n = saven->create_child("index");
+				auto save = n->create_parameter(ossia::val_type::INT);
+				n->set(ossia::net::description_attribute{}, "Save the current settings as a preset with the given index an auto generated name");
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+
+				save->add_callback([this](const ossia::value& val) {
+					std::string name = "_auto";
+					if (val.get_type() == ossia::val_type::INT) {
+						mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Save, name, val.get<int>()));
+					}
+				});
+			}
+
+			{
 				auto n = presets->create_child("rename");
 				auto rename = n->create_parameter(ossia::val_type::LIST);
 				n->set(ossia::net::description_attribute{}, "rename a preset, arguments: oldname, newName");
@@ -1021,11 +1035,12 @@ void Instance::processEvents() {
 
 	//handle queued presets
 	{
-		std::tuple<std::string, RNBO::ConstPresetPtr, std::string> preset;
+		std::tuple<std::string, RNBO::ConstPresetPtr, std::string, int> preset;
 		while (mPresetSaveQueue->try_dequeue(preset)) {
 			RNBO::Json data = presetToJSON(*std::get<1>(preset));
 			std::string set_name = std::get<2>(preset);
 			std::string name = std::get<0>(preset);
+			int index = std::get<3>(preset);
 
 			if (set_name.size()) {
 				std::string patcherPresetName;
@@ -1034,9 +1049,9 @@ void Instance::processEvents() {
 					patcherPresetName = mPresetNameLatest.size() ? mPresetNameLatest : mPresetInitial;
 					data = nullptr;
 				}
-				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump(), patcherPresetName);
+				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump(), patcherPresetName, index);
 			} else {
-				mDB->presetSave(mName, name, data.dump());
+				mDB->presetSave(mName, name, data.dump(), index);
 			}
 
 			mPresetsDirty = true;
@@ -1083,9 +1098,10 @@ void Instance::processEvents() {
 				case PresetCommand::CommandType::Save:
 					{
 						auto name = cmd.preset;
-						mCore->getPreset([name, this] (RNBO::ConstPresetPtr preset) {
+						auto presetindex = cmd.index;
+						mCore->getPreset([name, presetindex, this] (RNBO::ConstPresetPtr preset) {
 							//get preset called in audio thread, queue to do heavy work outside that thread
-							mPresetSaveQueue->try_enqueue({name, preset, std::string()});
+							mPresetSaveQueue->try_enqueue({name, preset, std::string(), presetindex});
 						});
 					}
 					break;
@@ -1169,10 +1185,10 @@ void Instance::processEvents() {
 	}
 }
 
-void Instance::savePreset(std::string name, std::string set_name) {
-	mCore->getPreset([name, set_name, this] (RNBO::ConstPresetPtr preset) {
+void Instance::savePreset(std::string name, std::string set_name, int index) {
+	mCore->getPreset([name, set_name, index, this] (RNBO::ConstPresetPtr preset) {
 		//get preset called in audio thread, queue to do heavy work outside that thread
-		mPresetSaveQueue->try_enqueue({name, preset, set_name});
+		mPresetSaveQueue->try_enqueue({name, preset, set_name, index});
 	});
 }
 

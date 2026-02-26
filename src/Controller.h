@@ -119,7 +119,8 @@ class Controller {
 
 		//since preset save is async, we can optionall add "toadd" even if it isn't in the DB
 		void updateSetPresetNames(std::string toadd = std::string());
-		void saveSetPreset(const std::string& setName, std::string presetName);
+		//returns name
+		std::string saveSetPreset(const std::string& setName, std::string presetName, int index = -1);
 		void loadSetPreset(const std::string& setName, std::string presetName);
 		void handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName);
 

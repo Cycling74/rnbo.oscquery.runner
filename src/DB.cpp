@@ -880,6 +880,17 @@ void DB::presetSave(const std::string& patchername, std::string presetName, cons
 		} else {
 			index = 0;
 		}
+	} else {
+		//delete existing
+		SQLite::Statement query(mDB, R"(
+			DELETE FROM presets
+			WHERE preset_index = ?1 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+		)");
+
+		query.bind(1, index);
+		query.bind(2, patchername);
+		query.bind(3, cur_rnbo_version);
+		query.exec();
 	}
 
 	{
@@ -1035,8 +1046,8 @@ boost::optional<std::string> DB::setPresetNameByIndex(
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		ORDER BY name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC
-		LIMIT 1 OFFSET ?3
+		AND preset_index = ?3
+		LIMIT 1
 	)");
 	query.bind(1, setName);
 	query.bind(2, rnbo_version);
@@ -1048,10 +1059,27 @@ boost::optional<std::string> DB::setPresetNameByIndex(
 	return boost::none;
 }
 
+int DB::setPresetIndexNext(const std::string& setName, std::string rnbo_version) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, R"(
+		SELECT MAX(preset_index) + 1 FROM sets_presets
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+	)");
+	query.bind(1, setName);
+	query.bind(2, rnbo_version);
+	if (query.executeStep()) {
+		return query.getColumn(0);
+	}
+	return 0;
+}
+
 void DB::setPresets(
 		const std::string& setName,
 		const std::string& presetName,
-		std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName)> func,
+		std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName, int presetIndex)> func,
 		std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
@@ -1059,7 +1087,7 @@ void DB::setPresets(
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT patchers.name, sets_presets.set_instance_index, COALESCE(presets.content, sets_presets.content), COALESCE(presets.name, "") as preset_name
+		SELECT patchers.name, sets_presets.set_instance_index, COALESCE(presets.content, sets_presets.content), COALESCE(presets.name, "") as preset_name, preset_index
 		FROM sets_presets
 		JOIN patchers ON patchers.id = sets_presets.patcher_id
 		LEFT JOIN presets ON patchers.id = presets.patcher_id AND sets_presets.preset_name = presets.name
@@ -1081,8 +1109,9 @@ void DB::setPresets(
 
 		s = query.getColumn(3);
 		std::string preset_name(s);
+		int preset_index = query.getColumn(4);
 
-		func(patchername, set_instance_index, content, preset_name);
+		func(patchername, set_instance_index, content, preset_name, preset_index);
 	}
 }
 
@@ -1139,17 +1168,18 @@ void DB::setPresetSave(
 		const std::string& setName,
 		unsigned int instanceIndex,
 		const std::string& content,
-		std::string patcherPresetName
+		std::string patcherPresetName,
+		int presetIndex
 ) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		INSERT INTO sets_presets (patcher_id, set_id, name, set_instance_index, content, preset_name)
-		SELECT patchers.id, sets.id, ?1, ?2, ?3, ?7
+		INSERT INTO sets_presets (patcher_id, set_id, name, set_instance_index, content, preset_name, preset_index)
+		SELECT patchers.id, sets.id, ?1, ?2, ?3, ?7, ?8
 		FROM patchers, sets
 		WHERE patchers.id IN (SELECT MAX(id) FROM patchers WHERE name = ?5 AND runner_rnbo_version = ?4 GROUP BY name)
 		AND sets.id IN (SELECT MAX(id) FROM sets WHERE name = ?6 AND runner_rnbo_version = ?4 GROUP BY name)
-		ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime')
+		ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime'), preset_index=excluded.preset_index
 	)");
 
 	query.bind(1, presetName);
@@ -1163,6 +1193,7 @@ void DB::setPresetSave(
 	} else {
 		query.bind(7, nullptr);
 	}
+	query.bind(8, presetIndex);
 	query.exec();
 }
 
