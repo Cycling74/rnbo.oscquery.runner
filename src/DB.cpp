@@ -1091,7 +1091,7 @@ void DB::setPresets(
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT patchers.name, sets_presets.set_instance_index, COALESCE(presets.content, sets_presets.content), COALESCE(presets.name, "") as preset_name, preset_index
+		SELECT patchers.name, sets_presets.set_instance_index, COALESCE(presets.content, sets_presets.content), COALESCE(presets.name, "") as preset_name, sets_presets.preset_index
 		FROM sets_presets
 		JOIN patchers ON patchers.id = sets_presets.patcher_id
 		LEFT JOIN presets ON patchers.id = presets.patcher_id AND sets_presets.preset_name = presets.name
