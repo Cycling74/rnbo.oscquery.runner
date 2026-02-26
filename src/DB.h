@@ -115,7 +115,7 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
-		//content, name
+		//content, name, index
 		//get preset by index
 		boost::optional<std::tuple<std::string, std::string, int>> preset(
 				const std::string& patchername,
