@@ -997,12 +997,16 @@ void DB::presetRename(const std::string& patchername, const std::string& oldName
 }
 
 void DB::presetReindex(const std::string& patchername, const std::string& name, int index) {
+	if (index < 0) {
+		return;
+	}
+
 	std::lock_guard<std::mutex> guard(mMutex);
 	//delete any existing at that index that don't match this name
 	{
 		SQLite::Statement query(mDB, R"(
 			DELETE FROM presets
-			WHERE preset_index = ?4 AND name != ?3 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?2 GROUP BY name)
+			WHERE preset_index = ?4 AND name != ?3 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
 		)");
 
 		query.bind(1, patchername);
