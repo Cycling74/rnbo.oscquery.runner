@@ -1311,6 +1311,12 @@ void DB::setPresetRename(
 		const std::string& newName,
 		std::string rnbo_version
 ) {
+	if (oldName == newName) {
+		return;
+	}
+	//BEFORE MUTEX
+	setPresetDestroy(setName, newName, rnbo_version);
+
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_version;
 	std::lock_guard<std::mutex> guard(mMutex);
@@ -1327,6 +1333,49 @@ void DB::setPresetRename(
 	query.bind(3, newName);
 	query.bind(4, rnbo_version);
 	query.exec();
+}
+
+void DB::setPresetReindex(
+		const std::string& setName,
+		const std::string& name,
+		int presetindex,
+		std::string rnbo_version
+) {
+	if (rnbo_version.size() == 0)
+		rnbo_version = cur_rnbo_version;
+	std::lock_guard<std::mutex> guard(mMutex);
+
+	//delete existing
+	{
+		SQLite::Statement query(mDB, R"(
+			DELETE FROM sets_presets
+			WHERE name != ?2
+			AND preset_index = ?3
+			AND set_id IN (
+				SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?4 GROUP BY name
+			)
+		)");
+		query.bind(1, setName);
+		query.bind(2, name);
+		query.bind(3, presetindex);
+		query.bind(4, rnbo_version);
+		query.exec();
+	}
+
+	{
+		SQLite::Statement query(mDB, R"(
+			UPDATE sets_presets SET preset_index = ?3
+			WHERE name = ?2
+			AND set_id IN (
+				SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?4 GROUP BY name
+			)
+		)");
+		query.bind(1, setName);
+		query.bind(2, name);
+		query.bind(3, presetindex);
+		query.bind(4, rnbo_version);
+		query.exec();
+	}
 }
 
 void DB::setPresetDestroy(

@@ -201,6 +201,13 @@ class DB {
 				std::string rnbo_version = std::string()
 		);
 
+		void setPresetReindex(
+				const std::string& setName,
+				const std::string& name,
+				int presetindex,
+				std::string rnbo_version = std::string()
+		);
+
 		void setPresetDestroy(
 				const std::string& setName,
 				const std::string& presetName,
