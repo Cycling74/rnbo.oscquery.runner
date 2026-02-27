@@ -1435,6 +1435,42 @@ Controller::Controller(std::string server_name) {
 						}
 					});
 				}
+				{
+					auto n = presets->create_child("reindex");
+					auto p = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+					n->set(ossia::net::description_attribute{}, "Update the index for a loaded set's preset: preset name | index, new index");
+
+					p->add_callback([this](const ossia::value& v) {
+						if (v.get_type() == ossia::val_type::LIST) {
+							auto l = v.get<std::vector<ossia::value>>();
+							if (l.size() == 2 && l[1].get_type() == ossia::val_type::INT) {
+								std::string name;
+								int index = l[1].get<int>();
+
+								if (l[0].get_type() == ossia::val_type::STRING) {
+									name = l[0].get<std::string>();
+								} else if (l[0].get_type() == ossia::val_type::INT) {
+									name = mDB->setPresetNameByIndex(getCurrentSetName(), l[0].get<int>()).value_or(std::string());
+								}
+
+								if (name.size() && index >= 0) {
+									RNBO::Json cmd = {
+										{"method", "instance_set_preset_reindex"},
+										{"id", "internal"},
+										{"params",
+											{
+												{"name", name},
+												{"index", index}
+											}
+										}
+									};
+									mCommandQueue.push(cmd.dump());
+								}
+							}
+						}
+					});
+				}
 			}
 
 			{
@@ -2538,8 +2574,12 @@ std::tuple<std::string, int> Controller::saveSetPreset(const std::string& setNam
 			mDB->setPresetDestroy(setName, oldname.get());
 		}
 	} else {
-		//get next presetindex
-		presetindex = mDB->setPresetIndexNext(setName);
+		//if there is an existing preset with that name, use existing index
+		presetindex = mDB->setPresetIndexByName(setName, presetName).value_or(-1);
+		//or get next presetindex
+		if (presetindex < 0) {
+			presetindex = mDB->setPresetIndexNext(setName);
+		}
 	}
 
 	//find the next auto preset name
@@ -3428,6 +3468,32 @@ void Controller::registerCommands() {
 					mDB->setPresetRename(setname, name, newName);
 					if (name == getCurrentSetPresetName()) {
 						mSetPresetLoadedParam->push_value(newName);
+					}
+
+					reportCommandResult(id, {
+						{"code", 0},
+						{"message", "deleted"},
+						{"progress", 100}
+					});
+					updateSetPresetNames();
+				} else {
+					std::cerr << "no current set name, cannot rename associated preset" << std::endl;
+					reportCommandError(id, 1, "failed");
+				}
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_preset_reindex",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				std::string name = params["name"].get<std::string>();
+				int index = params["index"].get<int>();
+				std::string setname = getCurrentSetName();
+				ensureSet(setname);
+				if (setname.size()) {
+					mDB->setPresetReindex(setname, name, index);
+					if (name == getCurrentSetPresetName()) {
+						mSetPresetLoadedIndexParam->push_value(index);
 					}
 
 					reportCommandResult(id, {
