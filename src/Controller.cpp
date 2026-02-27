@@ -1372,6 +1372,13 @@ Controller::Controller(std::string server_name) {
 					n->set(ossia::net::description_attribute{}, "A list of indexes for set presets, you can use these to load or destroy by index");
 				}
 
+				{
+					auto n = presets->create_child("entries");
+					auto p = mSetPresetEntriesParam = n->create_parameter(ossia::val_type::LIST);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "A list of names for set presets, sorted by index");
+				}
+
 				ossia::net::node_base * destroyn;
 				{
 					auto n = destroyn = presets->create_child("destroy");
@@ -1993,6 +2000,10 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			instance->registerPresetLoadedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
 					handleInstancePresetLoad(instanceIndex, setPresetName, presetName);
 			});
+
+			instance->registerPresetSavedCallback([this, instanceIndex](const std::string& presetName, const std::string& setPresetName) {
+					handleInstancePresetSave(instanceIndex, setPresetName, presetName);
+			});
 			instance->activate();
 			instance->processEvents();
 			instance->markConfigChanged(false); //use a hammer to disable change reporting
@@ -2531,30 +2542,22 @@ void Controller::updateSetInitialName(std::string name) {
 	mSetInitialNameParam->push_value(name);
 }
 
-void Controller::updateSetPresetNames(std::string toadd, int presetindex) {
+void Controller::updateSetPresetNames() {
 	std::lock_guard<std::mutex> guard(mSetPresetNamesMutex);
 	mSetPresetNames.clear();
+	mSetPresetNameValues.clear();
+	std::vector<ossia::value> indexes;
 
 	std::string setname = getCurrentSetName();
-	std::vector<ossia::value> indexes;
 	if (setname.size()) {
 		std::vector<std::string> presetNames = mDB->setPresets(setname);
 		for (auto name: presetNames) {
-			if (name != toadd) {
-				mSetPresetNames.push_back(name);
-			}
-		}
-		if (toadd.size()) {
-			mSetPresetNames.push_back(toadd);
+			mSetPresetNameValues.push_back(name);
+			mSetPresetNames.insert(name);
 		}
 
 		auto _indexes = mDB->setPresetIndexes(setname);
 		indexes.reserve(_indexes.size());
-
-		if (presetindex >= 0) {
-			_indexes.push_back(presetindex);
-			std::sort(_indexes.begin(), _indexes.end());
-		}
 
 		std::transform(
 			_indexes.begin(), _indexes.end(), std::back_inserter(indexes),
@@ -2564,6 +2567,7 @@ void Controller::updateSetPresetNames(std::string toadd, int presetindex) {
 	mSetPresetNamesUpdated = true;
 	mSetPresetCountParam->push_value(static_cast<int>(mSetPresetNames.size()));
 	mSetPresetIndexesParam->push_value(indexes);
+	mSetPresetEntriesParam->push_value(mSetPresetNameValues);
 }
 
 std::tuple<std::string, int> Controller::saveSetPreset(const std::string& setName, std::string presetName, int presetindex) {
@@ -2624,6 +2628,12 @@ void Controller::handleInstancePresetLoad(unsigned int index, const std::string&
 		mSetPresetLoadedIndexParam->push_value(mDB->setPresetIndexByName(currentSetName, setPresetName).value_or(-1));
 
 		//XXX should we trigger soemthing to update preset lists?
+	}
+}
+
+void Controller::handleInstancePresetSave(unsigned int index, const std::string& setPresetName, const std::string& /*presetName*/) {
+	if (setPresetName.size() > 0 && mSetPresetNames.count(setPresetName) == 0) {
+		mSetPresetSaved = true;
 	}
 }
 
@@ -2898,6 +2908,11 @@ bool Controller::processEvents() {
 			mDB->setSave(UNTITLED_SET_NAME, info);
 		}
 
+		if (mSetPresetSaved) {
+			updateSetPresetNames();
+			mSetPresetSaved = false;
+		}
+
 		//sets
 		{
 			std::lock_guard<std::mutex> guard(mSetNamesMutex);
@@ -2916,7 +2931,7 @@ bool Controller::processEvents() {
 				mSetPresetNamesUpdated = false;
 
 				auto dom = ossia::init_domain(ossia::val_type::STRING);
-				ossia::set_values(dom, mSetPresetNames);
+				ossia::set_values(dom, mSetPresetNameValues);
 				mSetPresetLoadNode->set(ossia::net::domain_attribute{}, dom);
 				mSetPresetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
 			}
@@ -3240,7 +3255,7 @@ void Controller::registerCommands() {
 					});
 					mSetCurrentNameParam->push_value(name);
 					updateSetNames();
-					updateSetPresetNames(presetName, 0);
+					updateSetPresetNames();
 
 					//set views
 					{
@@ -3401,8 +3416,7 @@ void Controller::registerCommands() {
 						{"progress", 100}
 					});
 
-					//saving is async so we force "name" into the list
-					updateSetPresetNames(name, presetindex);
+					updateSetPresetNames();
 					mSetPresetLoadedParam->push_value(name);
 					mSetPresetLoadedIndexParam->push_value(presetindex);
 				} else {

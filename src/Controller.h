@@ -117,12 +117,12 @@ class Controller {
 		void removeSetView(int index);
 		void reportSetViewOrder(const std::string& setname);
 
-		//since preset save is async, we can optional add "toadd" even if it isn't in the DB (along with presetindex
-		void updateSetPresetNames(std::string toadd = std::string(), int presetindex = -1);
+		void updateSetPresetNames();
 		//returns name, preset_index
 		std::tuple<std::string, int> saveSetPreset(const std::string& setName, std::string presetName, int index = -1);
 		void loadSetPreset(const std::string& setName, std::string presetName);
 		void handleInstancePresetLoad(unsigned int index, const std::string& setName, const std::string& presetName);
+		void handleInstancePresetSave(unsigned int index, const std::string& setName, const std::string& presetName);
 
 		unsigned int nextInstanceIndex();
 
@@ -155,6 +155,7 @@ class Controller {
 		ossia::net::parameter_base * mSetPresetLoadedIndexParam = nullptr;
 		ossia::net::parameter_base * mSetPresetCountParam = nullptr;
 		ossia::net::parameter_base * mSetPresetIndexesParam = nullptr;
+		ossia::net::parameter_base * mSetPresetEntriesParam = nullptr;
 
 		ossia::net::parameter_base * mSetCurrentNameParam = nullptr;
 		ossia::net::parameter_base * mSetInitialNameParam = nullptr;
@@ -170,7 +171,9 @@ class Controller {
 
 		std::mutex mSetPresetNamesMutex;
 		bool mSetPresetNamesUpdated = false;
-		std::vector<ossia::value> mSetPresetNames;
+		std::vector<ossia::value> mSetPresetNameValues;
+		std::set<std::string> mSetPresetNames;
+		bool mSetPresetSaved = false; //async from instances
 
 		std::mutex mSetLoadPendingMutex;
 		boost::optional<SetInfo> mSetLoadPending;

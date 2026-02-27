@@ -1050,6 +1050,10 @@ void Instance::registerPresetLoadedCallback(std::function<void(const std::string
 	mPresetLoadedCallback = cb;
 }
 
+void Instance::registerPresetSavedCallback(std::function<void(const std::string& presetName, const std::string& setPresetName)> cb) {
+	mPresetSavedCallback = cb;
+}
+
 //build mutex is locked, we can build
 void Instance::processEvents() {
 	const auto state = audioState();
@@ -1093,6 +1097,14 @@ void Instance::processEvents() {
 				mDB->setPresetSave(mName, name, set_name, mIndex, data.dump(), patcherPresetName, index);
 			} else {
 				mDB->presetSave(mName, name, data.dump(), index);
+			}
+
+			if (mPresetSavedCallback) {
+				if (set_name.size()) {
+					mPresetSavedCallback("", name);
+				} else {
+					mPresetSavedCallback(name, "");
+				}
 			}
 
 			mPresetsDirty = true;

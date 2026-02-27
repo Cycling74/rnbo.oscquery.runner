@@ -84,6 +84,7 @@ class Instance {
 		//this will be called in the same thread as `processEvents`
 		void registerConfigChangeCallback(std::function<void()> cb);
 		void registerPresetLoadedCallback(std::function<void(const std::string& presetName, const std::string& setName)> cb);
+		void registerPresetSavedCallback(std::function<void(const std::string& presetName, const std::string& setName)> cb);
 
 		bool presetsDirty() {
 			auto dirty = mPresetsDirty;
@@ -106,6 +107,7 @@ class Instance {
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;
 		std::function<void(const std::string&, const std::string&)> mPresetLoadedCallback = nullptr;
+		std::function<void(const std::string&, const std::string&)> mPresetSavedCallback = nullptr;
 
 		std::mutex mConfigChangedMutex;
 		bool mConfigChanged = false;
