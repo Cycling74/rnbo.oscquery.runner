@@ -661,14 +661,22 @@ Instance::Instance(
 			{
 				auto n = presets->create_child("reindex");
 				auto reindex = n->create_parameter(ossia::val_type::LIST);
-				n->set(ossia::net::description_attribute{}, "change the index for a preset, potentially ovewriting a preset at that index, arguments: name, index");
+				n->set(ossia::net::description_attribute{}, "change the index for a preset, potentially ovewriting a preset at that index, arguments: name/index, new index");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 
 				reindex->add_callback([this](const ossia::value& val) {
 					if (val.get_type() == ossia::val_type::LIST) {
 						auto l = val.get<std::vector<ossia::value>>();
-						if (l.size() == 2 && l[0].get_type() == ossia::val_type::STRING && l[1].get_type() == ossia::val_type::INT) {
-							mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Reindex, l[0].get<std::string>(), l[1].get<int>()));
+						if (l.size() == 2 && l[1].get_type() == ossia::val_type::INT) {
+							if (l[0].get_type() == ossia::val_type::STRING) {
+								mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Reindex, l[0].get<std::string>(), l[1].get<int>()));
+							} else if (l[0].get_type() == ossia::val_type::INT) {
+								//get name by index
+								auto preset = mDB->preset(mName, l[0].get<int>());
+								if (preset) {
+									mPresetCommandQueue.push(PresetCommand(PresetCommand::CommandType::Reindex, std::get<1>(*preset), l[1].get<int>()));
+								}
+							}
 						}
 					}
 				});
