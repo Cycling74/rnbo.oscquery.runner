@@ -1062,7 +1062,7 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
 		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
-		ORDER BY name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC
+		ORDER BY preset_index
 	)");
 	query.bind(1, setname);
 	query.bind(2, rnbo_version);
