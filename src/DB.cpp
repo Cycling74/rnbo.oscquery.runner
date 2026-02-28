@@ -517,12 +517,15 @@ CREATE TABLE sets_views_params
 			UPDATE sets_presets
 			SET preset_index = q.preset_index
 			FROM (
-				SELECT id,
-					ROW_NUMBER() OVER (PARTITION BY set_id, set_instance_index ORDER BY set_id, name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC, set_instance_index)  - 1 AS preset_index
+				SELECT set_id, name,
+					ROW_NUMBER() OVER (PARTITION BY set_id ORDER BY set_id, name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC, set_instance_index, id) - 1 AS preset_index
 					FROM sets_presets
-				) AS q
-			WHERE q.id = sets_presets.id
+				GROUP BY set_id, name
+				ORDER BY set_id, name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC, set_instance_index, id
+			) AS q
+			WHERE q.set_id = sets_presets.set_id AND q.name = sets_presets.name
 		)");
+
 		db.exec(R"(
 			UPDATE presets
 			SET preset_index = q.preset_index
