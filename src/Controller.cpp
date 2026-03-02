@@ -916,7 +916,8 @@ Controller::Controller(std::string server_name) {
 			"instance_load-multi",
 			"patcherstore",
 			"patcherfilestore",
-			"devicereload"
+			"devicereload",
+			"indexedpresets"
 		};
 
 		auto n = info->create_child("supported_cmds");
