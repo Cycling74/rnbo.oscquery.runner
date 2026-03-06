@@ -2163,7 +2163,7 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 						}
 					}
 				} else if (loadInitial) {
-					if (inst->loadPreset(mPendingSetPresetName, setInfo.name)) {
+					if (inst->inSetPreset() && inst->loadPreset(mPendingSetPresetName, setInfo.name)) {
 						mInstancesPendingPresetLoad.insert(inst->index());
 					}
 				}
@@ -2597,7 +2597,10 @@ std::tuple<std::string, int> Controller::saveSetPreset(const std::string& setNam
 	//save the new ones
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 	for (auto& i: mInstances) {
-		std::get<0>(i)->savePreset(presetName, setName, presetindex);
+		auto inst = std::get<0>(i);
+		if (inst->inSetPreset()) {
+			inst->savePreset(presetName, setName, presetindex);
+		}
 	}
 	return { presetName, presetindex };
 }
@@ -2609,7 +2612,7 @@ void Controller::loadSetPreset(const std::string& setName, std::string presetNam
 	mInstancesPendingPresetLoad.clear();
 	for (auto& i: mInstances) {
 		auto inst = std::get<0>(i);
-		if (inst->loadPreset(presetName, setName)) {
+		if (inst->inSetPreset() && inst->loadPreset(presetName, setName)) {
 			mInstancesPendingPresetLoad.insert(inst->index());
 		}
 	}
