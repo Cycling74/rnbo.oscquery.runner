@@ -100,9 +100,16 @@ class Instance {
 		void markConfigChanged(bool v) {
 			mConfigChanged = v;
 		}
+
+		//should we store/load a preset for this instance when storing/loading set presets?
+		bool inSetPreset() const {
+			return mInSetPreset;
+		}
+
 	private:
 		RNBO::Json presetToJSON(const RNBO::Preset& preset);
 		bool mPresetsDirty = false;
+		bool mInSetPreset = true;
 
 		//stored parameter meta
 		std::function<void()> mConfigChangeCallback = nullptr;

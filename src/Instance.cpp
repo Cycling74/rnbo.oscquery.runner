@@ -145,6 +145,10 @@ Instance::Instance(
 		mSetPresetPatcherNamed = (setpreset == "patchernamed");
 	}
 
+	if (conf.contains("insetpreset") && conf["insetpreset"].is_boolean()) {
+		mInSetPreset = conf["insetpreset"];
+	}
+
 	//setup initial preset channel mapping
 	try {
 		std::string chanName = "omni";
@@ -247,6 +251,18 @@ Instance::Instance(
 				p->add_callback([this](const ossia::value& v) {
 					if (v.get_type() == ossia::val_type::BOOL) {
 						mSetPresetPatcherNamed = v.get<bool>();
+					}
+				});
+			}
+
+			{
+				auto n = config->create_child("set_preset");
+				n->set(ossia::net::description_attribute{}, "Should set presets store/load presets for this instance at all?");
+				auto p = n->create_parameter(ossia::val_type::BOOL);
+				p->push_value(mInSetPreset);
+				p->add_callback([this](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::BOOL) {
+						mInSetPreset = v.get<bool>();
 					}
 				});
 			}
@@ -1400,6 +1416,7 @@ RNBO::Json Instance::currentConfig() {
 	}
 	config["datarefs"] = datarefs;
 	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
+	config["insetpreset"] = mInSetPreset;
 
 	//mAudio->addConfig(config);
 
