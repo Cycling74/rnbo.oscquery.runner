@@ -335,6 +335,19 @@ Then remove the SD card and do a backup.
 * [headless rpi setup](https://desertbot.io/blog/headless-raspberry-pi-4-ssh-wifi-setup)
 * [cross compilers](https://github.com/abhiTronix/raspberry-pi-cross-compilers)
 
+# updating the rpi image repo.json for Imager 2.0
+
+* it is in `./config/repo.json`
+* copy an entry from `os_list` and add a new one at the top, edit the appopriate link
+    * update `extract_size`
+        * `unzip raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
+        * `ls -l 2026-03-09-raspios-lite.img`
+    * update `extract_sha256`
+        * `shasum -a 256 raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
+    * update `image_download_size`
+        * `ls -l raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
+* save the file
+* upload the `.img.zip` and `repo.json` to the server
 
 
 # PI 5 notes
