@@ -6,7 +6,7 @@
       "icon": "https://assets.cycling74.com/rnbo/pi-images/rnbo.png",
       "url": "https://assets.cycling74.com/rnbo/pi-images/raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip",
       "extract_size": 2667577344,
-      "extract_sha256": "6be51c7691325cbe00b161c6e3fdba65809f5c95b903c63f6d331624f0a60895",
+      "extract_sha256": "2eb0291a24e49740f0ba0957e0541b2719fbb3f1c3d15aeb83b8d829fa2549d9",
       "image_download_size": 793680006,
       "release_date": "2026-03-10",
       "init_format": "systemd",

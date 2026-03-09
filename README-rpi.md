@@ -339,13 +339,15 @@ Then remove the SD card and do a backup.
 
 * it is in `./config/repo.json`
 * copy an entry from `os_list` and add a new one at the top, edit the appopriate link
-    * update `extract_size`
+    * extract the image from the zip:
         * `unzip raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
-        * `ls -l 2026-03-09-raspios-lite.img`
+        * note the file that it outputs, calling it `2026-03-09-raspios-lite.img` below
+    * update `extract_size`
+        * get value from: `ls -l 2026-03-09-raspios-lite.img`
     * update `extract_sha256`
-        * `shasum -a 256 raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
+        * get value from: `shasum -a 256 2026-03-09-raspios-lite.img`
     * update `image_download_size`
-        * `ls -l raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
+        * get value from: `ls -l raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
 * save the file
 * upload the `.img.zip` and `repo.json` to the server
 
