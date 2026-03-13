@@ -1158,6 +1158,17 @@ Controller::Controller(std::string server_name) {
 			}
 
 			{
+				auto n = mSetLoadNode->create_child("initial");
+				auto p = n->create_parameter(ossia::val_type::IMPULSE);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+				n->set(ossia::net::description_attribute{}, "Load the initial set indicated via runner config, useful for delayed start");
+
+				p->add_callback([this, cmdBuilder](const ossia::value& v) {
+						mCommandQueue.push(cmdBuilder("instance_set_load_initial", ""));
+				});
+			}
+
+			{
 				auto n = sets->create_child("destroy");
 				auto p = n->create_parameter(ossia::val_type::STRING);
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
@@ -3289,6 +3300,20 @@ void Controller::registerCommands() {
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string name = params["name"].get<std::string>();
 				loadSet(name);
+				reportCommandResult(id, {
+					{"code", 0},
+					{"message", "loaded"},
+					{"progress", 100}
+				});
+			}
+	});
+
+	mCommandHandlers.insert({
+			"instance_set_load_initial",
+			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true)) {
+					loadInitialSet();
+				}
 				reportCommandResult(id, {
 					{"code", 0},
 					{"message", "loaded"},
