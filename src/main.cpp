@@ -50,6 +50,11 @@ int main(int argc, const char * argv[]) {
 		.dest("wait_for_audio")
 		.set_default("0")
 		.help("wait for audio (jack server) to be active before trying to start");
+	parser.add_option("-d", "--delay-start")
+		.action("store_true")
+		.dest("delay_start")
+		.set_default("0")
+		.help("don't load any initial graphs until told VIA OSC");
 	parser.add_option("-q", "--quiet")
 		.action("store_false")
 		.dest("verbose")
@@ -121,7 +126,7 @@ int main(int argc, const char * argv[]) {
 #ifndef RNBO_OSCQUERY_BUILTIN_PATCHER
 		if (options["filename"].size()) {
 			c.loadLibrary(options["filename"]);
-		} else if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true)){
+		} else if (config::get<bool>(config::key::InstanceAutoStartLast).value_or(true) && !options.get("delay_start")) {
 			c.loadInitialSet();
 		}
 #else
