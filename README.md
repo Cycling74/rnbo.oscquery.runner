@@ -2,6 +2,11 @@
 
 A [RNBO](https://cycling74.com/products/rnbo) runner controlled by [OSCQuery](https://github.com/Vidvox/OSCQueryProposal).
 
+## RNBO Move Takeover
+
+The RNBO OSCQuery Runner is a core component of [RNBO Move Takeover](https://cycling74.com/products/rnbo/move).
+For more technical information about that project check out [RNBO Move Control](https://github.com/Cycling74/rnbo.move.control)
+
 ## Setup
 
 **NOTE** there is a separate [README for rpi](README-rpi.md) that indicates how
