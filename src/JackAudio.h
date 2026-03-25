@@ -82,7 +82,8 @@ class ProcessAudioJack : public ProcessAudio {
 		jackctl_server_t * mJackServer = nullptr;
 		jack_uuid_t mJackClientUUID = 0;
 
-		std::atomic<jack_uuid_t> mBPMClientUUID;
+		std::atomic<jack_uuid_t> mTransportClientUUID;
+		bool mLinkSyncNeedsUpdate = false;
 
 		ossia::net::node_base * mInfoNode = nullptr;
 		ossia::net::node_base * mPortInfoNode = nullptr;
@@ -114,6 +115,7 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mTransportBPMParam = nullptr;
 		float mTransportBPMLast = 0.0;
 		std::atomic<float> mTransportBPMPropLast;
+		ossia::net::parameter_base * mTransportLinkSyncParam = nullptr;
 
 		ossia::net::parameter_base * mTransportRollingParam = nullptr;
 		std::atomic<bool> mTransportRollingLast = false;

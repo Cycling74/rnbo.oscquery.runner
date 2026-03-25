@@ -91,6 +91,9 @@ namespace {
 	const std::string bpm_property_key("http://www.x37v.info/jack/metadata/bpm");
 	const char * bpm_property_type = "https://www.w3.org/2001/XMLSchema#decimal";
 
+	const std::string linksync_property_key("http://www.x37v.info/jack/metadata/linksync");
+	const char * linksync_property_type = "https://www.w3.org/2001/XMLSchema#boolean";
+
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<ProcessAudioJack *>(arg)->process(nframes);
@@ -244,7 +247,7 @@ namespace {
 }
 
 ProcessAudioJack::ProcessAudioJack(NodeBuilder builder, std::function<void(ProgramChange)> progChangeCallback) :
-	mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mBPMClientUUID(0),
+	mBuilder(builder), mJackClient(nullptr), mTransportBPMPropLast(100.0), mTransportClientUUID(0),
 	mProgramChangeCallback(progChangeCallback)
 {
 	mPortQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::pair<jack_port_id_t, JackPortChange>, 32>>(32);
@@ -1035,8 +1038,8 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 			}
 		}
 
-		auto bpmClient = mBPMClientUUID.load();
-		bool hasProperty = !jack_uuid_empty(bpmClient);
+		auto transportClient = mTransportClientUUID.load();
+		bool hasProperty = !jack_uuid_empty(transportClient);
 		//manage BPM between 2 incoming async sources, prefer OSCQuery
 		//OSCQuery and Jack Properties
 		auto v = mTransportBPMParam->value();
@@ -1048,7 +1051,7 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 			if (hasProperty) {
 				std::string bpms = std::to_string(bpm);
 				mTransportBPMPropLast.store(bpm);
-				jack_set_property(mJackClient, bpmClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+				jack_set_property(mJackClient, transportClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
 			}
 		} else if (hasProperty) {
 			//property value changed, report out
@@ -1064,6 +1067,16 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 		if (rolling != mTransportRollingLast.load()) {
 			mTransportRollingLast.store(rolling);
 			mTransportRollingParam->push_value(rolling);
+		}
+
+		{
+			jack_uuid_t transportClient = mTransportClientUUID.load();
+			if (mLinkSyncNeedsUpdate && !jack_uuid_empty(transportClient) && mJackClient) {
+				mLinkSyncNeedsUpdate = false;
+				bool v = jconfig_get<bool>("linksync_transport").get_value_or(true);
+				std::string s = v ? "true" : "false";
+				jack_set_property(mJackClient, transportClient, linksync_property_key.c_str(), s.c_str(), linksync_property_type);
+			}
 		}
 	}
 
@@ -1347,6 +1360,24 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 
 					{
+						const std::string key("linksync_transport");
+						//get from config
+						bool sync = jconfig_get<bool>(key).get_value_or(true);
+
+						auto n = transport->create_child("linksync");
+						n->set(ossia::net::description_attribute{}, "should jack transport sync to link or not?");
+						auto p = mTransportLinkSyncParam = n->create_parameter(ossia::val_type::BOOL);
+						p->add_callback([this, key](const ossia::value& val) {
+							if (val.get_type() == ossia::val_type::BOOL) {
+								auto v = val.get<bool>();
+								jconfig_set(v, key);
+								mLinkSyncNeedsUpdate = true;
+							}
+						});
+						p->push_value(sync);
+					}
+
+					{
 						auto n = transport->create_child("rolling");
 						mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
 						auto state = jack_transport_query(mJackClient, nullptr);
@@ -1384,11 +1415,11 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						//find the current bpm
 						jack_description_t * descriptions = nullptr;
 						auto cnt = jack_get_all_properties(&descriptions);
-						jack_uuid_t bpmClient = 0;
+						jack_uuid_t transportClient = 0;
 						if (cnt > 0) {
 							for (auto i = 0; i < cnt; i++) {
 								auto des = descriptions[i];
-								for (auto j = 0; j < des.property_cnt && jack_uuid_empty(bpmClient); j++) {
+								for (auto j = 0; j < des.property_cnt; j++) {
 									auto prop = des.properties[j];
 									//find bpm key and attempt to convert data to double
 									if (bpm_property_key.compare(prop.key) == 0) {
@@ -1396,19 +1427,21 @@ bool ProcessAudioJack::createClient(bool startServer) {
 										//using floats because ossia doesn't do double
 										float bpm = static_cast<float>(std::strtod(prop.data, &pEnd));
 										if (*pEnd == 0) {
-											bpmClient = des.subject;
+											transportClient = des.subject;
 											//update all the values
 											mTransportBPMPropLast.store(bpm);
 											mTransportBPMParam->push_value(bpm);
 											mTransportBPMLast = bpm;
 										}
+									} else if (linksync_property_key.compare(prop.key) == 0) {
+											transportClient = des.subject;
 									}
 								}
 								jack_free_description(&des, 0);
 							}
 							jack_free(descriptions);
 						}
-						mBPMClientUUID.store(bpmClient);
+						mTransportClientUUID.store(transportClient);
 					}
 				}
 			});
@@ -1447,6 +1480,8 @@ void ProcessAudioJack::xrun() {
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
 
+	const std::array<std::string, 2> true_values = {"true", "1"};
+
 	//is it a port?
 	{
 		std::lock_guard<std::mutex> guard(mPortUUIDToNameMutex);
@@ -1458,29 +1493,51 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 		}
 	}
 
-	bool key_match = bpm_property_key.compare(key) == 0;
-	jack_uuid_t bpmClient = mBPMClientUUID.load();
+	bool key_match = bpm_property_key.compare(key) == 0 || linksync_property_key.compare(key) == 0;
+	jack_uuid_t transportClient = mTransportClientUUID.load();
+
 	//update the client uuid in case we don't already have it
 	if (key_match && !jack_uuid_empty(subject)) {
 		auto newId = change == jack_property_change_t::PropertyDeleted ? 0 : subject;
-		if (newId != bpmClient) {
-			mBPMClientUUID.store(newId);
+		if (newId != transportClient) {
+			transportClient = newId;
+			mTransportClientUUID.store(newId);
+			mLinkSyncNeedsUpdate = true;
 		}
 	}
+
 	//if the subject is 'all' or matches the bpm subject
-	if (!jack_uuid_empty(bpmClient) && (jack_uuid_empty(subject) || subject == bpmClient)) {
+	if (!jack_uuid_empty(transportClient) && (jack_uuid_empty(subject) || subject == transportClient)) {
 		//if the key is 'all' or matches the bpm key and it isn't a delete
 		//grab the info
 		if (!key || key_match) {
 			if (change != jack_property_change_t::PropertyDeleted) {
-				char * values = nullptr;
-				char * types = nullptr;
-				if (0 == jack_get_property(bpmClient, bpm_property_key.c_str(), &values, &types)) {
-					//convert to double and store if success
-					char* pEnd = nullptr;
-					float bpm = static_cast<float>(std::strtod(values, &pEnd));
-					if (*pEnd == 0) {
-						mTransportBPMPropLast.store(bpm);
+				{
+					char * values = nullptr;
+					char * types = nullptr;
+					if (0 == jack_get_property(transportClient, bpm_property_key.c_str(), &values, &types)) {
+						//convert to double and store if success
+						char* pEnd = nullptr;
+						float bpm = static_cast<float>(std::strtod(values, &pEnd));
+						if (*pEnd == 0) {
+							mTransportBPMPropLast.store(bpm);
+						}
+					}
+					//free
+					if (values)
+						jack_free(values);
+					if (types)
+						jack_free(types);
+				}
+
+				{
+					char * values = nullptr;
+					char * types = nullptr;
+					if (0 == jack_get_property(transportClient, linksync_property_key.c_str(), &values, &types)) {
+						bool v = std::find(true_values.begin(), true_values.end(), values) != true_values.end();
+						if (!mTransportLinkSyncParam || (mTransportLinkSyncParam->value().get_type() == ossia::val_type::BOOL && mTransportLinkSyncParam->value().get<bool>() != v)) {
+							mLinkSyncNeedsUpdate = true;
+						}
 					}
 					//free
 					if (values)
@@ -1828,13 +1885,13 @@ void ProcessAudioJack::handleTransportTempo(double bpm) {
 	}
 	//XXX should lock? std::lock_guard<std::mutex> guard(mMutex);
 	//we shouldn't actually get this callback if audio isn't active so I don't think so
-	auto bpmClient = mBPMClientUUID.load();
-	if (jack_uuid_empty(bpmClient)) {
+	auto transportClient = mTransportClientUUID.load();
+	if (jack_uuid_empty(transportClient)) {
 		return;
 	}
 
 	std::string bpms = std::to_string(bpm);
-	jack_set_property(mJackClient, bpmClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
+	jack_set_property(mJackClient, transportClient, bpm_property_key.c_str(), bpms.c_str(), bpm_property_type);
 }
 
 void ProcessAudioJack::handleTransportBeatTime(double btime) {
