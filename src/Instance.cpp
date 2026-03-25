@@ -487,6 +487,17 @@ Instance::Instance(
 								std::cerr << "exception parsing param '" << mCore->getParameterId(index) << "' displayorder " << e.what() << std::endl;
 							}
 						}
+
+						if (p.contains("unit")) {
+							if (p["unit"].is_string()) {
+								auto dn = n.create_child("unit");
+
+								auto dp = dn->create_parameter(ossia::val_type::STRING);
+								dn->set(ossia::net::description_attribute{}, "RNBO parameter unit name");
+								dn->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+								dp->push_value(p["unit"].get<std::string>());
+							}
+						}
 						break;
 					}
 				}
