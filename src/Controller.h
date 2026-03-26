@@ -99,7 +99,8 @@ class Controller {
 				const boost::filesystem::path& rnboPatchPath,
 				const std::string& maxRNBOVersion,
 				const RNBO::Json& config,
-				bool migratePresets
+				bool migratePresets,
+				std::string uuid = std::string()
 		);
 
 		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread
