@@ -1876,9 +1876,6 @@ void ProcessAudioJack::connectToMidiIf(jack_port_t * port) {
 }
 
 void ProcessAudioJack::handleTransportState(bool running) {
-	if (!sync_transport.load()) {
-		return;
-	}
 	if (running) {
 		jack_transport_start(mJackClient);
 	} else {
@@ -1887,9 +1884,6 @@ void ProcessAudioJack::handleTransportState(bool running) {
 }
 
 static void reposition(jack_client_t * client, std::function<void(jack_position_t& pos)> func) {
-	if (!sync_transport.load()) {
-		return;
-	}
 	jack_position_t pos;
 	jack_transport_query(client, &pos);
 	func(pos);
@@ -1897,9 +1891,6 @@ static void reposition(jack_client_t * client, std::function<void(jack_position_
 }
 
 void ProcessAudioJack::handleTransportTempo(double bpm) {
-	if (!sync_transport.load()) {
-		return;
-	}
 	//XXX should lock? std::lock_guard<std::mutex> guard(mMutex);
 	//we shouldn't actually get this callback if audio isn't active so I don't think so
 	auto transportClient = mTransportClientUUID.load();
