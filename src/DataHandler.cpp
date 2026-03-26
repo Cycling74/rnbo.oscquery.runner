@@ -754,7 +754,17 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 			std::unique_lock<std::mutex> lock(mMutex);
 			auto mapping = c.get();
 			const auto index = mapping->datarefIndex;
-			const std::string filename = mapping->filePath.filename().string();
+			auto dataFileDir = config::get<fs::path>(config::key::DataFileDir);
+			if (!dataFileDir) {
+				std::cerr << "cannot get datafile dir" << std::endl;
+				continue;
+			}
+
+			const std::string filemapping = mapping->filePath.lexically_normal().lexically_relative(dataFileDir->lexically_normal()).string();
+			if (filemapping.size() == 0) {
+				std::cerr << "failed to get mapping " << mapping->filePath << " relative to datafile dir" << std::endl;
+				continue;
+			}
 
 			auto sharing = mSharing.find(index);
 			if (sharing != mSharing.end()) {
@@ -768,8 +778,8 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 
 			if (nodeit != dataRefNodes.end()) {
 				auto value = nodeit->second->value();
-				if (value.get<std::string>() != filename) {
-					nodeit->second->push_value_quiet(filename);
+				if (value.get<std::string>() != filemapping) {
+					nodeit->second->push_value_quiet(filemapping);
 				}
 				ossia::net::node_base& node = nodeit->second->get_node();
 				{
@@ -794,10 +804,10 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 				}
 			}
 
-			if (filename.size() == 0) {
+			if (filemapping.size() == 0) {
 				mDataRefFileNameMap.erase(mapping->datarefId);
 			} else {
-				mDataRefFileNameMap[mapping->datarefId] = filename;
+				mDataRefFileNameMap[mapping->datarefId] = filemapping;
 			}
 		}
 	}
@@ -879,7 +889,7 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 
 		req->data = reinterpret_cast<char *>(data->data());
 		req->sizeinbytes = data->size();
-		req->datatype = datatype; 
+		req->datatype = datatype;
 		req->bytedata = std::move(data);
 		req->filePath = filePath;
 
