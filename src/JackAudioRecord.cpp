@@ -394,7 +394,7 @@ void JackAudioRecord::write() {
 	//TODO - make configurable
 	std::string ext = "wav";
 	int format = SF_FORMAT_WAV | SF_FORMAT_PCM_16;
-	fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+	fs::path dstdir = config::get<fs::path>(config::key::RecordingDir).get();
 	fs::path tmpdir = config::get<fs::path>(config::key::TempDir).get();
 
 	std::string tmpl = mFileNameTmpl;

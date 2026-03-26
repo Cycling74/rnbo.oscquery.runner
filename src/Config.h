@@ -15,6 +15,7 @@ namespace config {
 		const static std::string SourceCacheDir = "source_cache_dir"; //where do we generated source we get
 		const static std::string CompileCacheDir = "compile_cache_dir"; //where do we store compiled shared objects
 		const static std::string DataFileDir = "datafile_dir"; //the directory where data (audio) files can be read from or written to
+		const static std::string RecordingDir = "recording_dir"; //the directory where data (audio) files can be read from or written to
 		const static std::string SaveDir = "save_dir"; //where do we persist saved data, for auto start on restart
 		const static std::string BackupDir = "backup_dir"; //where do we save backup (like db) data
 		const static std::string DBPath = "db_path"; //where is the database file?

@@ -32,6 +32,7 @@ namespace {
 	static fs::path default_save_dir = config::make_path("~/Documents/rnbo/saves/");
 	static fs::path default_backup_dir = config::make_path("~/Documents/rnbo/backup/");
 	static fs::path default_datafile_dir = config::make_path("~/Documents/rnbo/datafiles/");
+	static fs::path default_recording_dir = config::make_path("~/Documents/rnbo/datafiles/");
 	static fs::path default_db_path = config::make_path("~/Documents/rnbo/oscqueryrunner.sqlite");
 	static fs::path default_package_dir = config::make_path("~/Documents/rnbo/packages/");
 
@@ -63,6 +64,7 @@ namespace {
 		{config::key::SaveDir, default_save_dir.string()},
 		{config::key::BackupDir, default_backup_dir.string()},
 		{config::key::DataFileDir, default_datafile_dir.string()},
+		{config::key::RecordingDir, default_recording_dir.string()},
 		{config::key::DBPath, default_db_path.string()},
 		{config::key::PackageDir, default_package_dir.string()},
 		{config::key::UUIDPath, default_runner_uuid_path.string()},

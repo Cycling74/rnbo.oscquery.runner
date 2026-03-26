@@ -527,7 +527,7 @@ Instance::Instance(
 				{
 					//TODO allow configuration
 					std::string templ = "%y%m%dT%H%M%S-" + name;
-					fs::path dstdir = config::get<fs::path>(config::key::DataFileDir).get();
+					fs::path dstdir = config::get<fs::path>(config::key::RecordingDir).get();
 
 					auto savenode = n->create_child("save");
 
