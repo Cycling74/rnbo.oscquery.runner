@@ -94,6 +94,8 @@ namespace {
 	const std::string linksync_property_key("http://www.x37v.info/jack/metadata/linksync");
 	const char * linksync_property_type = "https://www.w3.org/2001/XMLSchema#boolean";
 
+	const std::string linknumpeers_property_key("http://www.x37v.info/jack/metadata/linkpeers");
+	const char *linknumpeers_property_type = "https://www.w3.org/2001/XMLSchema#integer";
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<ProcessAudioJack *>(arg)->process(nframes);
@@ -1378,6 +1380,14 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 
 					{
+						auto n = transport->create_child("linkpeers");
+						n->set(ossia::net::description_attribute{}, "number of peers that link sees, -1 means unknown");
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+						auto p = mTransportLinkPeersParam = n->create_parameter(ossia::val_type::INT);
+						p->push_value(-1);
+					}
+
+					{
 						auto n = transport->create_child("rolling");
 						mTransportRollingParam = n->create_parameter(ossia::val_type::BOOL);
 						auto state = jack_transport_query(mJackClient, nullptr);
@@ -1479,7 +1489,6 @@ void ProcessAudioJack::xrun() {
 }
 
 void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change) {
-
 	const std::array<std::string, 2> true_values = {"true", "1"};
 
 	//is it a port?
@@ -1493,7 +1502,7 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 		}
 	}
 
-	bool key_match = bpm_property_key.compare(key) == 0 || linksync_property_key.compare(key) == 0;
+	bool key_match = bpm_property_key.compare(key) == 0 || linksync_property_key.compare(key) == 0 || linknumpeers_property_key.compare(key) == 0;
 	jack_uuid_t transportClient = mTransportClientUUID.load();
 
 	//update the client uuid in case we don't already have it
@@ -1512,15 +1521,14 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 		//grab the info
 		if (!key || key_match) {
 			if (change != jack_property_change_t::PropertyDeleted) {
-				{
+				auto with_property = [transportClient](const std::string& key, std::function<void(const char * values, const char * types)> fn) {
 					char * values = nullptr;
 					char * types = nullptr;
-					if (0 == jack_get_property(transportClient, bpm_property_key.c_str(), &values, &types)) {
-						//convert to double and store if success
-						char* pEnd = nullptr;
-						float bpm = static_cast<float>(std::strtod(values, &pEnd));
-						if (*pEnd == 0) {
-							mTransportBPMPropLast.store(bpm);
+					if (0 == jack_get_property(transportClient, key.c_str(), &values, &types)) {
+						try {
+							fn(values, types);
+						} catch (std::runtime_error& e) {
+							std::cerr << "exception processing jack property " << key << " : " << e.what() << std::endl;
 						}
 					}
 					//free
@@ -1528,27 +1536,36 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 						jack_free(values);
 					if (types)
 						jack_free(types);
-				}
+				};
 
-				{
-					char * values = nullptr;
-					char * types = nullptr;
-					if (0 == jack_get_property(transportClient, linksync_property_key.c_str(), &values, &types)) {
-						bool v = std::find(true_values.begin(), true_values.end(), values) != true_values.end();
-						if (!mTransportLinkSyncParam || (mTransportLinkSyncParam->value().get_type() == ossia::val_type::BOOL && mTransportLinkSyncParam->value().get<bool>() != v)) {
-							mLinkSyncNeedsUpdate = true;
-						}
+				with_property(bpm_property_key, [this](const char * values, const char * types) {
+					//convert to double and store if success
+					char* pEnd = nullptr;
+					float bpm = static_cast<float>(std::strtod(values, &pEnd));
+					if (*pEnd == 0) {
+						mTransportBPMPropLast.store(bpm);
 					}
-					//free
-					if (values)
-						jack_free(values);
-					if (types)
-						jack_free(types);
-				}
+				});
+
+				with_property(linksync_property_key, [this, true_values](const char * values, const char * types) {
+					bool v = std::find(true_values.begin(), true_values.end(), values) != true_values.end();
+					if (!mTransportLinkSyncParam || (mTransportLinkSyncParam->value().get_type() == ossia::val_type::BOOL && mTransportLinkSyncParam->value().get<bool>() != v)) {
+						mLinkSyncNeedsUpdate = true;
+					}
+				});
+
+				with_property(linknumpeers_property_key, [this](const char * values, const char * types) {
+					std::size_t pos;
+					int cnt = static_cast<int>(std::stoi(values, &pos));
+					if (pos >= std::strlen(values)) {
+						mTransportLinkPeersParam->push_value(cnt);
+					} else {
+						std::cerr << "property " << linknumpeers_property_key << " value isn't in expected format" << std::endl;
+					}
+				});
 			}
 		}
 	}
-
 }
 
 //expects to be holding the build mutex

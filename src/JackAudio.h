@@ -116,6 +116,7 @@ class ProcessAudioJack : public ProcessAudio {
 		float mTransportBPMLast = 0.0;
 		std::atomic<float> mTransportBPMPropLast;
 		ossia::net::parameter_base * mTransportLinkSyncParam = nullptr;
+		ossia::net::parameter_base * mTransportLinkPeersParam = nullptr;
 
 		ossia::net::parameter_base * mTransportRollingParam = nullptr;
 		std::atomic<bool> mTransportRollingLast = false;
