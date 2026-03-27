@@ -35,6 +35,15 @@ class InstanceAudio {
 		virtual void registerConfigChangeCallback(std::function<void()> cb) { };
 
 		virtual size_t bufferSize() = 0;
+
+		int8_t midiInputChannel() {
+			return mMIDIInputChannel;
+		}
+
+		void setMidiInputChannel(int c) {
+			mMIDIInputChannel = static_cast<int8_t>(std::clamp(c, -1, 15));
+		}
 	protected:
 		std::atomic<AudioState> mAudioState = AudioState::Idle;
+		int8_t mMIDIInputChannel = -1; //0 based, negative means omni
 };

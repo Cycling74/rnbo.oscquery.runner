@@ -2560,6 +2560,8 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 			std::unique_lock<std::mutex> guard(mMIDIMapMutex, std::try_to_lock);
 
 			uint16_t lastKey = 0;
+
+			int8_t acceptchan = mMIDIInputChannel;
 			for (auto i = 0; i < count; i++) {
 				jack_midi_event_get(&evt, midi_buf, i);
 
@@ -2605,6 +2607,28 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 								continue;
 							}
 						}
+					}
+
+					//if we're filtering midi and the byte has status
+					uint8_t status = bytes[0] & 0xF0;
+					if (acceptchan >= 0 && (status & 0x80) != 0) {
+						switch (status) {
+							case midimap::NOTE_ON:
+							case midimap::NOTE_OFF:
+							case midimap::CONTROL_CHANGE:
+							case midimap::KEY_PRESSURE:
+							case midimap::CHANNEL_PRESSURE:
+							case midimap::PITCH_BEND_CHANGE:
+							case midimap::PROGRAM_CHANGE: {
+								int8_t chan = static_cast<int8_t>(bytes[0] & 0x0F);
+								if (chan != acceptchan) {
+									continue;
+								}
+							}
+								break;
+							default:
+								break;
+						};
 					}
 
 					//look for program change to change preset
