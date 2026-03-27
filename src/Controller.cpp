@@ -2719,7 +2719,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 		auto datafiles = info["datafiles"];
 		for (const auto& entry: datafiles) {
 			fs::path dst = dstdir / entry["name"].get<std::string>();
-			if (fs::exists(dst)) {
+			if (fs::exists(dst) && !options.force) {
 				continue; //skip overwritting data files
 			}
 			do_copy(fs::path(entry["location"].get<std::string>()), dst);
@@ -2747,7 +2747,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 
 			//check for collisions or explicit opt out
 			bool skip = options.skip_patchers.contains(name) || (uuid.size() > 0 && mDB->patcherExistsWithUUID(uuid));
-			if (!skip) {
+			if (options.force || !skip) {
 				{
 					fs::path src = fs::path(entry["binaries"][target].get<std::string>());
 					//don't overwrite an existing lib, we assume they're the same
@@ -2800,7 +2800,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 			}
 			//check for collisions or explicit opt out
 			bool skip = options.skip_sets.contains(name) || (uuid.size() > 0 && mDB->setExistsWithUUID(uuid));
-			if (!skip) {
+			if (options.force || !skip) {
 				RNBO::Json setData = readJson(contentdir / fs::path(entry["location"].get<std::string>()));
 				SetInfo info = SetInfo::fromJson(setData);
 				mDB->setSave(name, info);
@@ -4319,6 +4319,9 @@ void Controller::registerCommands() {
 							options.skip_sets.insert(n.get<std::string>());
 						}
 					}
+				}
+				if (params.contains("force") && params["force"].is_boolean()) {
+					options.force = params["force"].get<bool>();
 				}
 
 				reportCommandResult(id, {

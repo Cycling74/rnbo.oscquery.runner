@@ -27,6 +27,7 @@ namespace ossia {
 }
 
 struct PackageInstallOptions {
+	bool force = false; //ignore package collisions, write everything
 	//names
 	std::set<std::string> skip_patchers;
 	std::set<std::string> skip_sets;
