@@ -1,6 +1,12 @@
 # RNBO Runner Changes
 
 * *current*
+    * added optional device midi input filtering
+        * OSCQuery endpoint: `/rnbo/inst/<INSTANCE ID>/config/midi_input_channel`
+            * set to "all" (default) for no filtering
+            * set to "1" to only accept messages on channel 1
+            * any realtime or non channel based messages should always get thru
+    * fixed bug where `set_preset` config for instance wasn't persisting with graph
     * expanded ability to read from / write to various runner OSC endpoints with patcher exports via inport, outport, param
     * added the concept of `Param Views`
         * these are sorted collections of parameters that can span multiple devices

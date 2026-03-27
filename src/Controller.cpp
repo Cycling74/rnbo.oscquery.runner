@@ -2110,22 +2110,15 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 
 			if (entry.config.size()) {
 				auto instConfig = RNBO::Json::parse(entry.config);
-				//override datarefs
-				if (instConfig.contains("datarefs"))
-					config["datarefs"] = instConfig["datarefs"];
 				//load the last preset as the initial one
 				if (instConfig["preset_last"].is_string()) {
 					config["preset_initial"] = instConfig["preset_last"];
 				}
-				//override meta
-				if (instConfig["metaoverride"].is_object()) {
-					config["metaoverride"] = instConfig["metaoverride"];
-				}
-				if (instConfig.contains("setpreset")) {
-					config["setpreset"] = instConfig["setpreset"];
-				}
-				if (instConfig["namealias"].is_string()) {
-					config["namealias"] = instConfig["namealias"];
+				//overrides
+				for (const auto& key: { "namealias", "setpreset", "insetpreset", "midi_input_channel", "metaoverride", "datarefs" }) {
+					if (instConfig.contains(key)) {
+						config[key] = instConfig[key];
+					}
 				}
 			}
 
