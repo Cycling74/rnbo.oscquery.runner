@@ -11,3 +11,4 @@
                 * these are both lists of strings tell the installer to not install items from the package with those names
         * an open question is, should saving presets, set views, etc change the `uuid` of a set or patcher?
     * package installation command also has new `force` boolean parameter that will ignore any collisions and force installation
+    * added `VACUUM` to db on startup
