@@ -561,6 +561,9 @@ CREATE TABLE sets_views_params
 		db.exec("ALTER TABLE patchers ADD COLUMN uuid TEXT");
 		db.exec("ALTER TABLE sets ADD COLUMN uuid TEXT");
 
+		db.exec("CREATE INDEX patchers_uuids ON patchers(uuid)");
+		db.exec("CREATE INDEX sets_uuids ON sets(uuid)");
+
 		//set uuids, deterministically based on tablename, name and created_at
 		auto updatetable = [&gen, &db](std::string tablename) {
 			std::unordered_map<int, std::string> iduuid;
@@ -602,18 +605,22 @@ std::string DB::backup(std::string backupname) {
 	backupname = backupname + ".sqlite";
 	auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / backupname;
 
-	SQLite::Database backupDB(backuppath.string(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
-	SQLite::Backup backup(backupDB, mDB);
-	try {
-		backup.executeStep();
-	} catch (...) {
-		std::cerr << "failed to backup db to: " << backuppath.string() << std::endl;
-		return "";
+	{
+		std::lock_guard<std::mutex> guard(mMutex);
+		SQLite::Database backupDB(backuppath.string(), SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
+		SQLite::Backup backup(backupDB, mDB);
+		try {
+			backup.executeStep();
+		} catch (...) {
+			std::cerr << "failed to backup db to: " << backuppath.string() << std::endl;
+			return "";
+		}
 	}
 	return backupname;
 }
 
 void DB::rnboVersions(std::function<void(const std::string&)> f) {
+		std::lock_guard<std::mutex> guard(mMutex);
 		SQLite::Statement query(mDB, "SELECT DISTINCT(runner_rnbo_version) FROM patchers ORDER BY id DESC");
 		while (query.executeStep()) {
 			const char * s = query.getColumn(0);
@@ -623,6 +630,7 @@ void DB::rnboVersions(std::function<void(const std::string&)> f) {
 }
 
 boost::optional<std::string> DB::migrationDataAvailable() {
+	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, "SELECT DISTINCT(runner_rnbo_version) FROM patchers WHERE runner_rnbo_version != ?1 AND runner_rnbo_version NOT IN (SELECT data_rnbo_version FROM data_migrations) ORDER BY id DESC LIMIT 1");
 	query.bind(1, cur_rnbo_version);
 
@@ -635,10 +643,35 @@ boost::optional<std::string> DB::migrationDataAvailable() {
 }
 
 void DB::markDataMigrated() {
-		//mark all data migrated, no matter what the version is
-		SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(runner_rnbo_version), ?1 FROM patchers WHERE runner_rnbo_version != ?1 ORDER BY id DESC");
-		query.bind(1, cur_rnbo_version);
-		query.exec();
+	std::lock_guard<std::mutex> guard(mMutex);
+	//mark all data migrated, no matter what the version is
+	SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(runner_rnbo_version), ?1 FROM patchers WHERE runner_rnbo_version != ?1 ORDER BY id DESC");
+	query.bind(1, cur_rnbo_version);
+	query.exec();
+}
+
+bool DB::patcherExistsWithUUID(const std::string& uuid) {
+	//TODO should we check rnbo version??
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "SELECT COUNT(*) from patchers WHERE uuid = ?1");
+	query.bind(1, uuid);
+	if (query.executeStep()) {
+		int cnt = query.getColumn(0);
+		return cnt > 0;
+	}
+	return false;
+}
+
+bool DB::setExistsWithUUID(const std::string& uuid) {
+	//TODO should we check rnbo version??
+	std::lock_guard<std::mutex> guard(mMutex);
+	SQLite::Statement query(mDB, "SELECT COUNT(*) from sets WHERE uuid = ?1");
+	query.bind(1, uuid);
+	if (query.executeStep()) {
+		int cnt = query.getColumn(0);
+		return cnt > 0;
+	}
+	return false;
 }
 
 void DB::patcherStore(

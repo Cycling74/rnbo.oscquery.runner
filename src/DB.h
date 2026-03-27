@@ -8,6 +8,16 @@
 #include <vector>
 #include <unordered_map>
 
+
+//XXX what should make a set or patcher change its uuid
+//presets?
+//any deps?
+//connections?
+//etc?
+//
+
+//saving a set with a new name should copy over ParamViews
+
 struct SetConnectionInfo {
 	std::string source_name;
 	int source_instance_index = -1;
@@ -77,6 +87,9 @@ class DB {
 
 		boost::optional<std::string> migrationDataAvailable();
 		void markDataMigrated();
+
+		bool patcherExistsWithUUID(const std::string& uuid);
+		bool setExistsWithUUID(const std::string& uuid);
 
 		//NOTE paths are all just file names, use conf to find the actual locations
 		void patcherStore(
