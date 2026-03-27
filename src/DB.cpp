@@ -597,6 +597,8 @@ CREATE TABLE sets_views_params
 
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
+	//clean up a bit
+	mDB.exec("VACUUM;");
 }
 
 DB::~DB() { }
