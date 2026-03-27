@@ -149,6 +149,7 @@ Instance::Instance(
 		mInSetPreset = conf["insetpreset"];
 	}
 
+
 	//setup initial preset channel mapping
 	try {
 		std::string chanName = "omni";
@@ -215,6 +216,10 @@ Instance::Instance(
 		mCore->setExternalDataHandler(mDataHandler.get());
 	}
 
+	if (conf.contains("midi_input_channel") && conf["midi_input_channel"].is_number()) {
+		mAudio->setMidiInputChannel(conf["midi_input_channel"].get<int>());
+	}
+
 	mPresetSaveQueue = RNBO::make_unique<moodycamel::ReaderWriterQueue<std::tuple<std::string, RNBO::ConstPresetPtr, std::string, int>, 32>>(32);
 
 	mDB->presets(mName, [this](const std::string& name, bool initial, int /*presetindex*/) {
@@ -252,6 +257,7 @@ Instance::Instance(
 					if (v.get_type() == ossia::val_type::BOOL) {
 						mSetPresetPatcherNamed = v.get<bool>();
 					}
+					queueConfigChangeSignal();
 				});
 			}
 
@@ -264,6 +270,40 @@ Instance::Instance(
 					if (v.get_type() == ossia::val_type::BOOL) {
 						mInSetPreset = v.get<bool>();
 					}
+					queueConfigChangeSignal();
+				});
+			}
+
+			{
+				auto n = config->create_child("midi_input_channel");
+				auto p = n->create_parameter(ossia::val_type::STRING);
+
+				n->set(ossia::net::description_attribute{}, "Optionally select a MIDI channel that this device should accept for input, omni for all channels");
+
+				std::vector<ossia::value> values = {
+					"all",
+					"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"
+				};
+
+				auto dom = ossia::init_domain(ossia::val_type::STRING);
+				ossia::set_values(dom, values);
+				n->set(ossia::net::domain_attribute{}, dom);
+				n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				p->push_value(values[mAudio->midiInputChannel() + 1]);
+				p->add_callback([this, values](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::STRING) {
+						auto s = v.get<std::string>();
+						if (s == "all") {
+							mAudio->setMidiInputChannel(-1);
+						} else {
+							int i = std::stoi(s);
+							if (i > 0 && i <= 16) {
+								mAudio->setMidiInputChannel(i - 1);
+							}
+						}
+					}
+					queueConfigChangeSignal();
 				});
 			}
 
@@ -1428,6 +1468,7 @@ RNBO::Json Instance::currentConfig() {
 	config["datarefs"] = datarefs;
 	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
 	config["insetpreset"] = mInSetPreset;
+	config["midi_input_channel"] = (int)mAudio->midiInputChannel();
 
 	//mAudio->addConfig(config);
 
