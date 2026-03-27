@@ -2677,7 +2677,7 @@ unsigned int Controller::nextInstanceIndex() {
 	return index;
 }
 
-std::string Controller::installPackage(const boost::filesystem::path& contentdir) {
+std::string Controller::installPackage(const boost::filesystem::path& contentdir, PackageInstallOptions options) {
 	//get info
 	RNBO::Json info = readJson(contentdir / "info.json");
 	if (!info.contains("schema_version") || info["schema_version"] != 1 || !info.contains("rnbo_version")) {
@@ -2745,42 +2745,46 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 				uuid = entry["uuid"].get<std::string>();
 			}
 
-			//TODO check for collisions?
-			{
-				fs::path src = fs::path(entry["binaries"][target].get<std::string>());
-				//don't overwrite an existing lib, we assume they're the same
-				fs::path dst = mCompileCache / src.filename();
-				if (!fs::exists(dst)) {
-					do_copy(src, dst);
-				}
-				libFile = src.filename().string();
-			}
-
-			if (entry.contains("config")) {
-				fs::path src = fs::path(entry["config"].get<std::string>());
-				do_copy(src, mSourceCache / src.filename());
-				configFileName = src.filename().string();
-				config = readJson(mSourceCache / src.filename());
-			}
-
-			if (entry.contains("patcher")) {
-				fs::path src = fs::path(entry["patcher"].get<std::string>());
-				do_copy(src, mSourceCache / src.filename());
-				patcherFileName = src.filename().string();
-			}
-
-			patcherStore(name, libFile, configFileName, patcherFileName, package_rnbo_version, config, false, uuid);
-
-			if (entry.contains("presets")) {
-				RNBO::Json presets = readJson(contentdir / fs::path(entry["presets"].get<std::string>()));
-				for (auto& kv: presets.items()) {
-					assert(kv.value().is_object());
-					RNBO::Json v = kv.value();
-					int presetindex = -1;
-					if (v.contains("presetindex") && v["presetindex"].is_number()) {
-						presetindex = v["presetindex"];
+			//check for collisions or explicit opt out
+			bool skip = options.skip_patchers.contains(name) || (uuid.size() > 0 && mDB->patcherExistsWithUUID(uuid));
+			if (!skip) {
+				{
+					fs::path src = fs::path(entry["binaries"][target].get<std::string>());
+					//don't overwrite an existing lib, we assume they're the same
+					fs::path dst = mCompileCache / src.filename();
+					if (!fs::exists(dst)) {
+						do_copy(src, dst);
 					}
-					mDB->presetSave(name, kv.key(), kv.value().dump(), presetindex);
+					libFile = src.filename().string();
+				}
+
+				if (entry.contains("config")) {
+					fs::path src = fs::path(entry["config"].get<std::string>());
+					do_copy(src, mSourceCache / src.filename());
+					configFileName = src.filename().string();
+					config = readJson(mSourceCache / src.filename());
+				}
+
+				if (entry.contains("patcher")) {
+					fs::path src = fs::path(entry["patcher"].get<std::string>());
+					do_copy(src, mSourceCache / src.filename());
+					patcherFileName = src.filename().string();
+				}
+
+				patcherStore(name, libFile, configFileName, patcherFileName, package_rnbo_version, config, false, uuid);
+
+				//TODO I could see wanting to still store presets??
+				if (entry.contains("presets")) {
+					RNBO::Json presets = readJson(contentdir / fs::path(entry["presets"].get<std::string>()));
+					for (auto& kv: presets.items()) {
+						assert(kv.value().is_object());
+						RNBO::Json v = kv.value();
+						int presetindex = -1;
+						if (v.contains("presetindex") && v["presetindex"].is_number()) {
+							presetindex = v["presetindex"];
+						}
+						mDB->presetSave(name, kv.key(), kv.value().dump(), presetindex);
+					}
 				}
 			}
 		}
@@ -2790,10 +2794,18 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 		auto entries = info["sets"];
 		for (const auto& entry: entries) {
 			std::string name = entry["name"].get<std::string>();
-			RNBO::Json setData = readJson(contentdir / fs::path(entry["location"].get<std::string>()));
-			SetInfo info = SetInfo::fromJson(setData);
-			mDB->setSave(name, info);
-			storeSetContent(setData, mDB, name);
+			std::string uuid;
+			if (entry.contains("uuid")) {
+				uuid = entry["uuid"].get<std::string>();
+			}
+			//check for collisions or explicit opt out
+			bool skip = options.skip_sets.contains(name) || (uuid.size() > 0 && mDB->setExistsWithUUID(uuid));
+			if (!skip) {
+				RNBO::Json setData = readJson(contentdir / fs::path(entry["location"].get<std::string>()));
+				SetInfo info = SetInfo::fromJson(setData);
+				mDB->setSave(name, info);
+				storeSetContent(setData, mDB, name);
+			}
 		}
 		updateSetNames();
 	}
@@ -4290,8 +4302,24 @@ void Controller::registerCommands() {
 	mCommandHandlers.insert({
 			"package_install",
 			[this](const std::string& method, const std::string& id, const RNBO::Json& params) {
+				PackageInstallOptions options;
 				//TODO validate
 				std::string filename = params["filename"];
+
+				if (params.contains("skip_patchers") && params["skip_patchers"].is_array()) {
+					for (auto& n: params["skip_patchers"]) {
+						if (n.is_string()) {
+							options.skip_patchers.insert(n.get<std::string>());
+						}
+					}
+				}
+				if (params.contains("skip_sets") && params["skip_sets"].is_array()) {
+					for (auto& n: params["skip_sets"]) {
+						if (n.is_string()) {
+							options.skip_sets.insert(n.get<std::string>());
+						}
+					}
+				}
 
 				reportCommandResult(id, {
 						{"code", static_cast<unsigned int>(FileCommandStatus::Received)},
@@ -4333,7 +4361,7 @@ void Controller::registerCommands() {
 						throw std::runtime_error("cannot find package data in extracted data");
 					}
 
-					auto backupname = installPackage(contentlocation);
+					auto backupname = installPackage(contentlocation, options);
 
 					reportCommandResult(id, {
 							{"code", static_cast<unsigned int>(FileCommandStatus::Completed)},

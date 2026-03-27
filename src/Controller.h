@@ -26,6 +26,12 @@ namespace ossia {
 	}
 }
 
+struct PackageInstallOptions {
+	//names
+	std::set<std::string> skip_patchers;
+	std::set<std::string> skip_sets;
+};
+
 #ifdef RNBO_USE_DBUS
 class RnboUpdateServiceProxy;
 #endif
@@ -128,7 +134,7 @@ class Controller {
 		unsigned int nextInstanceIndex();
 
 		//returns the backup name
-		std::string installPackage(const boost::filesystem::path& location);
+		std::string installPackage(const boost::filesystem::path& location, PackageInstallOptions options = {});
 
 		//guard by mInstanceMutex
 		std::string mPendingSetPresetName;
