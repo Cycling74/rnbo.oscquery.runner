@@ -677,12 +677,15 @@ Controller::Controller(std::string server_name) {
 	//create protocol that simply gets osc address and potentially forwards to other parameters
 	auto callback_proto = new callback_protocol([this](const std::string& addr, const ossia::value& val) {
 		std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+		if (mCurrentMappedOSCAddrs.contains(addr)) {
+			//std::cout << "blocked! " << addr << std::endl;
+			return;
+		}
+
 		auto it = mOSCToParam.find(addr);
 		if (it != mOSCToParam.end()) {
 			//queue updates because this callback may happen inside a mutex locked parameter update
-			for (auto localaddr: it->second) {
-				mOSCMappedUpdateQueue.push(std::make_pair(localaddr, val));
-			}
+			mOSCMappedUpdateQueue.push(MappedOSCUpdate(addr, val, it->second.localaddrs));
 		}
 	});
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(callback_proto));
@@ -2805,6 +2808,17 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 	return backupname;
 }
 
+void Controller::handleMappedOSCUpdate(ossia::net::node_base& root, const std::string& oscaddr, const ossia::value& value) {
+	auto node = ossia::net::find_node(root, oscaddr);
+	if (node != nullptr) {
+		auto param = node->get_parameter();
+		if (param) {
+			mCurrentMappedOSCAddrs.insert(node->osc_address());
+			param->push_value(value);
+		}
+	}
+}
+
 bool Controller::processEvents() {
 	auto now = steady_clock::now();
 
@@ -2819,13 +2833,12 @@ bool Controller::processEvents() {
 			auto& root = mServer->get_root_node();
 			std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
 			while (auto update = mOSCMappedUpdateQueue.tryPop()) {
-				auto node = ossia::net::find_node(root, update->first);
-				if (node != nullptr) {
-					auto param = node->get_parameter();
-					if (param) {
-						param->push_value(update->second);
-					}
+				mCurrentMappedOSCAddrs = update->localaddrs;
+				mCurrentMappedOSCAddrs.insert(update->srcaddr);
+				for (auto& localaddr: update->localaddrs) {
+					handleMappedOSCUpdate(root, localaddr, update->val);
 				}
+				mCurrentMappedOSCAddrs.clear();
 			}
 		}
 
@@ -3057,7 +3070,7 @@ void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value&
 	}
 
 	auto& root = mServer->get_root_node();
-	for (auto localaddr: it->second) {
+	for (auto localaddr: it->second.localaddrs) {
 		auto node = ossia::net::find_node(root, localaddr);
 		if (node != nullptr) {
 			auto param = node->get_parameter();
@@ -3076,12 +3089,11 @@ void Controller::registerOSCMapping(bool doregister, const std::string& oscaddr,
 		if (it != mOSCToParam.end()) {
 			it->second.insert(localaddr);
 		} else {
-			mOSCToParam.insert({oscaddr, {localaddr}});
+			mOSCToParam.emplace(oscaddr, localaddr);
 		}
 	} else {
 		if (it != mOSCToParam.end()) {
-			it->second.erase(localaddr);
-			if (it->second.size() == 0) {
+			if (it->second.erase(localaddr)) {
 				mOSCToParam.erase(it);
 			}
 		}

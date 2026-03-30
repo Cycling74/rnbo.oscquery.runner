@@ -33,6 +33,33 @@ struct PackageInstallOptions {
 	std::set<std::string> skip_sets;
 };
 
+struct MappedOSCUpdate {
+	std::set<std::string> localaddrs;
+	ossia::value val;
+	std::string srcaddr;
+	MappedOSCUpdate(const std::string& addr, const ossia::value& v, std::set<std::string> addrs) : srcaddr(addr), val(v), localaddrs(addrs) {}
+};
+
+struct OSCToParam {
+	std::set<std::string> localaddrs;
+
+	OSCToParam(const std::string& local) : localaddrs({local}) { }
+	OSCToParam(OSCToParam&&) = delete;
+	OSCToParam& operator=(OSCToParam&&) = delete;
+	OSCToParam(OSCToParam&) = delete;
+	OSCToParam& operator=(OSCToParam&) = delete;
+
+	//add another local address
+	void insert(std::string local) {
+		localaddrs.insert(local);
+	}
+	//remove an address, returns true if now empty
+	bool erase(std::string local) {
+		localaddrs.erase(local);
+		return localaddrs.size() == 0;
+	}
+};
+
 #ifdef RNBO_USE_DBUS
 class RnboUpdateServiceProxy;
 #endif
@@ -72,9 +99,10 @@ class Controller {
 		//for OSC listeners (params and inports)
 		//OSC addr -> local addresss eg [/rnbo/inst/0/params/foo/normalized]
 		std::recursive_mutex mOSCMapMutex;
-		std::unordered_map<std::string, std::set<std::string>> mOSCToParam;
+		std::unordered_map<std::string, OSCToParam> mOSCToParam;
 		//for messages that call back from parameter updates into other parameter updates
-		Queue<std::pair<std::string, ossia::value>> mOSCMappedUpdateQueue;
+		Queue<MappedOSCUpdate> mOSCMappedUpdateQueue;
+		std::set<std::string> mCurrentMappedOSCAddrs;
 
 		void doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset);
 
@@ -136,6 +164,8 @@ class Controller {
 
 		//returns the backup name
 		std::string installPackage(const boost::filesystem::path& location, PackageInstallOptions options = {});
+
+		void handleMappedOSCUpdate(ossia::net::node_base& root, const std::string& oscaddr, const ossia::value& value);
 
 		//guard by mInstanceMutex
 		std::string mPendingSetPresetName;
