@@ -1,6 +1,7 @@
 # RNBO Runner Changes
 
 * *current*
+    * added logic to block OSC feedback if you have a param that does both `in` and `out` OSC via metadata
     * added optional device midi input filtering
         * OSCQuery endpoint: `/rnbo/inst/<INSTANCE ID>/config/midi_input_channel`
             * set to "all" (default) for no filtering
