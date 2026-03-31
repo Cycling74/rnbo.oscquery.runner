@@ -761,9 +761,9 @@ void RunnerExternalDataHandler::processEvents(std::unordered_map<std::string, os
 			}
 
 			const std::string filemapping = mapping->filePath.lexically_normal().lexically_relative(dataFileDir->lexically_normal()).string();
-			if (filemapping.size() == 0) {
+			//validate mapping
+			if (!mapping->filePath.empty() && filemapping.size() == 0) {
 				std::cerr << "failed to get mapping " << mapping->filePath << " relative to datafile dir" << std::endl;
-				continue;
 			}
 
 			auto sharing = mSharing.find(index);
