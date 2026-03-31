@@ -50,3 +50,35 @@ rm rpi-rootfs/usr/lib/aarch64-linux-gnu/libpthread.a rpi-rootfs/usr/lib/aarch64-
 ```shell
 docker build -f Dockerfile.bookworm64bit -t xnor/rpi-bookwork64-audio-xpile:0.3 .
 ```
+
+# 64-bit build
+
+should be able to share .so with rpi and move
+
+for some reason the move exports aren't drawing to the display, something about atomic operations?
+
+```
+docker run -it -v $(pwd):/build -v ~/dev/rnbo.core/src/cpp/:/rnbo -v $(pwd)/conan:/home/build/.conan -v $(pwd)/cmake:/home/build/cmake --platform linux/amd64 rnbo.move.takeover:0.3 bash
+mkdir -p /build/build-rpi /build/build-move
+cd /build/build-rpi/
+cmake -DRNBO_DIR=/build/rnbo/ \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRNBO_DIR=/rnbo/ \
+    -DWITH_DBUS=Off \
+    -DSUPPORT_COMPILE=Off \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    ..  && make -j8 && cpack
+cd /build/build-move/
+cmake -DRNBO_DIR=/build/rnbo/ \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRNBO_DIR=/rnbo/ \
+    -DWITH_DBUS=Off \
+    -DSUPPORT_COMPILE=Off \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/ \
+    -DUSE_SNDFILE_CONAN=On \
+    -DWITH_JACKSERVER=Off \
+    ..  && make -j8
+```
