@@ -15,7 +15,7 @@ build_type=Release
 tools.build:sysroot=/
 
 [env]
-CONAN_CMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf.cmake
+CONAN_CMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake
 
 [buildenv]
 CONAN_CMAKE_FIND_ROOT_PATH=/usr/arm-linux-gnueabihf/

@@ -61,4 +61,4 @@ COPY --chown=build:build scripts/ /home/build/scripts/
 # Set cross-compilation environment
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
-ENV PATH="${PATH}:/home/build/.local/bin:/home/build/.cargo/bin"
+ENV PATH="${PATH}:/home/build/.local/bin:/home/build/.cargo/bin:/home/build/scripts"

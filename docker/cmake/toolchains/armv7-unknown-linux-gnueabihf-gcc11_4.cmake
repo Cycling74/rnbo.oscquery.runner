@@ -1,4 +1,4 @@
-set(CONAN_PROFILE "armv7-unknown-linux-gnueabihf" CACHE STRING "the conan profile to use")
+set(CONAN_PROFILE "armv7-unknown-linux-gnueabihf-gcc11_4" CACHE STRING "the conan profile to use")
 
 set(tools /usr/bin)
 set(SYSROOT /)
