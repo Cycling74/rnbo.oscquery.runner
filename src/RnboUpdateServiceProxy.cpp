@@ -5,7 +5,7 @@ using std::cout;
 using std::endl;
 
 RnboUpdateServiceProxy::RnboUpdateServiceProxy(std::string destination, std::string objectPath)
-	: sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>(sdbus::createSystemBusConnection(), std::move(destination), std::move(objectPath))
+	: sdbus::ProxyInterfaces<com::cycling74::rnbo_proxy, sdbus::Properties_proxy>(std::move(destination), std::move(objectPath))
 {
 	registerProxy();
 }

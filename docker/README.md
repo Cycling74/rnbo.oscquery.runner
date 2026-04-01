@@ -38,17 +38,14 @@ docker run -it \
     xnor/rnbo-runner-xpile:0.1 bash
 ```
 
-*TODO* Fix DBUS
-
 64-bit rpi
 
 ```shell
 mkdir -p /build/build-rpi64
 cd /build/build-rpi64/
-cmake -DRNBO_DIR=/build/rnbo/ \
+cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DRNBO_DIR=/rnbo/ \
-    -DWITH_DBUS=Off \
     -DSUPPORT_COMPILE=Off \
     -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
     -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
@@ -60,10 +57,9 @@ cmake -DRNBO_DIR=/build/rnbo/ \
 ```shell
 mkdir -p /build/build-rpi32
 cd /build/build-rpi32/
-cmake -DRNBO_DIR=/build/rnbo/ \
+cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DRNBO_DIR=/rnbo/ \
-    -DWITH_DBUS=Off \
     -DSUPPORT_COMPILE=Off \
     -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
     -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
@@ -75,7 +71,7 @@ Move
 ```shell
 mkdir -p /build/build-move
 cd /build/build-move/
-cmake -DRNBO_DIR=/build/rnbo/ \
+cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DRNBO_DIR=/rnbo/ \
     -DWITH_DBUS=Off \
@@ -86,6 +82,32 @@ cmake -DRNBO_DIR=/build/rnbo/ \
     -DUSE_SNDFILE_CONAN=On \
     -DWITH_JACKSERVER=Off \
     ..  && make -j8
+```
+
+rnbo-update-service
+
+64-bit rpi
+
+```shell
+mkdir -p /build/update/build-rpi64
+cd /build/update/build-rpi64/
+cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    ..  && make -j8 && cpack
+```
+
+32-bit rpi
+
+```shell
+mkdir -p /build/update/build-rpi32
+cd /build/update/build-rpi32/
+cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+    ..  && make -j8 && cpack
 ```
 
 jack transport link

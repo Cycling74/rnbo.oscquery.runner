@@ -156,7 +156,7 @@ endif()
 #dbus on linux
 if (WITH_DBUS)
 	#handle sdbus for linux, common between this and the update lib
-	find_package(sdbus-c++ 0.8.3 REQUIRED)
+	find_package(sdbus-c++ 1.0 REQUIRED)
 	add_definitions(-DRNBO_USE_DBUS)
 	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
 endif()
@@ -532,7 +532,7 @@ if (LINUX)
 		endif()
 
 		if (WITH_DBUS)
-			SET(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libsdbus-c++0 (>= 0.8.3)")
+			SET(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libsdbus-c++1 (>= 1.0)")
 		endif()
 
 		#packages that are also installed by default but don't have to be

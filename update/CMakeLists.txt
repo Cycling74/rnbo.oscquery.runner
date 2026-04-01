@@ -24,7 +24,7 @@ endif()
 
 set(CONAN_PROFILE "default" CACHE STRING "The profile to use for building conan deps, this is useful for cross compiling")
 include("${CMAKE_CURRENT_SOURCE_DIR}/../common/conan.cmake")
-find_package(sdbus-c++ 0.8.3 REQUIRED)
+find_package(sdbus-c++ 1.0 REQUIRED)
 
 conan_cmake_configure(
 	REQUIRES boost/1.80.0
@@ -135,7 +135,7 @@ if (LINUX)
 		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.28), libsystemd0, libsdbus-c++0 (>= 0.8.3)")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libc6 (>= 2.28), libsystemd0, libsdbus-c++1 (>= 1.0)")
 
 		SET(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 		SET(CPACK_DEBIAN_PACKAGE_SECTION "admin")
