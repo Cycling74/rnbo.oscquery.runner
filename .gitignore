@@ -1,5 +1,3 @@
 build-*/
 build/
 .flatpak-builder/
-conan/*
-!conan/profiles/
