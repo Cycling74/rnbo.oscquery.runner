@@ -1,3 +1,16 @@
+# Docker based cross compile for RNBO Runner
+
+Here we build for Linux aarch64 (64-bit rpi+) and armv7 gnueabihf (32-bit rpi+)
+
+## Build docker image
+
+```shell
+docker build -t xnor/rnbo-runner-xpile:0.1 .
+```
+
+
+# OLD
+
 ## To setup docker:
 * grab your rpi libraries etc
 

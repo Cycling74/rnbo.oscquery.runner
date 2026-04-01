@@ -1,0 +1,23 @@
+# Other Dockerfiles
+Dockerfile.bookworm
+
+# Docs and host scripts
+README.md
+build-*.sh
+check-glibc.sh
+
+# Conan — only profiles/ is needed
+conan/artifacts.properties
+conan/cacert.pem
+conan/conan.conf
+conan/data
+conan/hooks
+conan/remotes.json
+conan/settings.yml
+conan/version.txt
+
+# Conan cross-compile build directories
+conan-rpi-bookworm64-xcompile-build
+conan-rpi-bookworm64-xcompile-host
+conan-rpi-xcompile-build
+conan-rpi-xcompile-host

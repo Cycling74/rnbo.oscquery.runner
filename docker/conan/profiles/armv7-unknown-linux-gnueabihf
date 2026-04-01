@@ -1,0 +1,36 @@
+tools=/usr/bin/
+target_host=arm-linux-gnueabihf
+
+[settings]
+os=Linux
+os_build=Linux
+arch=armv7hf
+arch_build=x86_64
+compiler=gcc
+compiler.version=11
+compiler.libcxx=libstdc++11
+build_type=Release
+
+[conf]
+tools.build:sysroot=/
+
+[env]
+CONAN_CMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf.cmake
+
+[buildenv]
+CONAN_CMAKE_FIND_ROOT_PATH=/usr/arm-linux-gnueabihf/
+SYSROOT=/
+CHOST=arm-linux-gnueabihf
+AS=$tools/arm-linux-gnueabihf-as
+AR=$tools/arm-linux-gnueabihf-gcc-ar-11
+RANLIB=$tools/arm-linux-gnueabihf-gcc-ranlib-11
+LD=$tools/arm-linux-gnueabihf-ld
+STRIP=$tools/arm-linux-gnueabihf-strip
+CC=$tools/arm-linux-gnueabihf-gcc-11
+CXX=$tools/arm-linux-gnueabihf-g++-11
+CFLAGS=-march=armv7-a -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+CXXFLAGS=-march=armv7-a -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+ASFLAGS=-march=armv7-a -mtune=cortex-a53 -mfpu=neon-vfpv4 -mfloat-abi=hard
+LDFLAGS=
+PKG_CONFIG_SYSROOT_DIR=/
+PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig

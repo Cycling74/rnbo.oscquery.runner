@@ -1,26 +1,64 @@
-#Dockerfile for setting up environment for cross compiling for raspbian rpi
+#adapted from the move-everything docker file
+#https://github.com/charlesvestal/move-everything/blob/main/Dockerfile
 
-#derived from https://bitbucket.org/mitchallen/pi-cross-compile/src/master/Dockerfile
-FROM debian:bullseye-slim
-MAINTAINER Alex Norman "xnor@cycling.com"
+#cross-compiling for aarch64 targeting Ableton Move
+FROM ubuntu:jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-#initial setup
-RUN apt-get -y update && apt-get upgrade -y
-RUN apt-get -y --no-install-recommends install \
-	git gpg wget build-essential pkg-config \
-	python3-pip python3-setuptools \
-	libssl-dev \
-	cmake \
-	gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-	ca-certificates
+RUN dpkg --add-architecture arm64 && \
+    dpkg --add-architecture armhf && \
+    echo "deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy main universe\n\
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-updates main universe\n\
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu jammy-security main universe\n\
+deb [arch=arm64,armhf] http://ports.ubuntu.com/ubuntu-ports jammy main universe\n\
+deb [arch=arm64,armhf] http://ports.ubuntu.com/ubuntu-ports jammy-updates main universe\n\
+deb [arch=arm64,armhf] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe" > /etc/apt/sources.list
 
-#conan setup
-RUN pip3 install conan==1.58.0
-RUN mkdir -p /root/.conan/profiles
-COPY conan-rpi-xcompile /root/.conan/profiles/default
+RUN apt-get update && \
+    apt-get install -y \
+    curl file wget \
+    git vim \
+    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+    gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+    build-essential cmake \
+    python3 python3-pip python3-setuptools \
+    libdbus-1-dev:arm64 libdbus-1-dev:armhf \
+    libsystemd-dev:arm64 libsystemd-dev:armhf \
+    libsndfile1-dev:arm64 libsndfile1-dev:armhf \
+    libatomic1:arm64 libatomic1:armhf \
+    libavahi-compat-libdnssd-dev:arm64 libavahi-compat-libdnssd-dev:armhf \
+    libssl-dev:arm64 libssl-dev:armhf \
+    libxml2-dev:arm64 libxml2-dev:armhf \
+    libjack-jackd2-dev:arm64 libjack-jackd2-dev:armhf \
+    libsdbus-c++-dev:arm64 libsdbus-c++-dev:armhf \
+    libgmock-dev:arm64 libgmock-dev:armhf \
+    google-mock:arm64 google-mock:armhf \
+    libstdc++-11-dev:arm64 libstdc++-11-dev:armhf \
+    libgcc-11-dev-arm64-cross libgcc-11-dev-armhf-cross \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY rpi-rootfs /rpi-rootfs
+### Setup user and system
+RUN useradd -ms /bin/bash build
+RUN mkdir -p /home/build
+RUN chown -R build:build /home/build
 
-CMD ["/bin/bash", "/build/examples/rnbo.oscquery.runner/docker/build-rpi.sh"]
+USER build
+
+# Install rust with aarch64 and armv7 gnueabihf targets
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --target aarch64-unknown-linux-gnu --target armv7-unknown-linux-gnueabihf
+
+#install conan
+RUN pip3 install conan==1.62.0
+
+WORKDIR /home/build
+
+# Copy conan profiles, cmake toolchains and scripts
+COPY --chown=build:build conan/profiles/ /home/build/.conan/profiles/
+COPY --chown=build:build cmake/ /home/build/cmake/
+COPY --chown=build:build scripts/ /home/build/scripts/
+
+# Set cross-compilation environment
+ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
+ENV PATH="${PATH}:/home/build/.local/bin:/home/build/.cargo/bin"
