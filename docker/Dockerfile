@@ -38,15 +38,19 @@ RUN apt-get update && \
     libgcc-11-dev-arm64-cross libgcc-11-dev-armhf-cross \
     && rm -rf /var/lib/apt/lists/*
 
+# Install rust system-wide
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_HOME=/usr/local/cargo
+ENV PATH="/usr/local/cargo/bin:${PATH}"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --target aarch64-unknown-linux-gnu --target armv7-unknown-linux-gnueabihf && \
+    chmod -R a+rX /usr/local/rustup /usr/local/cargo
+
 ### Setup user and system
 RUN useradd -ms /bin/bash build
 RUN mkdir -p /home/build
 RUN chown -R build:build /home/build
 
 USER build
-
-# Install rust with aarch64 and armv7 gnueabihf targets
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --target aarch64-unknown-linux-gnu --target armv7-unknown-linux-gnueabihf
 
 #install conan
 RUN pip3 install conan==1.62.0
@@ -61,4 +65,4 @@ COPY --chown=build:build scripts/ /home/build/scripts/
 # Set cross-compilation environment
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
 ENV CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc
-ENV PATH="${PATH}:/home/build/.local/bin:/home/build/.cargo/bin:/home/build/scripts"
+ENV PATH="${PATH}:/home/build/.local/bin:/home/build/scripts"

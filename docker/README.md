@@ -5,7 +5,134 @@ Here we build for Linux aarch64 (64-bit rpi+) and armv7 gnueabihf (32-bit rpi+)
 ## Build docker image
 
 ```shell
-docker build -t xnor/rnbo-runner-xpile:0.1 .
+docker build --platform=linux/amd64 -t xnor/rnbo-runner-xpile:0.1 .
+```
+
+Share to docker hub
+
+```shell
+docker push xnor/rnbo-runner-xpile:0.1
+```
+
+## Using docker image
+
+If you haven't pulled or built locally
+
+```shell
+docker pull xnor/rnbo-runner-xpile:0.1
+```
+
+### RNBO Runner
+
+Should be able to share .so with rpi and move
+
+From the top level rnbooscquery directory, start up docker
+Make sure to update the `/rnbo` mount to match the location of your rnbo c++ library directory
+
+```shell
+docker run -it \
+    --platform linux/amd64 \
+    -v $(pwd):/build \
+    -v ~/dev/rnbo.core/src/cpp/:/rnbo \
+    -v $(pwd)/docker/conan:/home/build/.conan \
+    xnor/rnbo-runner-xpile:0.1 bash
+```
+
+*TODO* Fix DBUS
+
+64-bit rpi
+
+```shell
+mkdir -p /build/build-rpi64
+cd /build/build-rpi64/
+cmake -DRNBO_DIR=/build/rnbo/ \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRNBO_DIR=/rnbo/ \
+    -DWITH_DBUS=Off \
+    -DSUPPORT_COMPILE=Off \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    ..  && make -j8 && cpack
+```
+
+32-bit rpi
+
+```shell
+mkdir -p /build/build-rpi32
+cd /build/build-rpi32/
+cmake -DRNBO_DIR=/build/rnbo/ \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRNBO_DIR=/rnbo/ \
+    -DWITH_DBUS=Off \
+    -DSUPPORT_COMPILE=Off \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+    ..  && make -j8 && cpack
+```
+
+Move
+
+```shell
+mkdir -p /build/build-move
+cd /build/build-move/
+cmake -DRNBO_DIR=/build/rnbo/ \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRNBO_DIR=/rnbo/ \
+    -DWITH_DBUS=Off \
+    -DSUPPORT_COMPILE=Off \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/ \
+    -DUSE_SNDFILE_CONAN=On \
+    -DWITH_JACKSERVER=Off \
+    ..  && make -j8
+```
+
+jack transport link
+
+```shell
+docker run -it \
+    --platform linux/amd64 \
+    -v $(pwd):/build \
+    xnor/rnbo-runner-xpile:0.1 bash
+```
+
+64-bit rpi
+
+```shell
+mkdir -p /build/build-rpi64
+cd /build/build-rpi64/
+cmake \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    ..  && make -j8 && cpack
+```
+
+32-bit rpi
+
+```shell
+mkdir -p /build/build-rpi32
+cd /build/build-rpi32/
+cmake \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
+    ..  && make -j8 && cpack
+```
+
+Move
+
+```shell
+mkdir -p /build/build-move
+cd /build/build-move/
+cmake \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/ \
+    ..  && make -j8
+
 ```
 
 
@@ -66,43 +193,3 @@ docker build -f Dockerfile.bookworm64bit -t xnor/rpi-bookwork64-audio-xpile:0.3 
 
 # 64-bit build
 
-should be able to share .so with rpi and move
-
-```
-docker run -it -v $(pwd):/build -v ~/dev/rnbo.core/src/cpp/:/rnbo -v $(pwd)/conan:/home/build/.conan -v $(pwd)/cmake:/home/build/cmake --platform linux/amd64 rnbo.move.takeover:0.3 bash
-mkdir -p /build/build-rpi /build/build-move
-cd /build/build-rpi/
-cmake -DRNBO_DIR=/build/rnbo/ \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DRNBO_DIR=/rnbo/ \
-    -DWITH_DBUS=Off \
-    -DSUPPORT_COMPILE=Off \
-    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
-    ..  && make -j8 && cpack
-cd /build/build-move/
-cmake -DRNBO_DIR=/build/rnbo/ \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DRNBO_DIR=/rnbo/ \
-    -DWITH_DBUS=Off \
-    -DSUPPORT_COMPILE=Off \
-    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
-    -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/ \
-    -DUSE_SNDFILE_CONAN=On \
-    -DWITH_JACKSERVER=Off \
-    ..  && make -j8
-```
-
-jack transport link
-
-```
- docker run -it -v $(pwd):/build -v ~/dev/rnbo.core/src/cpp/:/rnbo -v /Users/xnor/dev/rnbo.move.takeover/rnbo.oscquery.runner/conan:/home/build/.conan -v /Users/xnor/dev/rnbo.move.takeover/rnbo.oscquery.runner/cmake:/home/build/cmake --platform linux/amd64 rnbo.move.takeover:0.3 bash
-cmake \
-    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-    -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/ \
-    ..  && make -j8
-
-```
