@@ -53,7 +53,7 @@ RUN chown -R build:build /home/build
 USER build
 
 #install conan
-RUN pip3 install conan==1.62.0
+RUN pip3 install conan==1.64.0
 
 WORKDIR /home/build
 
