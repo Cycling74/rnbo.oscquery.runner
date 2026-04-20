@@ -101,6 +101,11 @@ if (INCLUDE_RUNNER_VERSION)
 else()
 	set(PROJECT_VERSION "${RNBO_VERSION}")
 endif()
+if (RNBO_VERSION VERSION_GREATER_EQUAL "1.4.3")
+	set(RNBO_COMPAT_VERSION "${RNBO_VERSION_MAJOR}.${RNBO_VERSION_MINOR}")
+else()
+	set(RNBO_COMPAT_VERSION "${RNBO_VERSION}")
+endif()
 
 #https://stackoverflow.com/questions/1435953/how-can-i-pass-git-sha1-to-compiler-as-definition-using-cmake
 # git commit hash macro
@@ -352,6 +357,10 @@ if (CCACHE_PROGRAM)
 endif()
 
 add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
+add_definitions(-DRNBO_VERSION_MAJOR="${RNBO_VERSION_MAJOR}")
+add_definitions(-DRNBO_VERSION_MINOR="${RNBO_VERSION_MINOR}")
+add_definitions(-DRNBO_VERSION_PATCH="${RNBO_VERSION_PATCH}")
+add_definitions(-DRNBO_COMPAT_VERSION="${RNBO_COMPAT_VERSION}")
 add_definitions(-DRUNNER_VERSION="${PROJECT_VERSION}")
 add_definitions(-DRUNNER_GIT_HASH="${GIT_COMMIT_HASH}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
