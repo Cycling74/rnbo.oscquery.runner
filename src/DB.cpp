@@ -28,6 +28,12 @@ namespace fs = boost::filesystem;
 
 namespace {
 	const std::string cur_rnbo_version(RNBO_VERSION);
+	const std::string cur_rnbo_major(RNBO_VERSION_MAJOR);
+	const std::string cur_rnbo_minor(RNBO_VERSION_MINOR);
+	const std::string cur_rnbo_patch(RNBO_VERSION_PATCH);
+
+	const std::string cur_rnbo_compat_version(RNBO_COMPAT_VERSION);
+
 	const std::regex auto_name_regex(R"(^_auto([0-9]+)$)");
 
 	std::string getStringColumn(SQLite::Statement& query, int col) {
@@ -36,9 +42,9 @@ namespace {
 	}
 
 	int getsetid(SQLite::Database& db, const std::string& name) {
-		SQLite::Statement query(db, "SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name");
+		SQLite::Statement query(db, "SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		if (query.executeStep()) {
 			return query.getColumn(0);
 		}
@@ -595,6 +601,90 @@ CREATE TABLE sets_views_params
 		updatetable("sets");
 	});
 
+	//extract major, minor, patch from runner_rnbo_version
+	do_migration(20, [](SQLite::Database& db) {
+		auto getRNBOVersionMigration = [](std::string tableName) {
+				std::string sql = R"sql(
+		-- 1. Setup Columns
+		ALTER TABLE {table} ADD COLUMN rnbo_major INTEGER;
+		ALTER TABLE {table} ADD COLUMN rnbo_minor INTEGER;
+		ALTER TABLE {table} ADD COLUMN rnbo_patch INTEGER;
+		ALTER TABLE {table} ADD COLUMN rnbo_compat_version TEXT;
+
+		-- 2. Populate Existing Data
+		UPDATE {table}
+		SET
+			rnbo_major = CAST(SUBSTR(runner_rnbo_version, 1, INSTR(runner_rnbo_version, '.') - 1) AS INTEGER),
+			rnbo_minor = CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER),
+			rnbo_patch = CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER);
+
+		UPDATE {table}
+		SET rnbo_compat_version = CASE
+				WHEN (rnbo_major < 1) OR (rnbo_major = 1 AND rnbo_minor < 4) OR (rnbo_major = 1 AND rnbo_minor = 4 AND rnbo_patch < 3)
+				THEN runner_rnbo_version
+				ELSE CAST(rnbo_major AS TEXT) || '.' || CAST(rnbo_minor AS TEXT)
+			END;
+
+		-- 3. Trigger for NEW rows
+		CREATE TRIGGER trg_{table}_rnbo_insert
+		AFTER INSERT ON {table}
+		FOR EACH ROW WHEN NEW.runner_rnbo_version LIKE '%.%.%'
+		BEGIN
+			UPDATE {table} SET
+				rnbo_major = CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INTEGER),
+				rnbo_minor = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER),
+				rnbo_patch = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER),
+				rnbo_compat_version = CASE
+					WHEN (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) < 1) OR
+							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) < 4) OR
+							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) = 4 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INT) < 3)
+					THEN NEW.runner_rnbo_version
+					ELSE SUBSTR(NEW.runner_rnbo_version, 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + INSTR(NEW.runner_rnbo_version, '.') - 1)
+				END
+			WHERE rowid = NEW.rowid;
+		END;
+
+		-- 4. Trigger for UPDATED rows
+		CREATE TRIGGER trg_{table}_rnbo_update
+		AFTER UPDATE OF runner_rnbo_version ON {table}
+		FOR EACH ROW WHEN NEW.runner_rnbo_version LIKE '%.%.%' AND (OLD.runner_rnbo_version IS NULL OR NEW.runner_rnbo_version != OLD.runner_rnbo_version)
+		BEGIN
+			UPDATE {table} SET
+				rnbo_major = CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INTEGER),
+				rnbo_minor = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER),
+				rnbo_patch = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER),
+				rnbo_compat_version = CASE
+					WHEN (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) < 1) OR
+							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) < 4) OR
+							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) = 4 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INT) < 3)
+					THEN NEW.runner_rnbo_version
+					ELSE SUBSTR(NEW.runner_rnbo_version, 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + INSTR(NEW.runner_rnbo_version, '.') - 1)
+				END
+			WHERE rowid = NEW.rowid;
+		END;
+		)sql";
+
+			size_t pos = 0;
+			while ((pos = sql.find("{table}", pos)) != std::string::npos) {
+					sql.replace(pos, 7, tableName);
+					pos += tableName.length();
+			}
+			return sql;
+	};
+
+		for (auto table: {"patchers", "sets"}) {
+			auto sql = getRNBOVersionMigration(table);
+			db.exec(sql);
+		}
+	});
+
+	do_migration(21, [](SQLite::Database& db) {
+			db.exec("CREATE INDEX patcher_compat_version ON patchers(rnbo_compat_version)");
+			db.exec("CREATE INDEX patcher_name_compat_version ON patchers(name, rnbo_compat_version)");
+			db.exec("CREATE INDEX set_compat_version ON sets(rnbo_compat_version)");
+			db.exec("CREATE INDEX set_name_compat_version ON sets(name, rnbo_compat_version)");
+	});
+
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
 	//clean up a bit
@@ -633,8 +723,8 @@ void DB::rnboVersions(std::function<void(const std::string&)> f) {
 
 boost::optional<std::string> DB::migrationDataAvailable() {
 	std::lock_guard<std::mutex> guard(mMutex);
-	SQLite::Statement query(mDB, "SELECT DISTINCT(runner_rnbo_version) FROM patchers WHERE runner_rnbo_version != ?1 AND runner_rnbo_version NOT IN (SELECT data_rnbo_version FROM data_migrations) ORDER BY id DESC LIMIT 1");
-	query.bind(1, cur_rnbo_version);
+	SQLite::Statement query(mDB, "SELECT DISTINCT(rnbo_compat_version) FROM patchers WHERE rnbo_compat_version != ?1 AND rnbo_compat_version NOT IN (SELECT data_rnbo_version FROM data_migrations) ORDER BY id DESC LIMIT 1");
+	query.bind(1, cur_rnbo_compat_version);
 
 	if (query.executeStep()) {
 		const char * val = query.getColumn(0);
@@ -647,8 +737,8 @@ boost::optional<std::string> DB::migrationDataAvailable() {
 void DB::markDataMigrated() {
 	std::lock_guard<std::mutex> guard(mMutex);
 	//mark all data migrated, no matter what the version is
-	SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(runner_rnbo_version), ?1 FROM patchers WHERE runner_rnbo_version != ?1 ORDER BY id DESC");
-	query.bind(1, cur_rnbo_version);
+	SQLite::Statement query(mDB, "INSERT OR IGNORE INTO data_migrations (data_rnbo_version, runner_rnbo_version) SELECT DISTINCT(rnbo_compat_version), ?1 FROM patchers WHERE rnbo_compat_version != ?1 ORDER BY id DESC");
+	query.bind(1, cur_rnbo_compat_version);
 	query.exec();
 }
 
@@ -695,9 +785,9 @@ void DB::patcherStore(
 
 	int old_id = 0; //ids always start at 1 right?
 	{
-		SQLite::Statement query(mDB, "SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
+		SQLite::Statement query(mDB, "SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		if (query.executeStep()) {
 			old_id = query.getColumn(0);
 		}
@@ -773,11 +863,11 @@ void DB::patcherStore(
 
 bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string& created_at, std::string& uuid, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
-		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name, created_at, uuid FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name, created_at, uuid FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (query.executeStep()) {
@@ -795,10 +885,10 @@ boost::optional<std::string> DB::patcherNameByIndex(int index) {
 
 	SQLite::Statement query(mDB, R"(
 		SELECT name FROM patchers
-		WHERE id IN (SELECT MAX(id) FROM patchers WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+		WHERE id IN (SELECT MAX(id) FROM patchers WHERE rnbo_compat_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
 		LIMIT 1 OFFSET ?2
 	)");
-	query.bind(1, cur_rnbo_version);
+	query.bind(1, cur_rnbo_compat_version);
 	query.bind(2, index);
 
 	if (query.executeStep()) {
@@ -814,9 +904,9 @@ void DB::patcherDestroy(const std::string& name, std::function<void(boost::files
 	//TODO what about sets?
 	std::lock_guard<std::mutex> guard(mMutex);
 	{
-		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC");
+		SQLite::Statement query(mDB, "SELECT so_path, config_path FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		while (query.executeStep()) {
 			const char * s = query.getColumn(0);
 			fs::path so_name(s);
@@ -826,9 +916,9 @@ void DB::patcherDestroy(const std::string& name, std::function<void(boost::files
 		}
 	}
 	{
-		SQLite::Statement query(mDB, "DELETE FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2");
+		SQLite::Statement query(mDB, "DELETE FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.executeStep();
 	}
 }
@@ -836,22 +926,22 @@ void DB::patcherDestroy(const std::string& name, std::function<void(boost::files
 void DB::patcherRename(const std::string& name, std::string& newName) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
-	SQLite::Statement query(mDB, "UPDATE patchers SET name = ?3 WHERE name = ?1 AND runner_rnbo_version = ?2");
+	SQLite::Statement query(mDB, "UPDATE patchers SET name = ?3 WHERE name = ?1 AND rnbo_compat_version = ?2");
 	query.bind(1, name);
-	query.bind(2, cur_rnbo_version);
+	query.bind(2, cur_rnbo_compat_version);
 	query.bind(3, newName);
 	query.executeStep();
 }
 
 void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&)> func, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		SELECT name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, datetime(created_at), uuid FROM patchers
-		WHERE id IN (SELECT MAX(id) FROM patchers WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+		WHERE id IN (SELECT MAX(id) FROM patchers WHERE rnbo_compat_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
 	)");
 	query.bind(1, rnbo_version);
 	while (query.executeStep()) {
@@ -871,13 +961,13 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 
 void DB::presets(const std::string& patchername, std::function<void(const std::string&, bool, int)> f, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		SELECT name, initial, preset_index FROM presets
-		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		ORDER BY preset_index
 	)");
 	query.bind(1, patchername);
@@ -894,13 +984,13 @@ void DB::presets(const std::string& patchername, std::function<void(const std::s
 
 std::vector<int> DB::presetIndexes(const std::string& patchername, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::vector<int> indexes;
 	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, R"(
 		SELECT preset_index FROM presets
-		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		ORDER BY preset_index
 	)");
 	query.bind(1, patchername);
@@ -913,13 +1003,13 @@ std::vector<int> DB::presetIndexes(const std::string& patchername, std::string r
 
 boost::optional<std::tuple<std::string, std::string, int>> DB::preset(const std::string& patchername, const std::string& presetName, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		SELECT content, name, preset_index FROM presets WHERE name = ?1 AND patcher_id IN
-		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+		(SELECT MAX(id) FROM patchers WHERE name = ?2 AND rnbo_compat_version = ?3 GROUP BY name)
 	)");
 
 	query.bind(1, presetName);
@@ -945,14 +1035,14 @@ boost::optional<std::tuple<std::string, std::string, int>> DB::preset(const std:
 	SQLite::Statement query(mDB, R"(
 		SELECT content, name, preset_index FROM presets
 			WHERE
-				patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+				patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND rnbo_compat_version = ?3 GROUP BY name)
 			AND preset_index = ?1
 		LIMIT 1
 	)");
 
 	query.bind(1, index);
 	query.bind(2, patchername);
-	query.bind(3, cur_rnbo_version);
+	query.bind(3, cur_rnbo_compat_version);
 	if (query.executeStep()) {
 		const char * s = query.getColumn(0);
 		std::string content(s);
@@ -975,10 +1065,10 @@ void DB::presetSave(const std::string& patchername, std::string presetName, cons
 		int max = 0;
 		SQLite::Statement query(mDB, R"(
 			SELECT name FROM presets
-			WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name) AND name LIKE '_auto%' ORDER BY created_at DESC
+			WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name) AND name LIKE '_auto%' ORDER BY created_at DESC
 		)");
 		query.bind(1, patchername);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		while (query.executeStep()) {
 			std::string name = getStringColumn(query, 0);
 			std::smatch match;
@@ -994,10 +1084,10 @@ void DB::presetSave(const std::string& patchername, std::string presetName, cons
 	if (index < 0) {
 		SQLite::Statement query(mDB, R"(
 			SELECT MAX(preset_index) + 1 FROM presets
-			WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		)");
 		query.bind(1, patchername);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		if (query.executeStep()) {
 			index = query.getColumn(0);
 		} else {
@@ -1007,12 +1097,12 @@ void DB::presetSave(const std::string& patchername, std::string presetName, cons
 		//delete existing
 		SQLite::Statement query(mDB, R"(
 			DELETE FROM presets
-			WHERE preset_index = ?1 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+			WHERE preset_index = ?1 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND rnbo_compat_version = ?3 GROUP BY name)
 		)");
 
 		query.bind(1, index);
 		query.bind(2, patchername);
-		query.bind(3, cur_rnbo_version);
+		query.bind(3, cur_rnbo_compat_version);
 		query.exec();
 	}
 
@@ -1020,14 +1110,14 @@ void DB::presetSave(const std::string& patchername, std::string presetName, cons
 		//XXX make sure to update patcherStore preset migration with any changes to the preset structure
 		SQLite::Statement query(mDB, R"(
 			INSERT INTO presets (patcher_id, name, content, preset_index)
-			SELECT MAX(id), ?1, ?2, ?5 FROM patchers WHERE name = ?3 AND runner_rnbo_version = ?4 GROUP BY name
+			SELECT MAX(id), ?1, ?2, ?5 FROM patchers WHERE name = ?3 AND rnbo_compat_version = ?4 GROUP BY name
 			ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime'), preset_index=excluded.preset_index
 		)");
 
 		query.bind(1, presetName);
 		query.bind(2, preset);
 		query.bind(3, patchername);
-		query.bind(4, cur_rnbo_version);
+		query.bind(4, cur_rnbo_compat_version);
 		query.bind(5, index);
 		query.exec();
 	}
@@ -1042,12 +1132,12 @@ void DB::presetSetInitial(const std::string& patchername, const std::string& pre
 		UPDATE presets
 			SET initial=p.initial
 		FROM
-			(SELECT name == ?3 as initial, id FROM presets WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)) AS p
+			(SELECT name == ?3 as initial, id FROM presets WHERE patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)) AS p
 		WHERE p.id = presets.id
 	)");
 
 	query.bind(1, patchername);
-	query.bind(2, cur_rnbo_version);
+	query.bind(2, cur_rnbo_compat_version);
 	query.bind(3, presetName);
 	query.exec();
 }
@@ -1062,13 +1152,13 @@ void DB::presetRename(const std::string& patchername, const std::string& oldName
 			FROM
 				(SELECT MAX(patchers.id) as patcher_id, presets.id FROM patchers
 					JOIN presets ON presets.patcher_id = patchers.id
-				WHERE patchers.name = ?1 AND patchers.runner_rnbo_version = ?2 AND presets.name = ?3
+				WHERE patchers.name = ?1 AND patchers.rnbo_compat_version = ?2 AND presets.name = ?3
 				GROUP BY patchers.name) as p
 			WHERE p.id = presets.id
 		)");
 
 		query.bind(1, patchername);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.bind(3, oldName);
 		query.bind(4, newName);
 		query.exec();
@@ -1082,12 +1172,12 @@ void DB::presetRename(const std::string& patchername, const std::string& oldName
 			FROM
 				(SELECT MAX(patchers.id) as patcher_id, sets_presets.preset_name as preset_name FROM patchers
 					JOIN sets_presets ON sets_presets.patcher_id = patchers.id
-				WHERE patchers.name = ?1 AND patchers.runner_rnbo_version = ?2 AND sets_presets.preset_name = ?3
+				WHERE patchers.name = ?1 AND patchers.rnbo_compat_version = ?2 AND sets_presets.preset_name = ?3
 				GROUP BY patchers.name) as p
 			WHERE p.preset_name = sets_presets.preset_name
 		)");
 		query.bind(1, patchername);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.bind(3, oldName);
 		query.bind(4, newName);
 		query.exec();
@@ -1105,11 +1195,11 @@ void DB::presetReindex(const std::string& patchername, const std::string& name, 
 	{
 		SQLite::Statement query(mDB, R"(
 			DELETE FROM presets
-			WHERE preset_index = ?4 AND name != ?3 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			WHERE preset_index = ?4 AND name != ?3 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		)");
 
 		query.bind(1, patchername);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.bind(3, name);
 		query.bind(4, index);
 		query.exec();
@@ -1122,13 +1212,13 @@ void DB::presetReindex(const std::string& patchername, const std::string& name, 
 			FROM
 				(SELECT MAX(patchers.id) as patcher_id, presets.id FROM patchers
 					JOIN presets ON presets.patcher_id = patchers.id
-				WHERE patchers.name = ?1 AND patchers.runner_rnbo_version = ?2 AND presets.name = ?3
+				WHERE patchers.name = ?1 AND patchers.rnbo_compat_version = ?2 AND presets.name = ?3
 				GROUP BY patchers.name) as p
 			WHERE p.id = presets.id
 		)");
 
 		query.bind(1, patchername);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.bind(3, name);
 		query.bind(4, index);
 		query.exec();
@@ -1140,12 +1230,12 @@ void DB::presetDestroy(const std::string& patchername, const std::string& preset
 
 	SQLite::Statement query(mDB, R"(
 		DELETE FROM presets
-		WHERE name = ?1 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name)
+		WHERE name = ?1 AND patcher_id IN (SELECT MAX(id) FROM patchers WHERE name = ?2 AND rnbo_compat_version = ?3 GROUP BY name)
 	)");
 
 	query.bind(1, presetName);
 	query.bind(2, patchername);
-	query.bind(3, cur_rnbo_version);
+	query.bind(3, cur_rnbo_compat_version);
 	query.exec();
 
 
@@ -1153,14 +1243,14 @@ void DB::presetDestroy(const std::string& patchername, const std::string& preset
 
 std::vector<std::string> DB::setPresets(const std::string& setname, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 	std::vector<std::string> names;
 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		ORDER BY preset_index
 	)");
 	query.bind(1, setname);
@@ -1174,14 +1264,14 @@ std::vector<std::string> DB::setPresets(const std::string& setname, std::string 
 
 std::vector<int> DB::setPresetIndexes(const std::string& setName, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 	std::vector<int> indexes;
 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT preset_index FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		ORDER BY preset_index
 	)");
 	query.bind(1, setName);
@@ -1198,12 +1288,12 @@ std::string DB::setPresetAutoNext(const std::string& setname) {
 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		AND name LIKE "_auto%"
 		ORDER BY name == 'initial' DESC, name LIKE "_auto%" ASC, name ASC
 	)");
 	query.bind(1, setname);
-	query.bind(2, cur_rnbo_version);
+	query.bind(2, cur_rnbo_compat_version);
 	while (query.executeStep()) {
 		std::string name = getStringColumn(query, 0);
 		std::smatch match;
@@ -1222,13 +1312,13 @@ boost::optional<std::string> DB::setPresetNameByIndex(
 		unsigned int index,
 		std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT name FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		AND preset_index = ?3
 		LIMIT 1
 	)");
@@ -1247,12 +1337,12 @@ boost::optional<int> DB::setPresetIndexByName(
 		const std::string& presetName,
 		std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, R"(
 		SELECT DISTINCT preset_index FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		AND name = ?3
 		LIMIT 1
 	)");
@@ -1268,12 +1358,12 @@ boost::optional<int> DB::setPresetIndexByName(
 
 int DB::setPresetIndexNext(const std::string& setName, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, R"(
 		SELECT MAX(preset_index) + 1 FROM sets_presets
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 	)");
 	query.bind(1, setName);
 	query.bind(2, rnbo_version);
@@ -1289,7 +1379,7 @@ void DB::setPresets(
 		std::function<void(const std::string& patcherName, unsigned int instanceIndex, const std::string& content, const std::string& patcherPresetName, int presetIndex)> func,
 		std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
@@ -1299,7 +1389,7 @@ void DB::setPresets(
 		JOIN patchers ON patchers.id = sets_presets.patcher_id
 		LEFT JOIN presets ON patchers.id = presets.patcher_id AND sets_presets.preset_name = presets.name
 		WHERE sets_presets.name = ?3
-		AND sets_presets.set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		AND sets_presets.set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		ORDER BY sets_presets.set_instance_index
 	)");
 	query.bind(1, setName);
@@ -1330,7 +1420,7 @@ boost::optional<std::pair<std::string, std::string>> DB::setPreset(
 		std::string rnbo_version
 ) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
@@ -1341,10 +1431,10 @@ boost::optional<std::pair<std::string, std::string>> DB::setPreset(
 		AND sets_presets.set_instance_index = ?5
 		AND sets_presets.patcher_id IN
 		(
-			SELECT MAX(id) FROM patchers WHERE name = ?2 AND runner_rnbo_version = ?3 GROUP BY name
+			SELECT MAX(id) FROM patchers WHERE name = ?2 AND rnbo_compat_version = ?3 GROUP BY name
 		)
 		AND sets_presets.set_id IN (
-			SELECT MAX(id) FROM sets WHERE name = ?4 AND runner_rnbo_version = ?3 GROUP BY name
+			SELECT MAX(id) FROM sets WHERE name = ?4 AND rnbo_compat_version = ?3 GROUP BY name
 		)
 		ORDER BY sets_presets.created_at
 		LIMIT 1
@@ -1352,7 +1442,7 @@ boost::optional<std::pair<std::string, std::string>> DB::setPreset(
 
 	query.bind(1, presetName);
 	query.bind(2, patchername);
-	query.bind(3, cur_rnbo_version);
+	query.bind(3, cur_rnbo_compat_version);
 	query.bind(4, setName);
 	query.bind(5, instanceIndex);
 
@@ -1384,15 +1474,15 @@ void DB::setPresetSave(
 		INSERT INTO sets_presets (patcher_id, set_id, name, set_instance_index, content, preset_name, preset_index)
 		SELECT patchers.id, sets.id, ?1, ?2, ?3, ?7, ?8
 		FROM patchers, sets
-		WHERE patchers.id IN (SELECT MAX(id) FROM patchers WHERE name = ?5 AND runner_rnbo_version = ?4 GROUP BY name)
-		AND sets.id IN (SELECT MAX(id) FROM sets WHERE name = ?6 AND runner_rnbo_version = ?4 GROUP BY name)
+		WHERE patchers.id IN (SELECT MAX(id) FROM patchers WHERE name = ?5 AND rnbo_compat_version = ?4 GROUP BY name)
+		AND sets.id IN (SELECT MAX(id) FROM sets WHERE name = ?6 AND rnbo_compat_version = ?4 GROUP BY name)
 		ON CONFLICT DO UPDATE SET content=excluded.content, updated_at = datetime('now', 'localtime'), preset_index=excluded.preset_index
 	)");
 
 	query.bind(1, presetName);
 	query.bind(2, static_cast<int>(instanceIndex));
 	query.bind(3, content);
-	query.bind(4, cur_rnbo_version);
+	query.bind(4, cur_rnbo_compat_version);
 	query.bind(5, patchername);
 	query.bind(6, setName);
 	if (patcherPresetName.size() > 0) {
@@ -1417,14 +1507,14 @@ void DB::setPresetRename(
 	setPresetDestroy(setName, newName, rnbo_version);
 
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		UPDATE sets_presets SET name = ?3
 		WHERE name = ?2
 		AND set_id IN (
-			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?4 GROUP BY name
+			SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?4 GROUP BY name
 		)
 	)");
 	query.bind(1, setName);
@@ -1441,7 +1531,7 @@ void DB::setPresetReindex(
 		std::string rnbo_version
 ) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	//delete existing
@@ -1451,7 +1541,7 @@ void DB::setPresetReindex(
 			WHERE name != ?2
 			AND preset_index = ?3
 			AND set_id IN (
-				SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?4 GROUP BY name
+				SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?4 GROUP BY name
 			)
 		)");
 		query.bind(1, setName);
@@ -1466,7 +1556,7 @@ void DB::setPresetReindex(
 			UPDATE sets_presets SET preset_index = ?3
 			WHERE name = ?2
 			AND set_id IN (
-				SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?4 GROUP BY name
+				SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?4 GROUP BY name
 			)
 		)");
 		query.bind(1, setName);
@@ -1483,14 +1573,14 @@ void DB::setPresetDestroy(
 		std::string rnbo_version
 ) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		DELETE FROM sets_presets
 		WHERE name = ?2
 		AND set_id IN (
-			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?3 GROUP BY name
+			SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?3 GROUP BY name
 		)
 	)");
 	query.bind(1, setName);
@@ -1505,14 +1595,14 @@ void DB::setPresetDestroyAll(
 		std::string rnbo_version
 ) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		DELETE FROM sets_presets
 		WHERE
 		set_id IN (
-			SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name
+			SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name
 		)
 	)");
 	query.bind(1, setName);
@@ -1531,9 +1621,9 @@ void DB::setSave(
 	//only 1 set per name per version, simply update if one exists already
 	int64_t id = 0;
 	{
-		SQLite::Statement query(mDB, "SELECT id FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT id FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		if (query.executeStep()) {
 			id = query.getColumn(0);
 		}
@@ -1604,7 +1694,7 @@ void DB::setSave(
 			INSERT INTO sets_patcher_instances
 			(set_id, patcher_id, set_instance_index, config)
 			SELECT ?1, MAX(id), ?3, ?4 FROM patchers
-			WHERE name = ?2 AND runner_rnbo_version = ?5
+			WHERE name = ?2 AND rnbo_compat_version = ?5
 			LIMIT 1
 			)");
 		for (auto& i: info.instances) {
@@ -1613,7 +1703,7 @@ void DB::setSave(
 			query.bind(2, i.patcher_name);
 			query.bind(3, static_cast<int>(i.instance_index));
 			query.bind(4, i.config);
-			query.bind(5, cur_rnbo_version);
+			query.bind(5, cur_rnbo_compat_version);
 
 			query.exec();
 			query.reset();
@@ -1627,7 +1717,7 @@ boost::optional<SetInfo> DB::setGet(
 		std::string rnbo_version
 ) {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
@@ -1635,7 +1725,7 @@ boost::optional<SetInfo> DB::setGet(
 	SetInfo info;
 
 	{
-		SQLite::Statement query(mDB, "SELECT id, meta, created_at, uuid FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT id, meta, created_at, uuid FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (!query.executeStep()) {
@@ -1719,9 +1809,9 @@ bool DB::setDestroy(const std::string& name)
 	//presets get deleted because of on delete cascade
 	{
 		std::lock_guard<std::mutex> guard(mMutex);
-		SQLite::Statement query(mDB, "DELETE FROM sets WHERE name=?1 AND runner_rnbo_version=?2");
+		SQLite::Statement query(mDB, "DELETE FROM sets WHERE name=?1 AND rnbo_compat_version=?2");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		return query.exec() > 0;
 	}
 }
@@ -1731,13 +1821,13 @@ bool DB::setInitial(const std::string& name)
 	//TODO can we do this in a single statement?
 	{
 		std::lock_guard<std::mutex> guard(mMutex); //setNameInitial also grabs mutex
-		SQLite::Statement query(mDB, "UPDATE sets SET initial = CASE WHEN name == ?1 THEN 1 ELSE 0 END WHERE runner_rnbo_version=?2");
+		SQLite::Statement query(mDB, "UPDATE sets SET initial = CASE WHEN name == ?1 THEN 1 ELSE 0 END WHERE rnbo_compat_version=?2");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.exec();
 	}
 	if (name.size() > 0)
-		return setNameInitial(cur_rnbo_version).has_value();
+		return setNameInitial(cur_rnbo_compat_version).has_value();
 	return true;
 }
 
@@ -1746,9 +1836,9 @@ bool DB::setRename(const std::string& oldName, const std::string& newName)
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	{
-		SQLite::Statement query(mDB, "UPDATE OR IGNORE sets SET name=?3 WHERE name=?1 AND runner_rnbo_version=?2");
+		SQLite::Statement query(mDB, "UPDATE OR IGNORE sets SET name=?3 WHERE name=?1 AND rnbo_compat_version=?2");
 		query.bind(1, oldName);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.bind(3, newName);
 		return query.exec() > 0;
 	}
@@ -1802,10 +1892,10 @@ bool DB::setMatchesConnections(const std::string& name, const std::vector<std::s
 boost::optional<std::string> DB::setNameInitial(std::string rnbo_version)
 {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
-	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE runner_rnbo_version = ?1 AND initial = 1 ORDER BY name ASC LIMIT 1");
+	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE rnbo_compat_version = ?1 AND initial = 1 ORDER BY name ASC LIMIT 1");
 	query.bind(1, rnbo_version);
 
 	if (query.executeStep()) {
@@ -1822,10 +1912,10 @@ boost::optional<std::string> DB::setNameByIndex(
 )
 {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
-	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE runner_rnbo_version = ?1 ORDER BY name ASC LIMIT 1 OFFSET ?2");
+	SQLite::Statement query(mDB, "SELECT name FROM sets WHERE rnbo_compat_version = ?1 ORDER BY name ASC LIMIT 1 OFFSET ?2");
 	query.bind(1, rnbo_version);
 	query.bind(2, static_cast<int>(index));
 	if (query.executeStep()) {
@@ -1838,13 +1928,13 @@ boost::optional<std::string> DB::setNameByIndex(
 void DB::sets(std::function<void(const std::string& name, const std::string& created, bool initial)> func, std::string rnbo_version)
 {
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
 		SELECT name, datetime(created_at), initial FROM sets
-		WHERE id IN (SELECT MAX(id) FROM sets WHERE runner_rnbo_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
+		WHERE id IN (SELECT MAX(id) FROM sets WHERE rnbo_compat_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
 	)");
 	query.bind(1, rnbo_version);
 	while (query.executeStep()) {
@@ -1863,12 +1953,12 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 std::vector<int> DB::setViewIndexes(const std::string& setName, std::string rnbo_version) {
 	std::vector<int> indexes;
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 	SQLite::Statement query(mDB, R"(
 		SELECT view_index FROM sets_views
-		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		ORDER BY sort_order ASC
 		)"
 	);
@@ -1888,7 +1978,7 @@ boost::optional<std::tuple<
 >> DB::setViewGet(const std::string& setname, int viewIndex, std::string rnbo_version) {
 	std::lock_guard<std::mutex> guard(mMutex);
 	if (rnbo_version.size() == 0)
-		rnbo_version = cur_rnbo_version;
+		rnbo_version = cur_rnbo_compat_version;
 
 	boost::optional<std::tuple<std::string, std::vector<std::string>, int>> item;
 
@@ -1900,7 +1990,7 @@ boost::optional<std::tuple<
 		SQLite::Statement query(mDB, R"(
 			SELECT id, name, sort_order FROM sets_views
 			WHERE view_index = ?3
-			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 			)"
 		);
 		query.bind(1, setname);
@@ -1988,21 +2078,21 @@ void DB::setViewDestroy(
 	if (viewIndex < 0) {
 		SQLite::Statement query(mDB, R"(
 			DELETE FROM sets_views
-			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			WHERE set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 			)"
 		);
 		query.bind(1, setname);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.exec();
 	} else {
 		SQLite::Statement query(mDB, R"(
 			DELETE FROM sets_views
 			WHERE view_index = ?3
-			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+			AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 			)"
 		);
 		query.bind(1, setname);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, cur_rnbo_compat_version);
 		query.bind(3, viewIndex);
 		query.exec();
 	}
@@ -2042,11 +2132,11 @@ void DB::setViewUpdateName(
 		UPDATE sets_views
 		SET name = ?4
 		WHERE view_index = ?3
-		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND runner_rnbo_version = ?2 GROUP BY name)
+		AND set_id IN (SELECT MAX(id) FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 GROUP BY name)
 		)"
 	);
 	query.bind(1, setname);
-	query.bind(2, cur_rnbo_version);
+	query.bind(2, cur_rnbo_compat_version);
 	query.bind(3, viewIndex);
 	query.bind(4, name);
 
