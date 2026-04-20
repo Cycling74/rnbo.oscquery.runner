@@ -1964,6 +1964,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 
 	auto fname = fs::path(path).filename().string();
 	try {
+		/*
 		//make sure that the version numbers match in the name of the library
 		if (!boost::algorithm::ends_with(fname, rnbo_dylib_suffix)) {
 			std::string errs("the requested library: " + fname + " doesn't match version suffix " + rnbo_dylib_suffix);
@@ -1974,6 +1975,7 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			}
 			return nullptr;
 		}
+		*/
 
 		//activate if we need to
 		if (!tryActivateAudio(true)) {
