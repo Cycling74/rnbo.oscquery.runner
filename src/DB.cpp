@@ -28,10 +28,6 @@ namespace fs = boost::filesystem;
 
 namespace {
 	const std::string cur_rnbo_version(RNBO_VERSION);
-	const std::string cur_rnbo_major(RNBO_VERSION_MAJOR);
-	const std::string cur_rnbo_minor(RNBO_VERSION_MINOR);
-	const std::string cur_rnbo_patch(RNBO_VERSION_PATCH);
-
 	const std::string cur_rnbo_compat_version(RNBO_COMPAT_VERSION);
 
 	const std::regex auto_name_regex(R"(^_auto([0-9]+)$)");
@@ -605,63 +601,79 @@ CREATE TABLE sets_views_params
 	do_migration(20, [](SQLite::Database& db) {
 		auto getRNBOVersionMigration = [](std::string tableName) {
 				std::string sql = R"sql(
-		-- 1. Setup Columns
-		ALTER TABLE {table} ADD COLUMN rnbo_major INTEGER;
-		ALTER TABLE {table} ADD COLUMN rnbo_minor INTEGER;
-		ALTER TABLE {table} ADD COLUMN rnbo_patch INTEGER;
-		ALTER TABLE {table} ADD COLUMN rnbo_compat_version TEXT;
+-- 1. Setup Columns
+ALTER TABLE {table} ADD COLUMN rnbo_compat_version TEXT;
+CREATE INDEX {table}_compat_version ON {table}(rnbo_compat_version);
+CREATE INDEX {table}_name_compat_version ON {table}(name, rnbo_compat_version);
 
-		-- 2. Populate Existing Data
-		UPDATE {table}
-		SET
-			rnbo_major = CAST(SUBSTR(runner_rnbo_version, 1, INSTR(runner_rnbo_version, '.') - 1) AS INTEGER),
-			rnbo_minor = CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER),
-			rnbo_patch = CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER);
+-- 2. Populate Existing Data
+UPDATE {table}
+SET rnbo_compat_version = CASE
+        WHEN CAST(SUBSTR(runner_rnbo_version, 1, INSTR(runner_rnbo_version, '.') - 1) AS INTEGER) >= 2
+            OR (
+                CAST(SUBSTR(runner_rnbo_version, 1, INSTR(runner_rnbo_version, '.') - 1) AS INTEGER) = 1
+                AND CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER) >= 5
+            )
+            THEN CAST(SUBSTR(runner_rnbo_version, 1, INSTR(runner_rnbo_version, '.') - 1) AS TEXT) || '.' ||
+                 CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') - 1) AS TEXT) || '.0'
+        WHEN (
+            CAST(SUBSTR(runner_rnbo_version, 1, INSTR(runner_rnbo_version, '.') - 1) AS INTEGER) = 1
+            AND CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER) = 4
+            AND CAST(SUBSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), INSTR(SUBSTR(runner_rnbo_version, INSTR(runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER) >= 3
+        )
+            THEN '1.4.3'
+        ELSE runner_rnbo_version
+    END;
 
-		UPDATE {table}
-		SET rnbo_compat_version = CASE
-				WHEN (rnbo_major < 1) OR (rnbo_major = 1 AND rnbo_minor < 4) OR (rnbo_major = 1 AND rnbo_minor = 4 AND rnbo_patch < 3)
-				THEN runner_rnbo_version
-				ELSE CAST(rnbo_major AS TEXT) || '.' || CAST(rnbo_minor AS TEXT)
-			END;
+-- 3. Trigger for NEW rows
+CREATE TRIGGER trg_{table}_rnbo_insert
+AFTER INSERT ON {table}
+FOR EACH ROW WHEN NEW.runner_rnbo_version LIKE '%.%.%'
+BEGIN
+    UPDATE {table} SET
+        rnbo_compat_version = CASE
+            WHEN CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) >= 2
+                OR (
+                    CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1
+                    AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) >= 5
+                )
+                THEN CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS TEXT) || '.' ||
+                     CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS TEXT) || '.0'
+            WHEN (
+                CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1
+                AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) = 4
+                AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INT) >= 3
+            )
+                THEN '1.4.3'
+            ELSE NEW.runner_rnbo_version
+        END
+    WHERE rowid = NEW.rowid;
+END;
 
-		-- 3. Trigger for NEW rows
-		CREATE TRIGGER trg_{table}_rnbo_insert
-		AFTER INSERT ON {table}
-		FOR EACH ROW WHEN NEW.runner_rnbo_version LIKE '%.%.%'
-		BEGIN
-			UPDATE {table} SET
-				rnbo_major = CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INTEGER),
-				rnbo_minor = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER),
-				rnbo_patch = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER),
-				rnbo_compat_version = CASE
-					WHEN (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) < 1) OR
-							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) < 4) OR
-							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) = 4 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INT) < 3)
-					THEN NEW.runner_rnbo_version
-					ELSE SUBSTR(NEW.runner_rnbo_version, 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + INSTR(NEW.runner_rnbo_version, '.') - 1)
-				END
-			WHERE rowid = NEW.rowid;
-		END;
-
-		-- 4. Trigger for UPDATED rows
-		CREATE TRIGGER trg_{table}_rnbo_update
-		AFTER UPDATE OF runner_rnbo_version ON {table}
-		FOR EACH ROW WHEN NEW.runner_rnbo_version LIKE '%.%.%' AND (OLD.runner_rnbo_version IS NULL OR NEW.runner_rnbo_version != OLD.runner_rnbo_version)
-		BEGIN
-			UPDATE {table} SET
-				rnbo_major = CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INTEGER),
-				rnbo_minor = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INTEGER),
-				rnbo_patch = CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INTEGER),
-				rnbo_compat_version = CASE
-					WHEN (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) < 1) OR
-							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) < 4) OR
-							 (CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) = 4 AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INT) < 3)
-					THEN NEW.runner_rnbo_version
-					ELSE SUBSTR(NEW.runner_rnbo_version, 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + INSTR(NEW.runner_rnbo_version, '.') - 1)
-				END
-			WHERE rowid = NEW.rowid;
-		END;
+-- 4. Trigger for UPDATED rows
+CREATE TRIGGER trg_{table}_rnbo_update
+AFTER UPDATE OF runner_rnbo_version ON {table}
+FOR EACH ROW WHEN NEW.runner_rnbo_version LIKE '%.%.%' AND (OLD.runner_rnbo_version IS NULL OR NEW.runner_rnbo_version != OLD.runner_rnbo_version)
+BEGIN
+    UPDATE {table} SET
+        rnbo_compat_version = CASE
+            WHEN CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) >= 2
+                OR (
+                    CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1
+                    AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) >= 5
+                )
+                THEN CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS TEXT) || '.' ||
+                     CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS TEXT) || '.0'
+            WHEN (
+                CAST(SUBSTR(NEW.runner_rnbo_version, 1, INSTR(NEW.runner_rnbo_version, '.') - 1) AS INT) = 1
+                AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), 1, INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') - 1) AS INT) = 4
+                AND CAST(SUBSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), INSTR(SUBSTR(NEW.runner_rnbo_version, INSTR(NEW.runner_rnbo_version, '.') + 1), '.') + 1) AS INT) >= 3
+            )
+                THEN '1.4.3'
+            ELSE NEW.runner_rnbo_version
+        END
+    WHERE rowid = NEW.rowid;
+END;
 		)sql";
 
 			size_t pos = 0;
@@ -676,13 +688,6 @@ CREATE TABLE sets_views_params
 			auto sql = getRNBOVersionMigration(table);
 			db.exec(sql);
 		}
-	});
-
-	do_migration(21, [](SQLite::Database& db) {
-			db.exec("CREATE INDEX patcher_compat_version ON patchers(rnbo_compat_version)");
-			db.exec("CREATE INDEX patcher_name_compat_version ON patchers(name, rnbo_compat_version)");
-			db.exec("CREATE INDEX set_compat_version ON sets(rnbo_compat_version)");
-			db.exec("CREATE INDEX set_name_compat_version ON sets(name, rnbo_compat_version)");
 	});
 
 	//turn on foreign_keys support
