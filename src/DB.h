@@ -103,7 +103,8 @@ class DB {
 				int audio_outputs,
 				int midi_inputs,
 				int midi_outputs,
-				std::string uuid = std::string()
+				std::string uuid = std::string(),
+				std::string runner_rnbo_version = std::string()
 		);
 		bool patcherGetLatest(
 				const std::string& name,
@@ -112,6 +113,8 @@ class DB {
 				boost::filesystem::path& rnbo_patch_name,
 				std::string& created_at,
 				std::string& uuid,
+				std::string& compat_version,
+				std::string& patcher_rnbo_version,
 				std::string rnbo_version = std::string()
 		);
 		boost::optional<std::string> patcherNameByIndex(int index);
@@ -119,7 +122,7 @@ class DB {
 		void patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f);
 		void patcherRename(const std::string& name, std::string& newName);
 
-		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&, const std::string&)> f, std::string rnbo_version = std::string());
+		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&, const std::string&, const std::string&)> f, std::string rnbo_version = std::string());
 
 		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial, int presetindex)> f, std::string rnbo_version = std::string());
 		std::vector<int> presetIndexes(const std::string& patchername, std::string rnbo_version = std::string());

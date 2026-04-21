@@ -782,7 +782,8 @@ void DB::patcherStore(
 		int audio_outputs,
 		int midi_inputs,
 		int midi_outputs,
-		std::string uuid
+		std::string uuid,
+		std::string runner_rnbo_version
 		) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
@@ -801,12 +802,16 @@ void DB::patcherStore(
 		uuid = make_uuid();
 	}
 
+	if (runner_rnbo_version.size() == 0) {
+		runner_rnbo_version = cur_rnbo_version;
+	}
+
 	{
 		SQLite::Statement query(mDB, R"(
 			INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name, uuid)
 			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11))");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, runner_rnbo_version);
 		query.bind(3, max_rnbo_version);
 		query.bind(4, so_name.string());
 		query.bind(5, config_name.string());
@@ -866,13 +871,15 @@ void DB::patcherStore(
 	transaction.commit();
 }
 
-bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string& created_at, std::string& uuid, std::string rnbo_version) {
+bool DB::patcherGetLatest(
+	const std::string& name, fs::path& so_name, fs::path& config_name, fs::path& rnbo_patch_name, std::string& created_at,
+	std::string& uuid, std::string& compat_version, std::string& patcher_rnbo_version, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
-		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name, created_at, uuid FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT so_path, config_path, rnbo_patch_name, created_at, uuid, rnbo_compat_version, runner_rnbo_version FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (query.executeStep()) {
@@ -881,6 +888,8 @@ bool DB::patcherGetLatest(const std::string& name, fs::path& so_name, fs::path& 
 			rnbo_patch_name = fs::path(getStringColumn(query, 2));
 			created_at = getStringColumn(query, 3);
 			uuid = getStringColumn(query, 4);
+			compat_version = getStringColumn(query, 5);
+			patcher_rnbo_version = getStringColumn(query, 6);
 			return true;
 		}
 		return false;
@@ -938,14 +947,14 @@ void DB::patcherRename(const std::string& name, std::string& newName) {
 	query.executeStep();
 }
 
-void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&, const std::string&)> func, std::string rnbo_version) {
+void DB::patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&, const std::string&, const std::string&)> func, std::string rnbo_version) {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_compat_version;
 
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, datetime(created_at), uuid, runner_rnbo_version FROM patchers
+		SELECT name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, datetime(created_at), uuid, runner_rnbo_version, rnbo_compat_version FROM patchers
 		WHERE id IN (SELECT MAX(id) FROM patchers WHERE rnbo_compat_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
 	)");
 	query.bind(1, rnbo_version);
@@ -960,8 +969,9 @@ void DB::patchers(std::function<void(const std::string&, int, int, int, int, con
 		std::string created_at = getStringColumn(query, 5);
 		std::string uuid = getStringColumn(query, 6);
 		std::string rnbo_version = getStringColumn(query, 7);
+		std::string compat_version = getStringColumn(query, 8);
 
-		func(name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, created_at, uuid, rnbo_version);
+		func(name, audio_inputs, audio_outputs, midi_inputs, midi_outputs, created_at, uuid, rnbo_version, compat_version);
 	}
 }
 

@@ -107,7 +107,8 @@ class Controller {
 				const std::string& maxRNBOVersion,
 				const RNBO::Json& config,
 				bool migratePresets,
-				std::string uuid = std::string()
+				std::string uuid = std::string(),
+				std::string runner_rnbo_version = std::string()
 		);
 
 		//queue a saveSet, this is thread safe, saveLast will happen in the process() thread

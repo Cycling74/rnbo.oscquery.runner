@@ -56,6 +56,8 @@ namespace {
 	static const std::string runner_version(RUNNER_VERSION);
 	static const std::string runner_git_hash(RUNNER_GIT_HASH);
 	static const std::string rnbo_version(RNBO_VERSION);
+	static const std::string rnbo_compat_version(RNBO_COMPAT_VERSION);
+
 	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
 	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
 
@@ -475,8 +477,10 @@ namespace {
 			fs::path patcherPath;
 			std::string created_at;
 			std::string uuid;
+			std::string compat_version;
+			std::string patcher_rnbo_version;
 
-			if (!db->patcherGetLatest(patchername, libPath, confPath, patcherPath, created_at, uuid, rnboVersion)) {
+			if (!db->patcherGetLatest(patchername, libPath, confPath, patcherPath, created_at, uuid, compat_version, patcher_rnbo_version, rnboVersion)) {
 				std::string msg = "patcher with name: \"" + patchername + " and rnbo version: " + rnboVersion + " not found";
 				throw std::runtime_error(msg);
 			}
@@ -560,6 +564,8 @@ namespace {
 			patcherinfo["name"] = patchername;
 			patcherinfo["created_at"] = created_at;
 			patcherinfo["uuid"] = uuid;
+			patcherinfo["rnbo_compat_version"] = compat_version;
+			patcherinfo["rnbo_version"] = patcher_rnbo_version;
 
 			patchers.push_back(patcherinfo);
 		}
@@ -808,6 +814,7 @@ Controller::Controller(std::string server_name) {
 			std::make_pair("system_name", rnbo_system_name),
 			std::make_pair("system_processor", rnbo_system_processor),
 			std::make_pair("runner_version", runner_version),
+			std::make_pair("rnbo_compatibility_version", rnbo_compat_version),
 			std::make_pair("runner_git_hash", runner_git_hash),
 			std::make_pair("target_id", targetid()),
 			}) {
@@ -2093,7 +2100,9 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 			fs::path patcherPath; //ignored
 			std::string created_at; //ignored
 			std::string uuid; //ignored
-			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, uuid)) {
+			std::string compat_version; //ignored
+			std::string patcher_rnbo_version; //ignored
+			if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, uuid, compat_version, patcher_rnbo_version)) {
 				cerr << "failed to find patcher with name '" << name << "' while loading set, skipping" << std::endl;
 				continue;
 			}
@@ -2303,7 +2312,8 @@ void Controller::patcherStore(
 		const std::string& maxRNBOVersion,
 		const RNBO::Json& conf,
 		bool migrate_presets,
-		std::string uuid
+		std::string uuid,
+		std::string runner_rnbo_version
 		) {
 	int audio_inputs = 0;
 	int audio_outputs = 0;
@@ -2323,7 +2333,7 @@ void Controller::patcherStore(
 		midi_outputs = conf["numMidiOutputPorts"].get<int>();
 	}
 
-	mDB->patcherStore(name, libFile, configFilePath, rnboPatchPath, maxRNBOVersion, migrate_presets, audio_inputs, audio_outputs, midi_inputs, midi_outputs, uuid);
+	mDB->patcherStore(name, libFile, configFilePath, rnboPatchPath, maxRNBOVersion, migrate_presets, audio_inputs, audio_outputs, midi_inputs, midi_outputs, uuid, runner_rnbo_version);
 
 	//save presets
 	if (conf.contains("presets")) {
@@ -2350,7 +2360,7 @@ void Controller::queueSave() {
 }
 
 void Controller::updatePatchersInfo(std::string addedOrUpdated) {
-	mDB->patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at, const std::string& uuid, const std::string& rnbo_version) {
+	mDB->patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at, const std::string& uuid, const std::string& patcher_rnbo_version, const std::string& patcher_compat_version) {
 			if (addedOrUpdated.length() && name != addedOrUpdated) {
 				return;
 			}
@@ -2403,7 +2413,18 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 					n->set(ossia::net::description_attribute{}, "which version of rnbo was used to build this patcher");
 				}
-				p->push_value(rnbo_version);
+				p->push_value(patcher_rnbo_version);
+			}
+
+			{
+				auto n = find_or_create_child(r, "rnbo_compatibility_version");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "what is the compatibility version of this patcher");
+				}
+				p->push_value(patcher_compat_version);
 			}
 
 			{
@@ -2696,8 +2717,8 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 		package_name = info["name"].get<std::string>();
 	}
 
-	if (package_rnbo_version != rnbo_version) {
-		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_version: " + rnbo_version;
+	if (package_rnbo_version != rnbo_compat_version) {
+		std::string msg = "package rnbo_version: " + package_rnbo_version + " does not match current library rnbo_compatibility_version: " + rnbo_compat_version;
 		throw std::runtime_error(msg);
 	}
 
@@ -2740,6 +2761,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 			std::string configFileName;
 			std::string patcherFileName;
 			std::string uuid;
+			std::string patcher_rnbo_version = package_rnbo_version;
 			RNBO::Json config;
 
 			std::string name = entry["name"].get<std::string>();
@@ -2749,6 +2771,9 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 			}
 			if (entry.contains("uuid")) {
 				uuid = entry["uuid"].get<std::string>();
+			}
+			if (entry.contains("rnbo_version")) {
+				patcher_rnbo_version = entry["rnbo_version"].get<std::string>();
 			}
 
 			//check for collisions or explicit opt out
@@ -2777,7 +2802,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 					patcherFileName = src.filename().string();
 				}
 
-				patcherStore(name, libFile, configFileName, patcherFileName, package_rnbo_version, config, false, uuid);
+				patcherStore(name, libFile, configFileName, patcherFileName, patcher_rnbo_version, config, false, uuid, patcher_rnbo_version);
 
 				//TODO I could see wanting to still store presets??
 				if (entry.contains("presets")) {
@@ -3204,8 +3229,10 @@ void Controller::registerCommands() {
 				fs::path patcherName; //ignored
 				std::string created_at; //ignored
 				std::string uuid; //ignored
+				std::string compat_version; //ignored
+				std::string patcher_rnbo_version; //ignored
 				RNBO::Json config;
-				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName, created_at, uuid)) {
+				if (mDB->patcherGetLatest(name, libPath, confPath, patcherName, created_at, uuid, compat_version, patcher_rnbo_version)) {
 					libPath = fs::absolute(mCompileCache / libPath);
 					confPath = fs::absolute(mSourceCache / confPath);
 
@@ -3707,14 +3734,20 @@ void Controller::registerCommands() {
 				i.close();
 
 				std::string maxRNBOVersion = "unknown";
+				std::string runner_rnbo_version = runner_version;
 				if (params.contains("rnbo_version")) {
 					maxRNBOVersion = params["rnbo_version"].get<std::string>();
 				}
+
 				if (params.contains("uuid")) {
 					uuid = params["uuid"].get<std::string>();
 				}
 
-				patcherStore(name, libFile, configFileName, rnboPatchName, maxRNBOVersion, config, migratePresets, uuid);
+				if (params.contains("runner_rnbo_version")) {
+					runner_rnbo_version = params["runner_rnbo_version"].get<std::string>();
+				}
+
+				patcherStore(name, libFile, configFileName, rnboPatchName, maxRNBOVersion, config, migratePresets, uuid, runner_rnbo_version);
 
 				reportCommandResult(id, {
 					{"code", 0},
@@ -3981,7 +4014,9 @@ void Controller::registerCommands() {
 			fs::path patcherName;
 			std::string created_at;
 			std::string uuid;
-			if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, created_at, uuid, rnboVersion)) {
+			std::string compat_version;
+			std::string patcher_rnbo_version;
+			if (mDB->patcherGetLatest(fileName, libPath, confName, patcherName, created_at, uuid, compat_version, patcher_rnbo_version, rnboVersion)) {
 				fs::path contentName = filetype == "patcher" ? patcherName : confName;
 				fs::path filePath = fs::path(mSourceCache) / fs::path(contentName);
 				RNBO::Json content = RNBO::Json::object();
@@ -3993,6 +4028,7 @@ void Controller::registerCommands() {
 					content["filename"] = contentName.string();
 					content["created_at"] = created_at;
 					content["uuid"] = uuid;
+					content["rnbo_compat_version"] = compat_version;
 					readContent = content.dump();
 				} else {
 					reportCommandError(id, static_cast<unsigned int>(FileCommandError::ReadFailed), "cannot find " + filetype + " file");
@@ -4005,7 +4041,7 @@ void Controller::registerCommands() {
 		} else if (filetype == "patchers") {
 			RNBO::Json content = RNBO::Json::array();
 			//get patcher names
-			mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&, const std::string&, const std::string&) {
+			mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&, const std::string&, const std::string&, const std::string&) {
 					content.push_back(v);
 			}, rnboVersion);
 			readContent = content.dump();
@@ -4228,15 +4264,13 @@ void Controller::registerCommands() {
 			[this, fileCmdDir](const std::string& method, const std::string& id, const RNBO::Json& params) {
 				std::string packagename;
 
-				std::string rnboVersion;
+				std::string rnboVersion = rnbo_compat_version;
 				PackageConfig config;
 
 				config.system_pretty_name = mSystemPrettyName;
 
 				if (params.contains("rnbo_version")) {
 					rnboVersion = params["rnbo_version"];
-				} else {
-					rnboVersion = rnbo_version;
 				}
 
 				if (params.contains("include_presets")) {
@@ -4256,7 +4290,7 @@ void Controller::registerCommands() {
 				std::set<std::string> setnames;
 				if (params.contains("all")) {
 					packagename = "all";
-					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&, const std::string&, const std::string&) { patchernames.insert(name); }, rnboVersion);
+					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&, const std::string&, const std::string&, const std::string&) { patchernames.insert(name); }, rnboVersion);
 					mDB->sets([&setnames](const std::string& name, const std::string& /*created*/, bool /*initial*/ ) { setnames.insert(name); }, rnboVersion);
 				} else if (params.contains("set")) {
 					std::string setname = params["set"];
@@ -4277,8 +4311,10 @@ void Controller::registerCommands() {
 					fs::path patcherPath;
 					std::string created_at;
 					std::string uuid;
+					std::string compat_version;
+					std::string patcher_rnbo_version;
 
-					if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, uuid, rnboVersion)) {
+					if (!mDB->patcherGetLatest(name, libPath, confPath, patcherPath, created_at, uuid, compat_version, patcher_rnbo_version, rnboVersion)) {
 						reportCommandError(id, static_cast<unsigned int>(PackageCommandError::NotFound), "patcher does not exist");
 						return;
 					}
