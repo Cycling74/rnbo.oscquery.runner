@@ -119,7 +119,7 @@ class DB {
 		void patcherDestroy(const std::string& name, std::function<void(boost::filesystem::path& so_name, boost::filesystem::path& config_name)> f);
 		void patcherRename(const std::string& name, std::string& newName);
 
-		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&)> f, std::string rnbo_version = std::string());
+		void patchers(std::function<void(const std::string&, int, int, int, int, const std::string&, const std::string&, const std::string&)> f, std::string rnbo_version = std::string());
 
 		void presets(const std::string& patchername, std::function<void(const std::string& name, bool isinitial, int presetindex)> f, std::string rnbo_version = std::string());
 		std::vector<int> presetIndexes(const std::string& patchername, std::string rnbo_version = std::string());

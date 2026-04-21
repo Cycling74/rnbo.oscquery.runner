@@ -2350,7 +2350,7 @@ void Controller::queueSave() {
 }
 
 void Controller::updatePatchersInfo(std::string addedOrUpdated) {
-	mDB->patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at, const std::string& uuid) {
+	mDB->patchers([this, &addedOrUpdated](const std::string& name, int audio_inputs, int audio_outputs, int midi_inputs, int midi_outputs, const std::string& created_at, const std::string& uuid, const std::string& rnbo_version) {
 			if (addedOrUpdated.length() && name != addedOrUpdated) {
 				return;
 			}
@@ -2393,6 +2393,17 @@ void Controller::updatePatchersInfo(std::string addedOrUpdated) {
 					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 				}
 				p->push_value(uuid);
+			}
+
+			{
+				auto n = find_or_create_child(r, "rnbo_version");
+				auto p = n->get_parameter();
+				if (!p) {
+					p = n->create_parameter(ossia::val_type::STRING);
+					n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					n->set(ossia::net::description_attribute{}, "which version of rnbo was used to build this patcher");
+				}
+				p->push_value(rnbo_version);
 			}
 
 			{
@@ -3994,7 +4005,7 @@ void Controller::registerCommands() {
 		} else if (filetype == "patchers") {
 			RNBO::Json content = RNBO::Json::array();
 			//get patcher names
-			mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&, const std::string&) {
+			mDB->patchers([&content](const std::string& v, int, int, int, int, const std::string&, const std::string&, const std::string&) {
 					content.push_back(v);
 			}, rnboVersion);
 			readContent = content.dump();
@@ -4245,7 +4256,7 @@ void Controller::registerCommands() {
 				std::set<std::string> setnames;
 				if (params.contains("all")) {
 					packagename = "all";
-					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&, const std::string&) { patchernames.insert(name); }, rnboVersion);
+					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&, const std::string&, const std::string&) { patchernames.insert(name); }, rnboVersion);
 					mDB->sets([&setnames](const std::string& name, const std::string& /*created*/, bool /*initial*/ ) { setnames.insert(name); }, rnboVersion);
 				} else if (params.contains("set")) {
 					std::string setname = params["set"];
