@@ -1,6 +1,17 @@
 # RNBO Runner Changes
 
 * *current*
+    * relaxed rnbo version requirements
+        * `1.4.3` and later will just have to match major.minor, calling this the compatibility version
+            * for `versions >= 1.4.3 and < 1.5.0` that compatibility version is `1.4.3`
+            * for `versions >= 1.5.0` the compatibility version is `major.minor.0`
+        * reduces needs for migrations
+        * using this for package installation version matching
+        * added OSC endpoints for patcher versions
+            * the rnbo version the patcher was built with: `/rnbo/patchers/<PATCHER NAME>/rnbo_version`
+            * the rnbo compatibility version for the patcher: `/rnbo/patchers/<PATCHER NAME>/rnbo_compatibility_version`
+        * added OSC endpoints for the current compatibility version: `/rnbo/info/rnbo_compatibility_version`
+        * `/rnbo/info/update/migration_available` is now based on compatibility version
     * added optional device midi input filtering
         * OSCQuery endpoint: `/rnbo/inst/<INSTANCE ID>/config/midi_input_channel`
             * set to "all" (default) for no filtering
