@@ -1632,6 +1632,11 @@ void DB::setSave(
 		) {
 	std::lock_guard<std::mutex> guard(mMutex);
 
+	std::string runner_rnbo_version = info.runner_rnbo_version;
+	if (runner_rnbo_version.size() == 0) {
+		runner_rnbo_version = cur_rnbo_version;
+	}
+
 	SQLite::Transaction transaction(mDB);
 
 	//only 1 set per name per version, simply update if one exists already
@@ -1655,7 +1660,7 @@ void DB::setSave(
 	if (id == 0) {
 		SQLite::Statement query(mDB, "INSERT INTO sets (name, runner_rnbo_version, filename, meta, created_at, uuid) VALUES (?1, ?2, ?3, ?4, CASE LENGTH(?5) WHEN 0 THEN datetime('now', 'localtime') ELSE ?5 END, ?6)");
 		query.bind(1, name);
-		query.bind(2, cur_rnbo_version);
+		query.bind(2, runner_rnbo_version);
 		query.bind(3, "DB"); //no longer used
 		query.bind(4, info.meta);
 		query.bind(5, info.created_at);
@@ -1741,7 +1746,7 @@ boost::optional<SetInfo> DB::setGet(
 	SetInfo info;
 
 	{
-		SQLite::Statement query(mDB, "SELECT id, meta, created_at, uuid FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
+		SQLite::Statement query(mDB, "SELECT id, meta, created_at, uuid, runner_rnbo_version FROM sets WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at DESC LIMIT 1");
 		query.bind(1, name);
 		query.bind(2, rnbo_version);
 		if (!query.executeStep()) {
@@ -1753,6 +1758,7 @@ boost::optional<SetInfo> DB::setGet(
 		info.meta = getStringColumn(query, 1);
 		info.created_at = getStringColumn(query, 2);
 		info.uuid = getStringColumn(query, 3);
+		info.runner_rnbo_version = getStringColumn(query, 4);
 	}
 
 	//instance index -> name
@@ -2382,6 +2388,7 @@ RNBO::Json SetInfo::toJson() {
 	return {
 		{"set_info_version", 2},
 		{"created_at", created_at},
+		{"runner_rnbo_version", runner_rnbo_version},
 		{"meta", m},
 		{"instances", inst},
 		{"connections", conn},
@@ -2412,6 +2419,9 @@ SetInfo SetInfo::fromJson(const RNBO::Json& json) {
 			}
 			if (json.contains("uuid") && json["uuid"].is_string()) {
 				info.uuid = json["uuid"].get<std::string>();
+			}
+			if (json.contains("runner_rnbo_version") && json["runner_rnbo_version"].is_string()) {
+				info.runner_rnbo_version = json["runner_rnbo_version"].get<std::string>();
 			}
 		} else {
 			//invalid

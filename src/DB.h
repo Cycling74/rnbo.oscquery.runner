@@ -61,6 +61,7 @@ struct SetInfo {
 	std::string created_at;
 	std::string name;
 	std::string uuid;
+	std::string runner_rnbo_version;
 
 	RNBO::Json toJson();
 	static SetInfo fromJson(const RNBO::Json& json);
