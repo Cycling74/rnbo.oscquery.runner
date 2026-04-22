@@ -1,6 +1,7 @@
 # RNBO Runner Changes
 
 * *current*
+    * added `/rnbo/sets` OSCQuery endpoint that includes graph set `uuid`s for use in package collision detection
     * relaxed rnbo version requirements
         * `1.4.3` and later will just have to match major.minor, calling this the compatibility version
             * for `versions >= 1.4.3 and < 1.5.0` that compatibility version is `1.4.3`
