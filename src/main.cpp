@@ -6,6 +6,7 @@
 
 #include "Controller.h"
 #include "Config.h"
+#include "Util.h"
 
 //for gethostname
 #include <unistd.h>
@@ -92,8 +93,7 @@ int main(int argc, const char * argv[]) {
 	}
 
 	if (options.get("version")) {
-		std::string rnbo_version(RNBO_VERSION);
-		cout << "runner rnbo version: " << rnbo_version << std::endl;
+		cout << "runner rnbo version: " << runner::rnbo_version << std::endl;
 		return 0;
 	}
 

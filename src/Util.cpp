@@ -4,6 +4,7 @@
 #include <iostream>
 #include <chrono>
 #include <iterator>
+#include <algorithm>
 
 namespace runner {
 	std::string render_time_template(const std::string& tmpl) {
@@ -17,5 +18,18 @@ namespace runner {
 		}
 
 		return std::string(filename.data());
+	}
+
+	std::string sanitizeName(std::string n) {
+		n.erase(std::remove_if(n.begin(), n.end(),
+					[](unsigned char x) {
+					return !(std::isalnum(x) || x == '-' || x == '_' || x == '.');
+					}), n.end());
+		return n;
+	}
+
+	std::string targetid() {
+		static const std::string name = sanitizeName(rnbo_system_processor + "-" + rnbo_system_name + "-" + rnbo_compiler_id + "-" + rnbo_compiler_version);
+		return name;
 	}
 }

@@ -14,6 +14,7 @@
 #include "Config.h"
 #include "Defines.h"
 #include "JackAudio.h"
+#include "Util.h"
 #include "PatcherFactory.h"
 #include "RNBO_Version.h"
 #include "RNBO_LoggerImpl.h"
@@ -48,31 +49,13 @@ using std::cout;
 using std::cerr;
 using std::endl;
 using std::chrono::steady_clock;
+using namespace runner;
 
 namespace fs = boost::filesystem;
 namespace bp = boost::process;
 
 namespace {
-	static const std::string runner_version(RUNNER_VERSION);
-	static const std::string runner_git_hash(RUNNER_GIT_HASH);
-	static const std::string rnbo_version(RNBO_VERSION);
-	static const std::string rnbo_compat_version(RNBO_COMPAT_VERSION);
-
-	static const std::string rnbo_system_name(RNBO_SYSTEM_NAME);
-	static const std::string rnbo_system_processor(RNBO_SYSTEM_PROCESSOR);
-
 	const std::vector<std::string> dependencies = { "jack_transport_link", "rnbo-runner-panel" };
-
-#if defined(RNBOOSCQUERY_CXX_COMPILER_ID)
-	static const std::string rnbo_compiler_id = std::string(RNBOOSCQUERY_CXX_COMPILER_ID);
-#else
-	static const std::string rnbo_compiler_id = "unknown";
-#endif
-#if defined(RNBOOSCQUERY_CXX_COMPILER_VERSION)
-	static const std::string rnbo_compiler_version = std::string(RNBOOSCQUERY_CXX_COMPILER_VERSION);
-#else
-	static const std::string rnbo_compiler_version = "unknown";
-#endif
 
 	static std::string build_program("rnbo-compile-so");
 
@@ -178,19 +161,6 @@ namespace {
 	};
 
 	boost::optional<CompileInfo> compileProcess;
-
-	std::string sanitizeName(std::string n) {
-		n.erase(std::remove_if(n.begin(), n.end(),
-					[](unsigned char x) {
-					return !(std::isalnum(x) || x == '-' || x == '_' || x == '.');
-					}), n.end());
-		return n;
-	}
-
-	std::string targetid() {
-		static const std::string name = sanitizeName(rnbo_system_processor + "-" + rnbo_system_name + "-" + rnbo_compiler_id + "-" + rnbo_compiler_version);
-		return name;
-	}
 
 	fs::path packagedir(std::string rnboVersion) {
 		return config::get<fs::path>(config::key::PackageDir).get() / sanitizeName(rnboVersion);
