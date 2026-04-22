@@ -688,6 +688,15 @@ END;
 		}
 	});
 
+	//add target_id to patchers
+	do_migration(21, [](SQLite::Database& db) {
+		std::string id = runner::targetid();
+		db.exec("ALTER TABLE patchers ADD COLUMN target_id TEXT;");
+		SQLite::Statement query(db, "UPDATE patchers SET target_id = ?1");
+		query.bind(1, id);
+		query.exec();
+	});
+
 	//turn on foreign_keys support
 	mDB.exec("PRAGMA foreign_keys=on");
 	//clean up a bit
@@ -805,9 +814,10 @@ void DB::patcherStore(
 	}
 
 	{
+		std::string targetid = runner::targetid();
 		SQLite::Statement query(mDB, R"(
 			INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name, uuid)
-			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11))");
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12))");
 		query.bind(1, name);
 		query.bind(2, runner_rnbo_version);
 		query.bind(3, max_rnbo_version);
@@ -819,6 +829,7 @@ void DB::patcherStore(
 		query.bind(9, midi_outputs);
 		query.bind(10, rnbo_patch_name.string());
 		query.bind(11, uuid);
+		query.bind(12, targetid);
 		query.exec();
 	}
 
