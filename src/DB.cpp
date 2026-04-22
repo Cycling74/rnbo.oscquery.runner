@@ -1947,7 +1947,7 @@ boost::optional<std::string> DB::setNameByIndex(
 	return boost::none;
 }
 
-void DB::sets(std::function<void(const std::string& name, const std::string& created, bool initial)> func, std::string rnbo_version)
+void DB::sets(std::function<void(const std::string& name, const std::string& created, bool initial, const std::string& uuid)> func, std::string rnbo_version)
 {
 	if (rnbo_version.size() == 0)
 		rnbo_version = cur_rnbo_compat_version;
@@ -1955,20 +1955,17 @@ void DB::sets(std::function<void(const std::string& name, const std::string& cre
 	std::lock_guard<std::mutex> guard(mMutex);
 
 	SQLite::Statement query(mDB, R"(
-		SELECT name, datetime(created_at), initial FROM sets
+		SELECT name, datetime(created_at), initial, uuid FROM sets
 		WHERE id IN (SELECT MAX(id) FROM sets WHERE rnbo_compat_version = ?1 GROUP BY name) ORDER BY name, created_at DESC
 	)");
 	query.bind(1, rnbo_version);
 	while (query.executeStep()) {
-		const char * s = query.getColumn(0);
-		std::string name(s);
-
-		s = query.getColumn(1);
-		std::string created_at(s);
-
+		std::string name = getStringColumn(query, 0);
+		std::string created_at = getStringColumn(query, 1);
 		int initial = query.getColumn(2);
+		std::string uuid = getStringColumn(query, 3);
 
-		func(name, created_at, initial != 0);
+		func(name, created_at, initial != 0, uuid);
 	}
 }
 

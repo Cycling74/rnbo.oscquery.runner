@@ -266,7 +266,7 @@ class DB {
 		);
 
 		void sets(
-				std::function<void(const std::string& name, const std::string& created, bool initial)> func,
+				std::function<void(const std::string& name, const std::string& created, bool initial, const std::string& uuid)> func,
 				std::string rnbo_version = std::string()
 		);
 

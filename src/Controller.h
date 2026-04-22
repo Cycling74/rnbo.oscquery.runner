@@ -157,6 +157,7 @@ class Controller {
 		ossia::net::parameter_base * mResponseParam = nullptr;
 		ossia::net::node_base * mInstanceLoadNode;
 		ossia::net::node_base * mPatchersNode;
+		ossia::net::node_base * mSetsNode;
 
 		ossia::net::node_base * mSetLoadNode = nullptr;
 		ossia::net::node_base * mSetPresetLoadNode = nullptr;
@@ -177,6 +178,7 @@ class Controller {
 		std::mutex mSetNamesMutex;
 		bool mSetNamesUpdated = false;
 		std::vector<ossia::value> mSetNames;
+		std::unordered_map<std::string, std::string> mSetUUIDs;
 
 		std::mutex mSetPresetNamesMutex;
 		bool mSetPresetNamesUpdated = false;

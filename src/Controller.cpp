@@ -1034,6 +1034,9 @@ Controller::Controller(std::string server_name) {
 	mPatchersNode = root->create_child("patchers");
 	mPatchersNode->set(ossia::net::description_attribute{}, "patcher descriptions");
 
+	mSetsNode = root->create_child("sets");
+	mSetsNode->set(ossia::net::description_attribute{}, "graph set descriptions");
+
 	updatePatchersInfo();
 
 	mInstancesNode = root->create_child("inst");
@@ -2493,10 +2496,12 @@ void Controller::destroyPatcher(const std::string& name) {
 void Controller::updateSetNames() {
 	std::lock_guard<std::mutex> guard(mSetNamesMutex);
 	mSetNames.clear();
+	mSetUUIDs.clear();
 	std::string initialName;
-	mDB->sets([this, &initialName](const std::string& name, const std::string& /*created*/, bool initial) {
+	mDB->sets([this, &initialName](const std::string& name, const std::string& /*created*/, bool initial, const std::string& uuid) {
 			if (name != UNTITLED_SET_NAME) {
 				mSetNames.push_back(name);
+				mSetUUIDs.insert({name, uuid});
 				if (initial) {
 					initialName = name;
 				}
@@ -3001,6 +3006,38 @@ bool Controller::processEvents() {
 				ossia::set_values(dom, mSetNames);
 				mSetLoadNode->set(ossia::net::domain_attribute{}, dom);
 				mSetLoadNode->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+
+					//remove any that have gone away
+					std::set<std::string> remove;
+					for (const auto& c: mSetsNode->children()) {
+						auto name = c->get_name();
+						if (mSetUUIDs.find(name) == mSetUUIDs.end()) {
+							remove.insert(name);
+						}
+					}
+
+					for (auto name: remove) {
+						mSetsNode->remove_child(name);
+					}
+
+					for (const auto& kv: mSetUUIDs) {
+						const std::string& name = kv.first;
+						const std::string& uuid = kv.second;
+						auto r = find_or_create_child(mSetsNode, name);
+						auto n = find_or_create_child(r, "uuid");
+						auto p = n->get_parameter();
+						if (!p) {
+							p = n->create_parameter(ossia::val_type::STRING);
+							n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+							p->push_value(uuid);
+						} else if (p->value().get<std::string>() != uuid) {
+							p->push_value(uuid);
+						}
+					}
+				}
 			}
 		}
 		{
@@ -3967,7 +4004,7 @@ void Controller::registerCommands() {
 			readContent = content.dump();
 		} else if (filetype == "sets") {
 			std::vector<std::string> names;
-			mDB->sets([&names](const std::string& n, const std::string&, bool initial) { names.push_back(n); }, rnboVersion);
+			mDB->sets([&names](const std::string& n, const std::string&, bool initial, const std::string&) { names.push_back(n); }, rnboVersion);
 
 			RNBO::Json content = RNBO::Json::object();
 			for (auto name: names) {
@@ -4291,7 +4328,7 @@ void Controller::registerCommands() {
 				if (params.contains("all")) {
 					packagename = "all";
 					mDB->patchers([&patchernames](const std::string& name, int, int, int, int, const std::string&, const std::string&, const std::string&, const std::string&) { patchernames.insert(name); }, rnboVersion);
-					mDB->sets([&setnames](const std::string& name, const std::string& /*created*/, bool /*initial*/ ) { setnames.insert(name); }, rnboVersion);
+					mDB->sets([&setnames](const std::string& name, const std::string& /*created*/, bool /*initial*/, const std::string&) { setnames.insert(name); }, rnboVersion);
 				} else if (params.contains("set")) {
 					std::string setname = params["set"];
 					setnames.insert(setname);
