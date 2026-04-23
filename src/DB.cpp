@@ -816,7 +816,7 @@ void DB::patcherStore(
 	{
 		std::string targetid = runner::targetid();
 		SQLite::Statement query(mDB, R"(
-			INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name, uuid)
+			INSERT INTO patchers (name, runner_rnbo_version, max_rnbo_version, so_path, config_path, audio_inputs, audio_outputs, midi_inputs, midi_outputs, rnbo_patch_name, uuid, target_id)
 			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12))");
 		query.bind(1, name);
 		query.bind(2, runner_rnbo_version);
