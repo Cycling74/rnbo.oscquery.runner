@@ -2283,7 +2283,7 @@ void Instance::handleNormalizedFloatParamOscUpdate(RNBO::ParameterIndex index, c
 
 			//is it enum?
 			if (info.valToName.size()) {
-				auto name = info.valToName.find(static_cast<int>(unnorm));
+				auto name = info.valToName.find(static_cast<int>(std::round(unnorm)));
 				if (name != info.valToName.end()) {
 					info.param->push_value(name->second);
 					info.push_osc(name->second, f, mOSCCallback);
