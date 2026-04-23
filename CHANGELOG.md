@@ -1,6 +1,7 @@
 # RNBO Runner Changes
 
 * *current*
+    * bugfix: rounding error with enumerated params [ticket](https://github.com/Cycling74/rnbo.move.control/issues/16)
     * added `/rnbo/sets` OSCQuery endpoint that includes graph set `uuid`s for use in package collision detection
     * relaxed rnbo version requirements
         * `1.4.3` and later will just have to match major.minor, calling this the compatibility version
