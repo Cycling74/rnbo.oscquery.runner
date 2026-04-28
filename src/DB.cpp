@@ -754,11 +754,12 @@ void DB::markDataMigrated() {
 	query.exec();
 }
 
-bool DB::patcherExistsWithUUID(const std::string& uuid) {
-	//TODO should we check rnbo version??
+bool DB::patcherLatestExistsWithUUID(const std::string& name, const std::string& uuid) {
 	std::lock_guard<std::mutex> guard(mMutex);
-	SQLite::Statement query(mDB, "SELECT COUNT(*) from patchers WHERE uuid = ?1");
-	query.bind(1, uuid);
+	SQLite::Statement query(mDB, "SELECT COUNT(*) FROM patchers WHERE uuid = ?3 AND id IN (SELECT MAX(id) FROM patchers WHERE name = ?1 AND rnbo_compat_version = ?2)");
+	query.bind(1, name);
+	query.bind(2, runner::rnbo_compat_version);
+	query.bind(3, uuid);
 	if (query.executeStep()) {
 		int cnt = query.getColumn(0);
 		return cnt > 0;

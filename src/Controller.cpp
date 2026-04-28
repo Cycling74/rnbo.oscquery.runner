@@ -2752,7 +2752,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 			}
 
 			//check for collisions or explicit opt out
-			bool skip = options.skip_patchers.contains(name) || (uuid.size() > 0 && mDB->patcherExistsWithUUID(uuid));
+			bool skip = options.skip_patchers.contains(name) || (uuid.size() > 0 && mDB->patcherLatestExistsWithUUID(name, uuid));
 			if (options.force || !skip) {
 				{
 					fs::path src = fs::path(entry["binaries"][target].get<std::string>());

@@ -89,7 +89,7 @@ class DB {
 		boost::optional<std::string> migrationDataAvailable();
 		void markDataMigrated();
 
-		bool patcherExistsWithUUID(const std::string& uuid);
+		bool patcherLatestExistsWithUUID(const std::string& name, const std::string& uuid);
 		bool setExistsWithUUID(const std::string& uuid);
 
 		//NOTE paths are all just file names, use conf to find the actual locations
