@@ -4882,10 +4882,19 @@ void Controller::updateDiskStats() {
 void Controller::updateDatafileStats() {
 	auto dir = fs::absolute(config::get<fs::path>(config::key::DataFileDir).get());
 	if (fs::exists(dir)) {
-		auto time = fs::last_write_time(dir);
+		auto maxTime = fs::last_write_time(dir);
+
+		boost::system::error_code ec;
+		for (auto& entry : fs::recursive_directory_iterator(dir, ec)) {
+			if (fs::is_directory(entry.status())) {
+				auto t = fs::last_write_time(entry.path(), ec);
+				if (!ec && t > maxTime)
+					maxTime = t;
+			}
+		}
 
 		char timeString[std::size("yyyy-mm-ddThh:mm:ssZ")];
-		std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&time));
+		std::strftime(std::data(timeString), std::size(timeString), "%FT%TZ", std::gmtime(&maxTime));
 
 		std::string s(timeString);
 
