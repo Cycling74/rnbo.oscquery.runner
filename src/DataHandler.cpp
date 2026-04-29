@@ -848,7 +848,7 @@ void RunnerExternalDataHandler::load(const std::string& datarefId, const fs::pat
 		}
 	}
 
-	if (!fs::exists(filePath)) {
+	if (!filePath.empty() && !fs::exists(filePath)) {
 		std::cerr << "no file at " << filePath << std::endl;
 		reset();
 		return;
