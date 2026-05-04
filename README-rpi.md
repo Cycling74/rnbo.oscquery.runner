@@ -243,17 +243,28 @@ brew install gnupg
 to create a package and upload it, from a mac, in the root of this repo.
 ```shell
 ./build-rpi.sh
+
 aptly -distribution=bookworm repo create bookworm-rpi
 aptly repo create -distribution=bookworm -component=extra bookworm-rpi-extra
 aptly repo create -distribution=bookworm -component=beta bookworm-rpi-beta
+
+aptly -distribution=trixie repo create trixie-rpi
+aptly repo create -distribution=trixie -component=extra trixie-rpi-extra
+aptly repo create -distribution=trixie -component=beta trixie-rpi-beta
+
 aptly repo add bookworm-rpi-extra ~/Documents/bookworm/jack_transport_link_0.0.8-1_armhf.deb
 aptly repo add bookworm-rpi ./examples/rnbo.oscquery.runner/update/build-rpi/rnbo-update-service_0.2.6-1_armhf.deb
 aptly publish repo -component=,, -passphrase-file=/home/runner/.apt-gpg.txt bookworm-rpi bookworm-rpi-extra bookworm-rpi-beta s3:c74:
+
+aptly repo add trixie-rpi-extra ~/Documents/trixie/jack_transport_link_0.0.13-1_arm64.deb
+aptly repo add trixie-rpi ./examples/rnbo.oscquery.runner/update/build-rpi/rnbo-update-service_0.2.6-1_arm64.deb
+aptly publish repo -component=,, -passphrase-file=/home/runner/.apt-gpg.txt trixie-rpi trixie-rpi-extra trixie-rpi-beta s3:c74:
 ```
 
 to update the repo
 ```shell
 aptly publish update bookworm s3:c74:
+aptly publish update trixie s3:c74:
 ```
 
 to overwrite a package
@@ -347,7 +358,7 @@ Then remove the SD card and do a backup.
     * update `extract_sha256`
         * get value from: `shasum -a 256 2026-03-09-raspios-lite.img`
     * update `image_download_size`
-        * get value from: `ls -l raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
+        * `ls -l raspios-bookworm-lite-32bit-rnbooscquery-1.4.3.img.zip`
 * save the file
 * upload the `.img.zip` and `repo.json` to the server
 
