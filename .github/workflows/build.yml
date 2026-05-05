@@ -10,7 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: xnor/rnbo-runner-xpile:0.1
-      options: --user build
+      options: --user root
+      env:
+        HOME: /home/build
+        PATH: /home/build/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,7 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: xnor/rnbo-runner-xpile:0.1
-      options: --user build
+      options: --user root
+      env:
+        HOME: /home/build
+        PATH: /home/build/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
         with:
