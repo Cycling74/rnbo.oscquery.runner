@@ -11,9 +11,6 @@ jobs:
     container:
       image: xnor/rnbo-runner-xpile:0.1
       options: --user root
-      env:
-        HOME: /home/build
-        PATH: /home/build/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,14 +23,8 @@ jobs:
           echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
       - name: Build rpi32
         run: |
-          mkdir -p build-rpi32
-          cd build-rpi32 && cmake \
-            -DRNBO_CONAN_VERSION=${{ steps.parse.outputs.rnbo_version }} \
-            -DRNBO_CONAN_TAG=c74/stable \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
-            -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
-            .. && make -j$(nproc) && cpack
+          chown -R build:build "$GITHUB_WORKSPACE"
+          su - build -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && mkdir -p build-rpi32 && cd build-rpi32 && cmake -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' -DRNBO_CONAN_TAG=c74/stable -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf .. && make -j\$(nproc) && cpack"
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
@@ -45,9 +36,6 @@ jobs:
     container:
       image: xnor/rnbo-runner-xpile:0.1
       options: --user root
-      env:
-        HOME: /home/build
-        PATH: /home/build/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,14 +48,8 @@ jobs:
           echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
       - name: Build rpi64
         run: |
-          mkdir -p build-rpi64
-          cd build-rpi64 && cmake \
-            -DRNBO_CONAN_VERSION=${{ steps.parse.outputs.rnbo_version }} \
-            -DRNBO_CONAN_TAG=c74/stable \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
-            -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-            .. && make -j$(nproc) && cpack
+          chown -R build:build "$GITHUB_WORKSPACE"
+          su - build -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && mkdir -p build-rpi64 && cd build-rpi64 && cmake -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' -DRNBO_CONAN_TAG=c74/stable -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 .. && make -j\$(nproc) && cpack"
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
