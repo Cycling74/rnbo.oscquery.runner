@@ -1,0 +1,73 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*-[0-9]*'
+
+jobs:
+  build-rpi32:
+    runs-on: ubuntu-latest
+    container:
+      image: xnor/rnbo-runner-xpile:0.1
+      options: --user root
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${{ github.ref_name }}"
+          RNBO_VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-[0-9]*$//')
+          echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
+      - name: Build rpi32
+        run: |
+          mkdir -p build-rpi32
+          cd build-rpi32
+          cmake \
+            -DRNBO_CONAN_VERSION=${{ steps.parse.outputs.rnbo_version }} \
+            -DRNBO_CONAN_TAG=c74/stable \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+            -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
+            .. && make -j$(nproc) && cpack
+      - name: Upload deb
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build-rpi32/*.deb
+
+  build-rpi64:
+    runs-on: ubuntu-latest
+    container:
+      image: xnor/rnbo-runner-xpile:0.1
+      options: --user root
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${{ github.ref_name }}"
+          RNBO_VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-[0-9]*$//')
+          echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
+      - name: Build rpi64
+        run: |
+          mkdir -p build-rpi64
+          cd build-rpi64
+          cmake \
+            -DRNBO_CONAN_VERSION=${{ steps.parse.outputs.rnbo_version }} \
+            -DRNBO_CONAN_TAG=c74/stable \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+            -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+            .. && make -j$(nproc) && cpack
+      - name: Upload deb
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build-rpi64/*.deb
