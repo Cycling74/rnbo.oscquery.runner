@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: xnor/rnbo-runner-xpile:0.1
-      options: --user root
+      options: --user build
     permissions:
       contents: write
     steps:
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: xnor/rnbo-runner-xpile:0.1
-      options: --user root
+      options: --user build
     permissions:
       contents: write
     steps:
