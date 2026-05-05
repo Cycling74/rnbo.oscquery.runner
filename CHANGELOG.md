@@ -1,5 +1,7 @@
 # RNBO Runner Changes
 
+* *1.4.4-7*
+    * update build infrastructure to allow for github based builds
 * *1.4.4-6*
     * bugfix: restore clearing out dataref mapping thru sending an empty string
     * bugfix: rounding error with enumerated params [ticket](https://github.com/Cycling74/rnbo.move.control/issues/16)
