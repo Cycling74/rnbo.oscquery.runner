@@ -1,0 +1,62 @@
+name: Build and Release Update Service
+
+on:
+  push:
+    tags:
+      - 'update_v*-[0-9]*'
+
+jobs:
+  build-rpi32:
+    runs-on: ubuntu-latest
+    container:
+      image: xnor/rnbo-runner-xpile:0.1
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build rpi32
+        run: |
+          chown -R build:build "$GITHUB_WORKSPACE"
+          su - build -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && mkdir -p build-rpi32-update && cd build-rpi32-update && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf ../update && make -j\$(nproc) && cpack"
+      - name: Store deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi32-update-deb
+          path: build-rpi32-update/*.deb
+
+  build-rpi64:
+    runs-on: ubuntu-latest
+    container:
+      image: xnor/rnbo-runner-xpile:0.1
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build rpi64
+        run: |
+          chown -R build:build "$GITHUB_WORKSPACE"
+          su - build -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && mkdir -p build-rpi64-update && cd build-rpi64-update && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 ../update && make -j\$(nproc) && cpack"
+      - name: Store deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi64-update-deb
+          path: build-rpi64-update/*.deb
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-rpi32, build-rpi64]
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'rpi*-update-deb'
+          merge-multiple: true
+          path: debs
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: debs/*.deb
