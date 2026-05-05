@@ -10,9 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: xnor/rnbo-runner-xpile:0.1
-      options: --user root
-    permissions:
-      contents: write
+      options: --user build
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,26 +24,24 @@ jobs:
       - name: Build rpi32
         run: |
           mkdir -p build-rpi32
-          chown build:build build-rpi32
-          su - build -s /bin/bash -c "cd $GITHUB_WORKSPACE/build-rpi32 && cmake \
+          cd build-rpi32 && cmake \
             -DRNBO_CONAN_VERSION=${{ steps.parse.outputs.rnbo_version }} \
             -DRNBO_CONAN_TAG=c74/stable \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
             -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
-            .. && make -j$(nproc) && cpack"
-      - name: Upload deb
-        uses: softprops/action-gh-release@v2
+            .. && make -j$(nproc) && cpack
+      - name: Store deb
+        uses: actions/upload-artifact@v4
         with:
-          files: build-rpi32/*.deb
+          name: rpi32-deb
+          path: build-rpi32/*.deb
 
   build-rpi64:
     runs-on: ubuntu-latest
     container:
       image: xnor/rnbo-runner-xpile:0.1
-      options: --user root
-    permissions:
-      contents: write
+      options: --user build
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,15 +55,32 @@ jobs:
       - name: Build rpi64
         run: |
           mkdir -p build-rpi64
-          chown build:build build-rpi64
-          su - build -s /bin/bash -c "cd $GITHUB_WORKSPACE/build-rpi64 && cmake \
+          cd build-rpi64 && cmake \
             -DRNBO_CONAN_VERSION=${{ steps.parse.outputs.rnbo_version }} \
             -DRNBO_CONAN_TAG=c74/stable \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
             -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-            .. && make -j$(nproc) && cpack"
-      - name: Upload deb
+            .. && make -j$(nproc) && cpack
+      - name: Store deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpi64-deb
+          path: build-rpi64/*.deb
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-rpi32, build-rpi64]
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'rpi*-deb'
+          merge-multiple: true
+          path: debs
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: build-rpi64/*.deb
+          files: debs/*.deb
