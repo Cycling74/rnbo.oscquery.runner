@@ -74,6 +74,7 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
               -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+              -DSUPPORT_COMPILE=Off \
               ..
             make -j\$(nproc)
             cpack
