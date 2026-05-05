@@ -18,7 +18,19 @@ jobs:
       - name: Build rpi32
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
-          su - build -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && mkdir -p build-rpi32-update && cd build-rpi32-update && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf ../update && make -j\$(nproc) && cpack"
+          su - build -s /bin/bash -c "
+            set -e
+            cd '$GITHUB_WORKSPACE'
+            mkdir -p build-rpi32-update
+            cd build-rpi32-update
+            cmake \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+              -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
+              ../update
+            make -j\$(nproc)
+            cpack
+          "
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
@@ -37,7 +49,19 @@ jobs:
       - name: Build rpi64
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
-          su - build -s /bin/bash -c "cd '$GITHUB_WORKSPACE' && mkdir -p build-rpi64-update && cd build-rpi64-update && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 ../update && make -j\$(nproc) && cpack"
+          su - build -s /bin/bash -c "
+            set -e
+            cd '$GITHUB_WORKSPACE'
+            mkdir -p build-rpi64-update
+            cd build-rpi64-update
+            cmake \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+              -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+              ../update
+            make -j\$(nproc)
+            cpack
+          "
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
