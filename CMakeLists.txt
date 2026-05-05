@@ -155,8 +155,30 @@ endif()
 
 #dbus on linux
 if (WITH_DBUS)
-	#handle sdbus for linux, common between this and the update lib
-	find_package(sdbus-c++ 0.8.3 REQUIRED)
+	# sdbus-cpp is fetched via FetchContent rather than conan because:
+	# 1. We statically link libstdc++ to avoid runtime version mismatches across distros,
+	#    so sdbus-c++ must also be static — otherwise the dynamically linked sdbus-c++
+	#    would pull in the system libstdc++, giving two libstdc++ instances in one process.
+	# 2. The sdbus-cpp conan recipe transitively builds libsystemd from source, which
+	#    requires gperf as a build tool. In our cross-compile setup conan incorrectly
+	#    tries to build gperf for the target arch, causing configure failures.
+	# FetchContent builds sdbus-cpp statically against the system libsystemd, which is
+	# already installed in the cross-compile sysroot (libsystemd-dev:arm64/armhf).
+	include(FetchContent)
+	FetchContent_Declare(sdbus-cpp
+		GIT_REPOSITORY https://github.com/Kistler-Group/sdbus-cpp.git
+		GIT_TAG        v1.5.0
+	)
+	set(SDBUSCPP_BUILD_LIBSYSTEMD OFF CACHE BOOL "")
+	set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
+	FetchContent_GetProperties(sdbus-cpp)
+	if(NOT sdbus-cpp_POPULATED)
+		FetchContent_Populate(sdbus-cpp)
+		add_subdirectory(${sdbus-cpp_SOURCE_DIR} ${sdbus-cpp_BINARY_DIR} EXCLUDE_FROM_ALL)
+	endif()
+	if(NOT TARGET SDBusCpp::sdbus-c++)
+		add_library(SDBusCpp::sdbus-c++ ALIAS sdbus-c++)
+	endif()
 	add_definitions(-DRNBO_USE_DBUS)
 	list(APPEND PROJECT_SRC src/RnboUpdateServiceProxy.cpp)
 endif()
@@ -525,10 +547,10 @@ if (LINUX)
 		endif()
 		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
 
-		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
+		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
 
-		if (WITH_DBUS)
-			SET(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, libsdbus-c++0 (>= 0.8.3)")
+		if (SUPPORT_COMPILE)
+			SET(CPACK_DEBIAN_PACKAGE_DEPENDS "${CPACK_DEBIAN_PACKAGE_DEPENDS}, ruby (>= 1:2.5), cmake (>= 3.13.4), g++ (>= 4:8.3)")
 		endif()
 
 		#packages that are also installed by default but don't have to be
