@@ -1,5 +1,8 @@
 # RNBO Runner Changes
 
+* *1.4.4-8*
+    * update build infrastructure to fix armv7 based builds
+        * was incorrectly calling the arch `arm` instead of `armv7`, that broke cloud compiler builds
 * *1.4.4-7*
     * update build infrastructure to allow for github based builds
 * *1.4.4-6*
