@@ -1,0 +1,36 @@
+tools=/usr/bin/
+target_host=aarch64-linux-gnu
+
+[settings]
+os=Linux
+os_build=Linux
+arch=armv8
+arch_build=x86_64
+compiler=gcc
+compiler.version=12
+compiler.libcxx=libstdc++11
+build_type=Release
+
+[conf]
+tools.build:sysroot=/
+
+[env]
+CONAN_CMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc12.cmake
+
+[buildenv]
+CONAN_CMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu/
+SYSROOT=/
+CHOST=aarch64-linux-gnu
+AS=$tools/aarch64-linux-gnu-as
+AR=$tools/aarch64-linux-gnu-gcc-ar-12
+RANLIB=$tools/aarch64-linux-gnu-gcc-ranlib-12
+LD=$tools/aarch64-linux-gnu-ld
+STRIP=$tools/aarch64-linux-gnu-strip
+CC=$tools/aarch64-linux-gnu-gcc-12
+CXX=$tools/aarch64-linux-gnu-g++-12
+CFLAGS=-mcpu=cortex-a72 -march=armv8-a+crc -mbranch-protection=standard
+CXXFLAGS=-mcpu=cortex-a72 -march=armv8-a+crc -mbranch-protection=standard
+ASFLAGS=-mcpu=cortex-a72 -march=armv8-a+crc -mbranch-protection=standard
+LDFLAGS=
+PKG_CONFIG_SYSROOT_DIR=/
+PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig

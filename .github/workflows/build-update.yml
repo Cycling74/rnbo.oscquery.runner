@@ -1,9 +1,9 @@
-name: Build and Release
+name: Build and Release Update Service
 
 on:
   push:
     tags:
-      - 'v*-[0-9]*'
+      - 'update_v*-[0-9]*'
 
 jobs:
   build-rpi32:
@@ -15,36 +15,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Parse tag
-        id: parse
-        run: |
-          TAG="${{ github.ref_name }}"
-          RNBO_VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-[0-9]*$//')
-          echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
       - name: Build rpi32
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
           su - build -s /bin/bash -c "
             set -e
             cd '$GITHUB_WORKSPACE'
-            mkdir -p build-rpi32
-            cd build-rpi32
+            mkdir -p build-rpi32-update
+            cd build-rpi32-update
             cmake \
-              -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' \
-              -DRNBO_CONAN_TAG=c74/stable \
               -DCMAKE_BUILD_TYPE=Release \
-              -DSUPPORT_COMPILE=On \
               -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc12.cmake \
               -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
-              ..
+              ../update
             make -j\$(nproc)
             cpack
           "
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
-          name: rpi32-deb
-          path: build-rpi32/*.deb
+          name: rpi32-update-deb
+          path: build-rpi32-update/*.deb
 
   build-rpi64:
     runs-on: ubuntu-latest
@@ -55,36 +46,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Parse tag
-        id: parse
-        run: |
-          TAG="${{ github.ref_name }}"
-          RNBO_VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-[0-9]*$//')
-          echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
       - name: Build rpi64
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
           su - build -s /bin/bash -c "
             set -e
             cd '$GITHUB_WORKSPACE'
-            mkdir -p build-rpi64
-            cd build-rpi64
+            mkdir -p build-rpi64-update
+            cd build-rpi64-update
             cmake \
-              -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' \
-              -DRNBO_CONAN_TAG=c74/stable \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
               -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-              -DSUPPORT_COMPILE=Off \
-              ..
+              ../update
             make -j\$(nproc)
             cpack
           "
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
-          name: rpi64-deb
-          path: build-rpi64/*.deb
+          name: rpi64-update-deb
+          path: build-rpi64-update/*.deb
 
   release:
     runs-on: ubuntu-latest
@@ -95,7 +77,7 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: 'rpi*-deb'
+          pattern: 'rpi*-update-deb'
           merge-multiple: true
           path: debs
       - name: Publish release
