@@ -33,7 +33,8 @@ jobs:
               -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' \
               -DRNBO_CONAN_TAG=c74/stable \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+              -DSUPPORT_COMPILE=On \
+              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc12.cmake \
               -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
               ..
             make -j\$(nproc)
