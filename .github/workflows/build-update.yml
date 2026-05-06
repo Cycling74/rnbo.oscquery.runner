@@ -9,7 +9,7 @@ jobs:
   build-rpi32:
     runs-on: ubuntu-latest
     container:
-      image: xnor/rnbo-runner-xpile:0.1
+      image: xnor/rnbo-runner-xpile:0.2
       options: --user root
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +25,7 @@ jobs:
             cd build-rpi32-update
             cmake \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc12.cmake \
               -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
               ../update
             make -j\$(nproc)
@@ -40,7 +40,7 @@ jobs:
   build-rpi64:
     runs-on: ubuntu-latest
     container:
-      image: xnor/rnbo-runner-xpile:0.1
+      image: xnor/rnbo-runner-xpile:0.2
       options: --user root
     steps:
       - uses: actions/checkout@v4

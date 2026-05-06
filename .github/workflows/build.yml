@@ -9,7 +9,7 @@ jobs:
   build-rpi32:
     runs-on: ubuntu-latest
     container:
-      image: xnor/rnbo-runner-xpile:0.1
+      image: xnor/rnbo-runner-xpile:0.2
       options: --user root
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
   build-rpi64:
     runs-on: ubuntu-latest
     container:
-      image: xnor/rnbo-runner-xpile:0.1
+      image: xnor/rnbo-runner-xpile:0.2
       options: --user root
     steps:
       - uses: actions/checkout@v4
