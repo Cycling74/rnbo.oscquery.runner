@@ -19,8 +19,10 @@ RUN apt-get update && \
     apt-get install -y \
     curl file wget \
     git vim \
-    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-    gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+    gcc-11-aarch64-linux-gnu g++-11-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+    gcc-12-aarch64-linux-gnu g++-12-aarch64-linux-gnu \
+    gcc-11-arm-linux-gnueabihf g++-11-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
+    gcc-12-arm-linux-gnueabihf g++-12-arm-linux-gnueabihf \
     build-essential cmake \
     python3 python3-pip python3-setuptools \
     libdbus-1-dev:arm64 libdbus-1-dev:armhf \
@@ -36,6 +38,8 @@ RUN apt-get update && \
     google-mock:arm64 google-mock:armhf \
     libstdc++-11-dev:arm64 libstdc++-11-dev:armhf \
     libgcc-11-dev-arm64-cross libgcc-11-dev-armhf-cross \
+    libstdc++-12-dev:arm64 libstdc++-12-dev:armhf \
+    libgcc-12-dev-arm64-cross libgcc-12-dev-armhf-cross \
     && rm -rf /var/lib/apt/lists/*
 
 # Install rust system-wide

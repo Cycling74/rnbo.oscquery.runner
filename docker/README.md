@@ -5,13 +5,13 @@ Here we build for Linux aarch64 (64-bit rpi+) and armv7 gnueabihf (32-bit rpi+)
 ## Build docker image
 
 ```shell
-docker build --platform=linux/amd64 -t xnor/rnbo-runner-xpile:0.1 .
+docker build --platform=linux/amd64 -t xnor/rnbo-runner-xpile:0.2 .
 ```
 
 Share to docker hub
 
 ```shell
-docker push xnor/rnbo-runner-xpile:0.1
+docker push xnor/rnbo-runner-xpile:0.2
 ```
 
 ## Using docker image
@@ -19,7 +19,7 @@ docker push xnor/rnbo-runner-xpile:0.1
 If you haven't pulled or built locally
 
 ```shell
-docker pull xnor/rnbo-runner-xpile:0.1
+docker pull xnor/rnbo-runner-xpile:0.2
 ```
 
 ### RNBO Runner
@@ -35,7 +35,7 @@ docker run -it \
     -v $(pwd):/build \
     -v ~/dev/rnbo.core/src/cpp/:/rnbo \
     -v $(pwd)/docker/conan:/home/build/.conan \
-    xnor/rnbo-runner-xpile:0.1 bash
+    xnor/rnbo-runner-xpile:0.2 bash
 ```
 
 64-bit rpi
@@ -60,9 +60,9 @@ cd /build/build-rpi32/
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
     -DRNBO_DIR=/rnbo/ \
-    -DSUPPORT_COMPILE=Off \
+    -DSUPPORT_COMPILE=On \
     -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
-    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc11_4.cmake \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc12.cmake \
     ..  && make -j8 && cpack
 ```
 
@@ -116,7 +116,7 @@ jack transport link
 docker run -it \
     --platform linux/amd64 \
     -v $(pwd):/build \
-    xnor/rnbo-runner-xpile:0.1 bash
+    xnor/rnbo-runner-xpile:0.2 bash
 ```
 
 64-bit rpi
