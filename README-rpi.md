@@ -399,3 +399,12 @@ same build steps as above
 apt remove pipewire
 apt autoremove
 ```
+
+## Monome/serialosc
+
+64-bit:
+
+```
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/libmonome1_1.4.7-0ubuntu1~noble1_arm64.deb
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/serialosc_1.4.4+git20240117-0ubuntu1~noble2_arm64.deb
+```
