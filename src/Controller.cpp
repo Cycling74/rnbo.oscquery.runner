@@ -1913,7 +1913,7 @@ void Controller::replaceDB(fs::path& path) {
 			std::cerr << "failed to move db file to " << backuppath.string() << std::endl;
 		}
 
-		if (!fs::copy_file(path, dbpath, fs::copy_option::overwrite_if_exists)) {
+		if (!fs::copy_file(path, dbpath, fs::copy_options::overwrite_existing)) {
 			std::cerr << "failed to copy db file from " << backuppath.string() << " to " << dbpath.string() << std::endl;
 		}
 
@@ -2710,7 +2710,7 @@ std::string Controller::installPackage(const boost::filesystem::path& contentdir
 			fs::create_directories(dst.parent_path());
 		}
 
-		if (!fs::copy_file(contentdir / src, dst, fs::copy_option::overwrite_if_exists)) {
+		if (!fs::copy_file(contentdir / src, dst, fs::copy_options::overwrite_existing)) {
 			std::string msg = "failed to copy file name: \"" + src.filename().string();
 			throw std::runtime_error(msg);
 		}
@@ -4936,7 +4936,7 @@ void Controller::listenersAddProtocol(const std::string& ip, uint16_t port) {
 				.framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
 				.transport = ossia::net::udp_configuration {{
 					.local = std::nullopt,
-					.remote = ossia::net::send_socket_configuration {{ip, port}}
+					.remote = ossia::net::outbound_socket_configuration {{ip, port}}
 				}}
 			}
 		);

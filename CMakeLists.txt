@@ -18,9 +18,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 set(RNBO_CONAN_VERSION "" CACHE STRING "Optionally set a RNBO version to get from Conan")
-set(RNBO_CONAN_TAG "c74/testing" CACHE STRING "Tag to use if getting RNBO from Conan")
-mark_as_advanced(RNBO_CONAN_VERSION)
-mark_as_advanced(RNBO_CONAN_TAG)
+set(RNBO_CONAN_TAG "c74/stable" CACHE STRING "Tag to use if getting RNBO from Conan")
 
 set(JACK_CONAN_NAME "jack" CACHE STRING "Optionally set a JACK package name to get from Conan")
 set(JACK_CONAN_VERSION "" CACHE STRING "Optionally set a JACK version to get from Conan")
@@ -264,7 +262,7 @@ conan_cmake_install(
 )
 
 conan_cmake_configure(
-	REQUIRES boost/1.80.0
+	REQUIRES boost/1.86.0
 	GENERATORS cmake_find_package
 	OPTIONS
 		boost:shared=False
@@ -285,13 +283,13 @@ conan_cmake_install(
 )
 
 find_package(
-	Boost 1.80.0
+	Boost 1.86.0
 	COMPONENTS filesystem system
 	REQUIRED
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_433b3dc5e819d9c35d36@c74/testing
+	REQUIRES libossia/xnor_remove-websocketpp-with-conan_34f1027335e6166a@xnor/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
