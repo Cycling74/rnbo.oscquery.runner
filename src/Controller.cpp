@@ -4917,11 +4917,13 @@ void Controller::updateListenersList() {
 
 void Controller::restoreListeners() {
 	mDB->listeners([this](const std::string& ip, uint16_t port) {
-			try {
-				listenersAddProtocol(ip, port);
-			} catch (...) {
-				std::cerr << "error adding listener ip: " << ip << " port: " << std::to_string(port) << std::endl;
-			}
+		try {
+			listenersAddProtocol(ip, port);
+		} catch (std::runtime_error& e) {
+			std::cerr << "error adding listener ip: " << ip << " port: " << std::to_string(port) << " " << e.what() << std::endl;
+		} catch (...) {
+			std::cerr << "error adding listener ip: " << ip << " port: " << std::to_string(port) << std::endl;
+		}
 	});
 	updateListenersList();
 }
@@ -4936,7 +4938,7 @@ void Controller::listenersAddProtocol(const std::string& ip, uint16_t port) {
 				.framing = conf::SLIP, //gcc doesn't like the default members, so we specify this even though it is a default
 				.transport = ossia::net::udp_configuration {{
 					.local = std::nullopt,
-					.remote = ossia::net::outbound_socket_configuration {{ip, port}}
+					.remote = ossia::net::outbound_socket_configuration {.host = ip, .port = port}
 				}}
 			}
 		);
