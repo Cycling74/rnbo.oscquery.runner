@@ -405,6 +405,8 @@ apt autoremove
 64-bit:
 
 ```
-wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/libmonome1_1.4.7-0ubuntu1~noble1_arm64.deb
-wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/serialosc_1.4.4+git20240117-0ubuntu1~noble2_arm64.deb
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+build/32828624/+files/libmonome1_1.4.10-0ubuntu1~noble2_arm64.deb
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+build/32828624/+files/libmonome-dev_1.4.10-0ubuntu1~noble2_arm64.deb
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+build/32826585/+files/serialosc_1.4.7-0ubuntu1~noble1_arm64.deb
 ```
+
