@@ -1,5 +1,8 @@
 # RNBO Runner Changes
 
+* *current*
+    * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
+        * was actually copying the views but not their content
 * *1.4.4-8*
     * update build infrastructure to fix armv7 based builds
         * was incorrectly calling the arch `arm` instead of `armv7`, that broke cloud compiler builds
