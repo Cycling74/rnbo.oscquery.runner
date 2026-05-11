@@ -402,7 +402,9 @@ apt autoremove
 
 ## Monome/serialosc
 
-64-bit:
+getting builds from [artfwo ppa](https://launchpad.net/~artfwo/+archive/ubuntu/monome/)
+
+64-bit (noble builds):
 
 ```
 wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+build/32828624/+files/libmonome1_1.4.10-0ubuntu1~noble2_arm64.deb
@@ -410,3 +412,10 @@ wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+build/32828624/+files
 wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+build/32826585/+files/serialosc_1.4.7-0ubuntu1~noble1_arm64.deb
 ```
 
+32-bit (jammy builds):
+
+```
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/libmonome1_1.4.10-0ubuntu1~jammy1_armhf.deb
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/libmonome-dev_1.4.10-0ubuntu1~jammy1_armhf.deb
+wget https://launchpad.net/~artfwo/+archive/ubuntu/monome/+files/serialosc_1.4.7-0ubuntu1~jammy1_armhf.deb
+```
