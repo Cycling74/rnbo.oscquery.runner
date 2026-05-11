@@ -45,7 +45,7 @@ mkdir -p /build/build-rpi64
 cd /build/build-rpi64/
 cmake \
     -DCMAKE_BUILD_TYPE=Release \
-    -DRNBO_DIR=/rnbo/ \
+    -DRNBO_CONAN_VERSION=1.4.4 \
     -DSUPPORT_COMPILE=Off \
     -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
     -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \

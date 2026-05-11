@@ -289,7 +289,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_remove-websocketpp-with-conan_34f1027335e6166a@xnor/testing
+	REQUIRES libossia/xnor_remove-websocketpp-with-conan_1cda902f878ef950@xnor/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
