@@ -323,6 +323,18 @@ Instance::Instance(
 				});
 			}
 
+			{
+				auto n = config->create_child("send_midi_osc");
+				n->set(ossia::net::description_attribute{}, "Should MIDI out be sent via OSC? This can sometimes flood listeners and slow things down.");
+				auto p = n->create_parameter(ossia::val_type::BOOL);
+				p->push_value(mSendMIDIOSC);
+				p->add_callback([this](const ossia::value& v) {
+					if (v.get_type() == ossia::val_type::BOOL) {
+						mSendMIDIOSC = v.get<bool>();
+					}
+				});
+			}
+
 		}
 
 		//get overrides
@@ -1025,7 +1037,7 @@ Instance::Instance(
 			{
 				auto n = vmidi->create_child("out");
 				mMIDIOutParam = n->create_parameter(ossia::val_type::LIST);
-				n->set(ossia::net::description_attribute{}, "midi events out of your RNBO patch");
+				n->set(ossia::net::description_attribute{}, "midi events out of your RNBO patch, only sent when config send_midi_osc is true");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			}
 
@@ -1748,7 +1760,7 @@ void Instance::handleOutportMessage(RNBO::MessageEvent e) {
 
 //from RNBO, report via OSCQuery
 void Instance::handleMidiCallback(RNBO::MidiEvent e) {
-	if (mMIDIOutParam) {
+	if (mSendMIDIOSC && mMIDIOutParam) {
 		auto in = e.getData();
 		std::vector<ossia::value> bytes;
 		for (int i = 0; i < e.getLength(); i++) {

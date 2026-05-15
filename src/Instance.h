@@ -296,4 +296,6 @@ class Instance {
 		ossia::net::parameter_base * mNameAliasParam = nullptr;
 
 		std::shared_ptr<RunnerExternalDataHandler> mDataHandler;
+
+		bool mSendMIDIOSC = false;
 };
