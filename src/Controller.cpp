@@ -1717,6 +1717,18 @@ Controller::Controller(std::string server_name) {
 				}
 			});
 		}
+		{
+			auto key = config::key::InstanceDefaultSendOSCMIDI;
+			auto n = conf->create_child("send_osc_midi");
+			n->set(ossia::net::description_attribute{}, "Should newly created instances default to sending MIDI out via OSC? This can slow things down if you send a lot of MIDI");
+			auto p = n->create_parameter(ossia::val_type::BOOL);
+			p->push_value(config::get<bool>(key).value_or(false));
+			p->add_callback([key](const ossia::value& v) {
+				if (v.get_type() == ossia::val_type::BOOL) {
+					config::set(v.get<bool>(), key);
+				}
+			});
+		}
 	}
 
 	{
@@ -2099,7 +2111,7 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 					config["preset_initial"] = instConfig["preset_last"];
 				}
 				//overrides
-				for (const auto& key: { "namealias", "setpreset", "insetpreset", "midi_input_channel", "metaoverride", "datarefs" }) {
+				for (const auto& key: { "namealias", "setpreset", "insetpreset", "midi_input_channel", "metaoverride", "datarefs", "send_osc_midi" }) {
 					if (instConfig.contains(key)) {
 						config[key] = instConfig[key];
 					}

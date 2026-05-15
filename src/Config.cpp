@@ -72,6 +72,7 @@ namespace {
 		{config::key::InstanceAutoConnectAudio, true},
 		{config::key::InstanceAutoConnectAudioIndexed, true},
 		{config::key::InstanceAutoConnectMIDI, false},
+		{config::key::InstanceDefaultSendOSCMIDI, false},
 		{config::key::InstanceAutoConnectMIDIHardware, false},
 		{config::key::InstanceAutoConnectPortGroup, true},
 		{config::key::InstanceAudioFadeIn, 20.0},

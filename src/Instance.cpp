@@ -125,6 +125,7 @@ Instance::Instance(
 ) : mPatcherFactory(factory), mConfig(conf), mIndex(index), mName(name), mDB(db), mOSCCallback(oscCallback), mOSCRegisterCallback(oscRegisterCallback) {
 	std::unordered_map<std::string, std::string> dataRefMap;
 
+
 	//load up data ref map so we can set the initial value
 	if (conf.contains("datarefs") && conf["datarefs"].is_object()) {
 		auto datarefs = conf["datarefs"];
@@ -147,6 +148,11 @@ Instance::Instance(
 
 	if (conf.contains("insetpreset") && conf["insetpreset"].is_boolean()) {
 		mInSetPreset = conf["insetpreset"];
+	}
+
+	mSendMIDIOSC = config::get<bool>(config::key::InstanceDefaultSendOSCMIDI).value_or(false);
+	if (conf.contains("send_osc_midi") && conf["send_osc_midi"].is_boolean()) {
+		mSendMIDIOSC = conf["send_osc_midi"];
 	}
 
 
@@ -324,13 +330,14 @@ Instance::Instance(
 			}
 
 			{
-				auto n = config->create_child("send_midi_osc");
+				auto n = config->create_child("send_osc_midi");
 				n->set(ossia::net::description_attribute{}, "Should MIDI out be sent via OSC? This can sometimes flood listeners and slow things down.");
 				auto p = n->create_parameter(ossia::val_type::BOOL);
 				p->push_value(mSendMIDIOSC);
 				p->add_callback([this](const ossia::value& v) {
 					if (v.get_type() == ossia::val_type::BOOL) {
 						mSendMIDIOSC = v.get<bool>();
+						queueConfigChangeSignal();
 					}
 				});
 			}
@@ -1037,7 +1044,7 @@ Instance::Instance(
 			{
 				auto n = vmidi->create_child("out");
 				mMIDIOutParam = n->create_parameter(ossia::val_type::LIST);
-				n->set(ossia::net::description_attribute{}, "midi events out of your RNBO patch, only sent when config send_midi_osc is true");
+				n->set(ossia::net::description_attribute{}, "midi events out of your RNBO patch, only sent when config send_osc_midi is true");
 				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			}
 
@@ -1480,6 +1487,7 @@ RNBO::Json Instance::currentConfig() {
 	config["datarefs"] = datarefs;
 	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
 	config["insetpreset"] = mInSetPreset;
+	config["send_osc_midi"] = mSendMIDIOSC;
 	config["midi_input_channel"] = (int)mAudio->midiInputChannel();
 
 	//mAudio->addConfig(config);
