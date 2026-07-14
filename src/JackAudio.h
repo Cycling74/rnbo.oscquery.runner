@@ -73,6 +73,14 @@ class ProcessAudioJack : public ProcessAudio {
 
 		void updatePortProperties(jack_port_t* port);
 
+		//Link Audio (jack_transport_link) bridge
+		void buildLinkAudioNodes(ossia::net::node_base * root);
+		void syncLinkAudioFromMetadata();
+		void reconcileLinkAudioSourceSlots(size_t count);
+		void reconcileLinkAudioSinkSlots(size_t count);
+		void queueLinkAudioWrite(const std::string& key, const std::string& value, const char * type);
+		bool readTransportProperty(jack_uuid_t subject, const std::string& key, std::string& out);
+
 		bool createClient(bool startServer);
 		bool createServer();
 
@@ -121,6 +129,35 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mTransportRollingParam = nullptr;
 		std::atomic<bool> mTransportRollingLast = false;
 		std::atomic<bool> mTransportRollingUpdate = false; //from the process callback
+
+		//Link Audio bridge (proxies jack_transport_link's linkaudio/* metadata)
+		struct LinkAudioSourceSlot {
+			ossia::net::parameter_base * select = nullptr;
+			ossia::net::parameter_base * status = nullptr;
+		};
+		struct LinkAudioSinkSlot {
+			ossia::net::parameter_base * name = nullptr;
+		};
+		ossia::net::node_base * mLinkNode = nullptr;
+		ossia::net::node_base * mLinkAudioNode = nullptr;
+		ossia::net::node_base * mLinkAudioSourcesNode = nullptr;
+		ossia::net::node_base * mLinkAudioSinksNode = nullptr;
+		ossia::net::parameter_base * mLinkAudioAvailableParam = nullptr;
+		ossia::net::parameter_base * mLinkAudioChannelsParam = nullptr;
+		ossia::net::parameter_base * mLinkAudioSourcesCountParam = nullptr;
+		ossia::net::parameter_base * mLinkAudioSinksCountParam = nullptr;
+		std::vector<LinkAudioSourceSlot> mLinkAudioSourceSlots;
+		std::vector<LinkAudioSinkSlot> mLinkAudioSinkSlots;
+		std::atomic<bool> mLinkAudioNeedsSync = false;
+		//pending metadata writes queued from ossia callbacks, applied in processEvents
+		struct LinkAudioWrite { std::string key; std::string value; std::string type; };
+		std::vector<LinkAudioWrite> mLinkAudioPendingWrites;
+		std::mutex mLinkAudioWriteMutex;
+		//connections to jack-transport-link ports that couldn't be made yet (ports not up),
+		//retried when ports register
+		std::vector<SetConnectionInfo> mLinkAudioPendingConnections;
+		std::mutex mPendingConnectionsMutex;
+		void retryLinkAudioPendingConnections();
 
 		NodeBuilder mBuilder;
 		std::mutex mMutex;

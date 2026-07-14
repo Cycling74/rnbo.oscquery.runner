@@ -97,6 +97,20 @@ namespace {
 	const std::string linknumpeers_property_key("http://www.x37v.info/jack/metadata/linkpeers");
 	const char *linknumpeers_property_type = "https://www.w3.org/2001/XMLSchema#integer";
 
+	//Link Audio metadata keys (published by jack_transport_link), must match its keys exactly
+	const std::string linkaudio_prefix("http://www.x37v.info/jack/metadata/linkaudio/");
+	const std::string linkaudio_channels_key("http://www.x37v.info/jack/metadata/linkaudio/channels");
+	const std::string linkaudio_source_key("http://www.x37v.info/jack/metadata/linkaudio/source");
+	const std::string linkaudio_sink_key("http://www.x37v.info/jack/metadata/linkaudio/sink");
+	const std::string linkaudio_source_filters_key("http://www.x37v.info/jack/metadata/linkaudio/source-filters");
+	const std::string linkaudio_source_status_key("http://www.x37v.info/jack/metadata/linkaudio/source-status");
+	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
+	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
+	const char * linkaudio_json_type = "application/json";
+	const char * linkaudio_string_type = "text/plain";
+	const char * linkaudio_int_type = "https://www.w3.org/2001/XMLSchema#integer";
+	const std::string linkaudio_transport_client_name("jack-transport-link");
+
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<ProcessAudioJack *>(arg)->process(nframes);
 		return 0;
@@ -679,11 +693,31 @@ bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections
 			replace_raw(source);
 			replace_raw(sink);
 
-			jack_connect(mJackClient, source.c_str(), sink.c_str());
+			int r = jack_connect(mJackClient, source.c_str(), sink.c_str());
+			//jack_transport_link's ports come up asynchronously and are rebuilt on count
+			//changes, so a connection to them may fail because the port isn't there yet.
+			//Remember it and retry when ports (re)register.
+			if (r != 0 && r != EEXIST &&
+					(info.source_name == linkaudio_transport_client_name || info.sink_name == linkaudio_transport_client_name)) {
+				std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+				mLinkAudioPendingConnections.push_back(info);
+			}
 		}
 		return true;
 	}
 	return false;
+}
+
+void ProcessAudioJack::retryLinkAudioPendingConnections() {
+	std::vector<SetConnectionInfo> pending;
+	{
+		std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+		std::swap(pending, mLinkAudioPendingConnections);
+	}
+	if (pending.empty() || !mJackClient)
+		return;
+	//connect() re-adds any that still can't be made (ports still missing)
+	connect(pending, true);
 }
 
 std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
@@ -774,6 +808,21 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 			if (mTransportNode) {
 				if (root->remove_child("transport")) {
 					mTransportNode = nullptr;
+				}
+			}
+
+			if (mLinkNode) {
+				if (root->remove_child("link")) {
+					mLinkNode = nullptr;
+					mLinkAudioNode = nullptr;
+					mLinkAudioSourcesNode = nullptr;
+					mLinkAudioSinksNode = nullptr;
+					mLinkAudioAvailableParam = nullptr;
+					mLinkAudioChannelsParam = nullptr;
+					mLinkAudioSourcesCountParam = nullptr;
+					mLinkAudioSinksCountParam = nullptr;
+					mLinkAudioSourceSlots.clear();
+					mLinkAudioSinkSlots.clear();
 				}
 			}
 
@@ -984,6 +1033,8 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 			if (mPortPoll && mPortPoll.get() < now) {
 				mPortPoll.reset();
 				updatePorts();
+				//jack-transport-link ports may have just (re)appeared; retry any deferred routing
+				retryLinkAudioPendingConnections();
 			}
 			if (mPortConnectionPoll && mPortConnectionPoll.get() < now) {
 				std::set<std::string> names;
@@ -1078,6 +1129,36 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 				bool v = jconfig_get<bool>("linksync_transport").get_value_or(true);
 				std::string s = v ? "true" : "false";
 				jack_set_property(mJackClient, transportClient, linksync_property_key.c_str(), s.c_str(), linksync_property_type);
+			}
+		}
+
+		//Link Audio: apply queued metadata writes, then re-sync the subtree from the transport client.
+		//We avoid syncing on the same tick as a write so we don't clobber a just-set param before
+		//jack_transport_link echoes the change back (which re-schedules the sync).
+		{
+			std::vector<LinkAudioWrite> writes;
+			{
+				std::lock_guard<std::mutex> guard(mLinkAudioWriteMutex);
+				std::swap(writes, mLinkAudioPendingWrites);
+			}
+			bool didWrites = false;
+			if (!writes.empty()) {
+				jack_uuid_t tc = mTransportClientUUID.load();
+				if (!jack_uuid_empty(tc) && mJackClient) {
+					for (auto& w : writes) {
+						//JACK disallows empty metadata values: an empty value (e.g. a cleared
+						//slot name) is expressed by removing the property instead.
+						if (w.value.empty()) {
+							jack_remove_property(mJackClient, tc, w.key.c_str());
+						} else {
+							jack_set_property(mJackClient, tc, w.key.c_str(), w.value.c_str(), w.type.c_str());
+						}
+					}
+					didWrites = true;
+				}
+			}
+			if (!didWrites && mLinkAudioNeedsSync.exchange(false)) {
+				syncLinkAudioFromMetadata();
 			}
 		}
 	}
@@ -1414,6 +1495,8 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 				}
 
+				buildLinkAudioNodes(root);
+
 				//set property change callback, if we can
 				{
 					//try to get our uuid, if we can get it, we set the property and property callback
@@ -1459,6 +1542,9 @@ bool ProcessAudioJack::createClient(bool startServer) {
 			jack_activate(mJackClient);
 
 			updatePorts();
+
+			//sync Link Audio state (availability/channels/counts/slots) once the client is up
+			mLinkAudioNeedsSync.store(true);
 
 			{
 				const char ** ports;
@@ -1512,7 +1598,16 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 			transportClient = newId;
 			mTransportClientUUID.store(newId);
 			mLinkSyncNeedsUpdate = true;
+			//the transport client (jack_transport_link) appeared or went away, re-evaluate Link Audio
+			mLinkAudioNeedsSync.store(true);
 		}
+	}
+
+	//Link Audio metadata changed on the transport client — re-sync the OSCQuery subtree.
+	//Note: linkaudio key *deletions* are normal (e.g. shrinking counts) so they must NOT
+	//clear mTransportClientUUID; they only schedule a re-sync.
+	if (key != nullptr && std::strncmp(key, linkaudio_prefix.c_str(), linkaudio_prefix.size()) == 0) {
+		mLinkAudioNeedsSync.store(true);
 	}
 
 	//if the subject is 'all' or matches the bpm subject
@@ -1566,6 +1661,266 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 			}
 		}
 	}
+}
+
+bool ProcessAudioJack::readTransportProperty(jack_uuid_t subject, const std::string& key, std::string& out) {
+	char * values = nullptr;
+	char * types = nullptr;
+	bool ok = false;
+	if (!jack_uuid_empty(subject) && 0 == jack_get_property(subject, key.c_str(), &values, &types)) {
+		out = values ? std::string(values) : std::string();
+		ok = true;
+	}
+	if (values)
+		jack_free(values);
+	if (types)
+		jack_free(types);
+	return ok;
+}
+
+void ProcessAudioJack::queueLinkAudioWrite(const std::string& key, const std::string& value, const char * type) {
+	std::lock_guard<std::mutex> guard(mLinkAudioWriteMutex);
+	mLinkAudioPendingWrites.push_back({key, value, std::string(type)});
+}
+
+//build the always-present /rnbo/jack/link/audio subtree; expects to be holding the build mutex
+void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
+	if (mLinkNode)
+		return;
+
+	mLinkNode = root->create_child("link");
+	auto audio = mLinkAudioNode = mLinkNode->create_child("audio");
+
+	{
+		auto n = audio->create_child("available");
+		n->set(ossia::net::description_attribute{}, "true when jack_transport_link is running with Link Audio enabled");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		mLinkAudioAvailableParam = n->create_parameter(ossia::val_type::BOOL);
+		mLinkAudioAvailableParam->push_value(false);
+	}
+	{
+		auto n = audio->create_child("channels");
+		n->set(ossia::net::description_attribute{}, "JSON array of discovered Link Audio peers and their channels");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+		mLinkAudioChannelsParam = n->create_parameter(ossia::val_type::STRING);
+		mLinkAudioChannelsParam->push_value(std::string("[]"));
+	}
+
+	mLinkAudioSourcesNode = audio->create_child("sources");
+	{
+		auto n = mLinkAudioSourcesNode->create_child("count");
+		n->set(ossia::net::description_attribute{}, "number of incoming (source) Link Audio stereo channels");
+		mLinkAudioSourcesCountParam = n->create_parameter(ossia::val_type::INT);
+		mLinkAudioSourcesCountParam->push_value(0);
+		mLinkAudioSourcesCountParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::INT) {
+				queueLinkAudioWrite(linkaudio_out_stereo_key, std::to_string(val.get<int>()), linkaudio_int_type);
+			}
+		});
+	}
+
+	mLinkAudioSinksNode = audio->create_child("sinks");
+	{
+		auto n = mLinkAudioSinksNode->create_child("count");
+		n->set(ossia::net::description_attribute{}, "number of outgoing (sink) Link Audio stereo channels");
+		mLinkAudioSinksCountParam = n->create_parameter(ossia::val_type::INT);
+		mLinkAudioSinksCountParam->push_value(0);
+		mLinkAudioSinksCountParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::INT) {
+				queueLinkAudioWrite(linkaudio_in_stereo_key, std::to_string(val.get<int>()), linkaudio_int_type);
+			}
+		});
+	}
+}
+
+//create/remove per-slot source nodes to match count; expects to be holding the build mutex
+void ProcessAudioJack::reconcileLinkAudioSourceSlots(size_t count) {
+	if (!mLinkAudioSourcesNode)
+		return;
+	//remove extra
+	for (size_t i = mLinkAudioSourceSlots.size(); i > count; --i) {
+		mLinkAudioSourcesNode->remove_child(std::to_string(i - 1));
+	}
+	if (count < mLinkAudioSourceSlots.size())
+		mLinkAudioSourceSlots.resize(count);
+	//add missing
+	for (size_t i = mLinkAudioSourceSlots.size(); i < count; ++i) {
+		auto slotNode = mLinkAudioSourcesNode->create_child(std::to_string(i));
+		LinkAudioSourceSlot slot;
+		{
+			auto n = slotNode->create_child("select");
+			n->set(ossia::net::description_attribute{}, "[peer, channel] substring filter to subscribe to; empty = auto");
+			slot.select = n->create_parameter(ossia::val_type::LIST);
+			slot.select->add_callback([this, i](const ossia::value& val) {
+				RNBO::Json obj = RNBO::Json::object();
+				if (val.get_type() == ossia::val_type::LIST) {
+					auto l = val.get<std::vector<ossia::value>>();
+					if (l.size() > 0 && l[0].get_type() == ossia::val_type::STRING) {
+						auto peer = l[0].get<std::string>();
+						if (peer.size())
+							obj["peer"] = peer;
+					}
+					if (l.size() > 1 && l[1].get_type() == ossia::val_type::STRING) {
+						auto channel = l[1].get<std::string>();
+						if (channel.size())
+							obj["channel"] = channel;
+					}
+				}
+				queueLinkAudioWrite(linkaudio_source_key + "/" + std::to_string(i), obj.dump(), linkaudio_json_type);
+			});
+		}
+		{
+			auto n = slotNode->create_child("status");
+			n->set(ossia::net::description_attribute{}, "currently connected peer/channel (JSON), empty object when unconnected");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.status = n->create_parameter(ossia::val_type::STRING);
+		}
+		mLinkAudioSourceSlots.push_back(slot);
+	}
+}
+
+//create/remove per-slot sink nodes to match count; expects to be holding the build mutex
+void ProcessAudioJack::reconcileLinkAudioSinkSlots(size_t count) {
+	if (!mLinkAudioSinksNode)
+		return;
+	for (size_t i = mLinkAudioSinkSlots.size(); i > count; --i) {
+		mLinkAudioSinksNode->remove_child(std::to_string(i - 1));
+	}
+	if (count < mLinkAudioSinkSlots.size())
+		mLinkAudioSinkSlots.resize(count);
+	for (size_t i = mLinkAudioSinkSlots.size(); i < count; ++i) {
+		auto slotNode = mLinkAudioSinksNode->create_child(std::to_string(i));
+		LinkAudioSinkSlot slot;
+		{
+			auto n = slotNode->create_child("name");
+			n->set(ossia::net::description_attribute{}, "name announced to the Link session for this outgoing channel");
+			slot.name = n->create_parameter(ossia::val_type::STRING);
+			slot.name->add_callback([this, i](const ossia::value& val) {
+				if (val.get_type() == ossia::val_type::STRING) {
+					queueLinkAudioWrite(linkaudio_sink_key + "/" + std::to_string(i) + "/name", val.get<std::string>(), linkaudio_string_type);
+				}
+			});
+		}
+		mLinkAudioSinkSlots.push_back(slot);
+	}
+}
+
+//re-read Link Audio metadata from the transport client into the OSCQuery subtree.
+//Only pushes on actual change (quiet, so it never re-triggers the write callbacks).
+//expects to be holding the build mutex
+void ProcessAudioJack::syncLinkAudioFromMetadata() {
+	if (!mLinkAudioNode)
+		return;
+
+	auto pushStringIfChanged = [](ossia::net::parameter_base * p, const std::string& v) {
+		if (!p)
+			return;
+		auto cur = p->value();
+		if (cur.get_type() == ossia::val_type::STRING && cur.get<std::string>() == v)
+			return;
+		p->push_value_quiet(v);
+	};
+	auto pushIntIfChanged = [](ossia::net::parameter_base * p, int v) {
+		if (!p)
+			return;
+		auto cur = p->value();
+		if (cur.get_type() == ossia::val_type::INT && cur.get<int>() == v)
+			return;
+		p->push_value_quiet(v);
+	};
+	auto pushListIfChanged = [](ossia::net::parameter_base * p, const std::vector<ossia::value>& v) {
+		if (!p)
+			return;
+		auto cur = p->value();
+		if (cur.get_type() == ossia::val_type::LIST && cur.get<std::vector<ossia::value>>() == v)
+			return;
+		p->push_value_quiet(v);
+	};
+
+	jack_uuid_t tc = mTransportClientUUID.load();
+	std::string channelsJson;
+	bool available = !jack_uuid_empty(tc) && readTransportProperty(tc, linkaudio_channels_key, channelsJson);
+
+	{
+		auto cur = mLinkAudioAvailableParam ? mLinkAudioAvailableParam->value() : ossia::value();
+		bool curb = cur.get_type() == ossia::val_type::BOOL ? cur.get<bool>() : false;
+		if (curb != available && mLinkAudioAvailableParam)
+			mLinkAudioAvailableParam->push_value_quiet(available);
+	}
+
+	if (!available) {
+		pushStringIfChanged(mLinkAudioChannelsParam, "[]");
+		pushIntIfChanged(mLinkAudioSourcesCountParam, 0);
+		pushIntIfChanged(mLinkAudioSinksCountParam, 0);
+		reconcileLinkAudioSourceSlots(0);
+		reconcileLinkAudioSinkSlots(0);
+		return;
+	}
+
+	pushStringIfChanged(mLinkAudioChannelsParam, channelsJson);
+
+	auto readCount = [this, tc](const std::string& key) -> int {
+		std::string s;
+		if (!readTransportProperty(tc, key, s))
+			return 0;
+		try {
+			size_t pos = 0;
+			int v = std::stoi(s, &pos);
+			if (pos == s.size() && v >= 0)
+				return v;
+		} catch (...) {}
+		return 0;
+	};
+	int outCount = readCount(linkaudio_out_stereo_key); //sources (incoming, out_N)
+	int inCount = readCount(linkaudio_in_stereo_key);   //sinks (outgoing, in_N)
+
+	pushIntIfChanged(mLinkAudioSourcesCountParam, outCount);
+	pushIntIfChanged(mLinkAudioSinksCountParam, inCount);
+	reconcileLinkAudioSourceSlots(static_cast<size_t>(outCount));
+	reconcileLinkAudioSinkSlots(static_cast<size_t>(inCount));
+
+	//per-source: configured filter (select) from source-filters reflection, and live
+	//status from the dedicated source-status array (both index-aligned)
+	auto readJsonArray = [this, tc](const std::string& key) -> RNBO::Json {
+		std::string s;
+		if (readTransportProperty(tc, key, s)) {
+			try {
+				auto j = RNBO::Json::parse(s);
+				if (j.is_array())
+					return j;
+			} catch (...) {}
+		}
+		return RNBO::Json::array();
+	};
+	RNBO::Json filters = readJsonArray(linkaudio_source_filters_key);
+	RNBO::Json status = readJsonArray(linkaudio_source_status_key);
+	for (size_t i = 0; i < mLinkAudioSourceSlots.size(); ++i) {
+		auto& slot = mLinkAudioSourceSlots[i];
+		//select
+		std::vector<ossia::value> sel;
+		if (i < filters.size() && filters[i].is_object()) {
+			std::string peer = filters[i].value("peer", "");
+			std::string channel = filters[i].value("channel", "");
+			if (peer.size() || channel.size()) {
+				sel.push_back(peer);
+				sel.push_back(channel);
+			}
+		}
+		pushListIfChanged(slot.select, sel);
+		//status
+		std::string statusStr = (i < status.size() && status[i].is_object()) ? status[i].dump() : std::string("{}");
+		pushStringIfChanged(slot.status, statusStr);
+	}
+
+	//per-sink: name
+	for (size_t i = 0; i < mLinkAudioSinkSlots.size(); ++i) {
+		std::string name;
+		readTransportProperty(tc, linkaudio_sink_key + "/" + std::to_string(i) + "/name", name);
+		pushStringIfChanged(mLinkAudioSinkSlots[i].name, name);
+	}
+	//Note: the graph node grouping + port labels for the jack-transport-link ports are set
+	//by jack_transport_link itself (as JACK port-group/pretty-name metadata on its own
+	//ports) and picked up by the standard port-property path; nothing to do here.
 }
 
 //expects to be holding the build mutex
