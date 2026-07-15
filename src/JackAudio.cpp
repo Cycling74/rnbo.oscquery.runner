@@ -104,6 +104,7 @@ namespace {
 	const std::string linkaudio_sink_key("http://www.x37v.info/jack/metadata/linkaudio/sink");
 	const std::string linkaudio_source_filters_key("http://www.x37v.info/jack/metadata/linkaudio/source-filters");
 	const std::string linkaudio_source_status_key("http://www.x37v.info/jack/metadata/linkaudio/source-status");
+	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
 	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
 	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
 	const char * linkaudio_json_type = "application/json";
@@ -1705,6 +1706,17 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkAudioChannelsParam = n->create_parameter(ossia::val_type::STRING);
 		mLinkAudioChannelsParam->push_value(std::string("[]"));
 	}
+	{
+		auto n = audio->create_child("peer_name");
+		n->set(ossia::net::description_attribute{}, "Link peer name broadcast by this device (identifies it in Ableton Live and to other Link peers); reads the effective name, write empty to revert to the hostname");
+		mLinkAudioPeerNameParam = n->create_parameter(ossia::val_type::STRING);
+		mLinkAudioPeerNameParam->push_value(std::string(""));
+		mLinkAudioPeerNameParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::STRING) {
+				queueLinkAudioWrite(linkaudio_peer_name_key, val.get<std::string>(), linkaudio_string_type);
+			}
+		});
+	}
 
 	mLinkAudioSourcesNode = audio->create_child("sources");
 	{
@@ -1858,6 +1870,13 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 	}
 
 	pushStringIfChanged(mLinkAudioChannelsParam, channelsJson);
+
+	//peer name (effective name jack_transport_link broadcasts; empty if unset, unlikely)
+	{
+		std::string peerName;
+		readTransportProperty(tc, linkaudio_peer_name_key, peerName);
+		pushStringIfChanged(mLinkAudioPeerNameParam, peerName);
+	}
 
 	auto readCount = [this, tc](const std::string& key) -> int {
 		std::string s;

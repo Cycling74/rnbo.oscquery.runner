@@ -144,6 +144,7 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mLinkAudioSinksNode = nullptr;
 		ossia::net::parameter_base * mLinkAudioAvailableParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioChannelsParam = nullptr;
+		ossia::net::parameter_base * mLinkAudioPeerNameParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioSourcesCountParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioSinksCountParam = nullptr;
 		std::vector<LinkAudioSourceSlot> mLinkAudioSourceSlots;
