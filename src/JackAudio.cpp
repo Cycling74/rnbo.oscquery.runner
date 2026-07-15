@@ -38,6 +38,9 @@ namespace {
 	const std::string CONTROL_CLIENT_NAME("rnbo-control");
 
 	const std::string PORTGROUPKEY(JACK_METADATA_PORT_GROUP);
+	//JACK's standard port ordering metadata: patchbays sort a client's ports by this value.
+	const std::string ORDERKEY(JACK_METADATA_ORDER);
+	const char * order_property_type = "http://www.w3.org/2001/XMLSchema#int";
 
 	const char *  RNBO_PROP_INST_ID_KEY = "rnbo-instance-id";
 	const char * rnbo_inst_id_property_type = "http://www.w3.org/2001/XMLSchema#int";
@@ -2487,6 +2490,8 @@ InstanceAudioJack::InstanceAudioJack(
 				jack_uuid_t uuid = jack_port_uuid(port);
 				if (!jack_uuid_empty(uuid)) {
 					jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+					//order audio ins by channel index (in1, in2, ...); midi in follows after them
+					jack_set_property(mJackClient, uuid, ORDERKEY.c_str(), std::to_string(i + 1).c_str(), order_property_type);
 					//pretty names from comment
 					if (inletsInfo.size() > i) {
 						auto info = inletsInfo[i];
@@ -2529,6 +2534,8 @@ InstanceAudioJack::InstanceAudioJack(
 				jack_uuid_t uuid = jack_port_uuid(port);
 				if (!jack_uuid_empty(uuid)) {
 					jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+					//order audio outs by channel index (out1, out2, ...); midi out follows after them
+					jack_set_property(mJackClient, uuid, ORDERKEY.c_str(), std::to_string(i + 1).c_str(), order_property_type);
 					//pretty names from comment
 					if (outletsInfo.size() > i) {
 						auto info = outletsInfo[i];
@@ -2574,6 +2581,8 @@ InstanceAudioJack::InstanceAudioJack(
 			jack_uuid_t uuid = jack_port_uuid(mJackMidiIn);
 			if (!jack_uuid_empty(uuid)) {
 				jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+				//sort after all audio ins so midi comes last
+				jack_set_property(mJackClient, uuid, ORDERKEY.c_str(), std::to_string(mCore->getNumInputChannels() + 1).c_str(), order_property_type);
 			}
 		}
 		{
@@ -2599,6 +2608,8 @@ InstanceAudioJack::InstanceAudioJack(
 			jack_uuid_t uuid = jack_port_uuid(mJackMidiOut);
 			if (!jack_uuid_empty(uuid)) {
 				jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
+				//sort after all audio outs so midi comes last
+				jack_set_property(mJackClient, uuid, ORDERKEY.c_str(), std::to_string(mCore->getNumOutputChannels() + 1).c_str(), order_property_type);
 			}
 		}
 	});
