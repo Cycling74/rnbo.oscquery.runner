@@ -107,6 +107,7 @@ namespace {
 	const std::string linkaudio_sink_key("http://www.x37v.info/jack/metadata/linkaudio/sink");
 	const std::string linkaudio_source_filters_key("http://www.x37v.info/jack/metadata/linkaudio/source-filters");
 	const std::string linkaudio_source_status_key("http://www.x37v.info/jack/metadata/linkaudio/source-status");
+	const std::string linkaudio_source_health_key("http://www.x37v.info/jack/metadata/linkaudio/source-health");
 	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
 	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
 	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
@@ -1790,6 +1791,30 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(size_t count) {
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			slot.status = n->create_parameter(ossia::val_type::STRING);
 		}
+		{
+			auto n = slotNode->create_child("buffered_ms");
+			n->set(ossia::net::description_attribute{}, "milliseconds of audio currently buffered ahead of playout");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.buffered_ms = n->create_parameter(ossia::val_type::FLOAT);
+		}
+		{
+			auto n = slotNode->create_child("dropouts");
+			n->set(ossia::net::description_attribute{}, "cumulative buffer-underrun (dropout) count since this source started");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.dropouts = n->create_parameter(ossia::val_type::INT);
+		}
+		{
+			auto n = slotNode->create_child("jitter_ms");
+			n->set(ossia::net::description_attribute{}, "estimated network jitter (ms), smoothed inter-arrival deviation");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.jitter_ms = n->create_parameter(ossia::val_type::FLOAT);
+		}
+		{
+			auto n = slotNode->create_child("connected");
+			n->set(ossia::net::description_attribute{}, "true when this source is bound to a live peer/channel");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.connected = n->create_parameter(ossia::val_type::BOOL);
+		}
 		mLinkAudioSourceSlots.push_back(slot);
 	}
 }
@@ -1848,6 +1873,22 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 			return;
 		auto cur = p->value();
 		if (cur.get_type() == ossia::val_type::LIST && cur.get<std::vector<ossia::value>>() == v)
+			return;
+		p->push_value_quiet(v);
+	};
+	auto pushFloatIfChanged = [](ossia::net::parameter_base * p, float v) {
+		if (!p)
+			return;
+		auto cur = p->value();
+		if (cur.get_type() == ossia::val_type::FLOAT && cur.get<float>() == v)
+			return;
+		p->push_value_quiet(v);
+	};
+	auto pushBoolIfChanged = [](ossia::net::parameter_base * p, bool v) {
+		if (!p)
+			return;
+		auto cur = p->value();
+		if (cur.get_type() == ossia::val_type::BOOL && cur.get<bool>() == v)
 			return;
 		p->push_value_quiet(v);
 	};
@@ -1916,6 +1957,7 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 	};
 	RNBO::Json filters = readJsonArray(linkaudio_source_filters_key);
 	RNBO::Json status = readJsonArray(linkaudio_source_status_key);
+	RNBO::Json health = readJsonArray(linkaudio_source_health_key);
 	for (size_t i = 0; i < mLinkAudioSourceSlots.size(); ++i) {
 		auto& slot = mLinkAudioSourceSlots[i];
 		//select
@@ -1932,6 +1974,18 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 		//status
 		std::string statusStr = (i < status.size() && status[i].is_object()) ? status[i].dump() : std::string("{}");
 		pushStringIfChanged(slot.status, statusStr);
+		//receive health
+		if (i < health.size() && health[i].is_object()) {
+			pushFloatIfChanged(slot.buffered_ms, health[i].value("buffered_ms", 0.0));
+			pushIntIfChanged(slot.dropouts, health[i].value("dropouts", 0));
+			pushFloatIfChanged(slot.jitter_ms, health[i].value("jitter_ms", 0.0));
+			pushBoolIfChanged(slot.connected, health[i].value("connected", false));
+		} else {
+			pushFloatIfChanged(slot.buffered_ms, 0.0f);
+			pushIntIfChanged(slot.dropouts, 0);
+			pushFloatIfChanged(slot.jitter_ms, 0.0f);
+			pushBoolIfChanged(slot.connected, false);
+		}
 	}
 
 	//per-sink: name

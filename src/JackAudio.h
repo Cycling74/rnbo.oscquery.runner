@@ -134,6 +134,11 @@ class ProcessAudioJack : public ProcessAudio {
 		struct LinkAudioSourceSlot {
 			ossia::net::parameter_base * select = nullptr;
 			ossia::net::parameter_base * status = nullptr;
+			//read-only receive health, proxied from linkaudio/source-health
+			ossia::net::parameter_base * buffered_ms = nullptr;
+			ossia::net::parameter_base * dropouts = nullptr;
+			ossia::net::parameter_base * jitter_ms = nullptr;
+			ossia::net::parameter_base * connected = nullptr;
 		};
 		struct LinkAudioSinkSlot {
 			ossia::net::parameter_base * name = nullptr;
