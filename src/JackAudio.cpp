@@ -109,11 +109,13 @@ namespace {
 	const std::string linkaudio_source_status_key("http://www.x37v.info/jack/metadata/linkaudio/source-status");
 	const std::string linkaudio_source_health_key("http://www.x37v.info/jack/metadata/linkaudio/source-health");
 	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
+	const std::string linkaudio_latency_key("http://www.x37v.info/jack/metadata/linkaudio/latency");
 	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
 	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
 	const char * linkaudio_json_type = "application/json";
 	const char * linkaudio_string_type = "text/plain";
 	const char * linkaudio_int_type = "https://www.w3.org/2001/XMLSchema#integer";
+	const char * linkaudio_decimal_type = "https://www.w3.org/2001/XMLSchema#decimal";
 	const std::string linkaudio_transport_client_name("jack-transport-link");
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
@@ -1721,6 +1723,22 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			}
 		});
 	}
+	{
+		auto n = audio->create_child("latency_ms");
+		n->set(ossia::net::description_attribute{}, "Link Audio receiver playout buffer in milliseconds (converted to beats at the current tempo); range 0-2000, default 100");
+		mLinkAudioLatencyMsParam = n->create_parameter(ossia::val_type::FLOAT);
+		auto dom = ossia::init_domain(ossia::val_type::FLOAT);
+		dom.set_min(0.0);
+		dom.set_max(2000.0);
+		n->set(ossia::net::domain_attribute{}, dom);
+		n->set(ossia::net::bounding_mode_attribute{}, ossia::bounding_mode::CLIP);
+		mLinkAudioLatencyMsParam->push_value(100.0f);
+		mLinkAudioLatencyMsParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::FLOAT) {
+				queueLinkAudioWrite(linkaudio_latency_key, std::to_string(val.get<float>()), linkaudio_decimal_type);
+			}
+		});
+	}
 
 	mLinkAudioSourcesNode = audio->create_child("sources");
 	{
@@ -1920,6 +1938,16 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 		std::string peerName;
 		readTransportProperty(tc, linkaudio_peer_name_key, peerName);
 		pushStringIfChanged(mLinkAudioPeerNameParam, peerName);
+	}
+
+	//receiver playout buffer (ms)
+	{
+		std::string latencyStr;
+		if (readTransportProperty(tc, linkaudio_latency_key, latencyStr)) {
+			try {
+				pushFloatIfChanged(mLinkAudioLatencyMsParam, std::stof(latencyStr));
+			} catch (...) {}
+		}
 	}
 
 	auto readCount = [this, tc](const std::string& key) -> int {
