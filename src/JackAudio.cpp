@@ -110,12 +110,14 @@ namespace {
 	const std::string linkaudio_source_health_key("http://www.x37v.info/jack/metadata/linkaudio/source-health");
 	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
 	const std::string linkaudio_latency_key("http://www.x37v.info/jack/metadata/linkaudio/latency");
+	const std::string linkaudio_sync_key("http://www.x37v.info/jack/metadata/linkaudio/sync-to-incoming");
 	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
 	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
 	const char * linkaudio_json_type = "application/json";
 	const char * linkaudio_string_type = "text/plain";
 	const char * linkaudio_int_type = "https://www.w3.org/2001/XMLSchema#integer";
 	const char * linkaudio_decimal_type = "https://www.w3.org/2001/XMLSchema#decimal";
+	const char * linkaudio_bool_type = "https://www.w3.org/2001/XMLSchema#boolean";
 	const std::string linkaudio_transport_client_name("jack-transport-link");
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
@@ -1739,6 +1741,17 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			}
 		});
 	}
+	{
+		auto n = audio->create_child("sync_to_incoming");
+		n->set(ossia::net::description_attribute{}, "Sync to Incoming Audio: when true, defer receive playout by the latency buffer to sync to the incoming stream; when false, apply no streaming buffer (default true)");
+		mLinkAudioSyncToIncomingParam = n->create_parameter(ossia::val_type::BOOL);
+		mLinkAudioSyncToIncomingParam->push_value(true);
+		mLinkAudioSyncToIncomingParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::BOOL) {
+				queueLinkAudioWrite(linkaudio_sync_key, val.get<bool>() ? "true" : "false", linkaudio_bool_type);
+			}
+		});
+	}
 
 	mLinkAudioSourcesNode = audio->create_child("sources");
 	{
@@ -1947,6 +1960,14 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 			try {
 				pushFloatIfChanged(mLinkAudioLatencyMsParam, std::stof(latencyStr));
 			} catch (...) {}
+		}
+	}
+
+	//sync to incoming audio toggle
+	{
+		std::string syncStr;
+		if (readTransportProperty(tc, linkaudio_sync_key, syncStr)) {
+			pushBoolIfChanged(mLinkAudioSyncToIncomingParam, syncStr == "true" || syncStr == "1");
 		}
 	}
 
