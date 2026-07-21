@@ -1743,7 +1743,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 	}
 	{
 		auto n = audio->create_child("sync_to_incoming");
-		n->set(ossia::net::description_attribute{}, "Sync to Incoming Audio: when true, defer receive playout by the latency buffer to sync to the incoming stream; when false, apply no streaming buffer (default true)");
+		n->set(ossia::net::description_attribute{}, "Sync to Incoming Audio: when true, delay the local transport timeline by the receive buffer so transport-locked generators align with incoming audio; when false the transport runs live. Incoming audio is always buffered/audible regardless (default true)");
 		mLinkAudioSyncToIncomingParam = n->create_parameter(ossia::val_type::BOOL);
 		mLinkAudioSyncToIncomingParam->push_value(true);
 		mLinkAudioSyncToIncomingParam->add_callback([this](const ossia::value& val) {
