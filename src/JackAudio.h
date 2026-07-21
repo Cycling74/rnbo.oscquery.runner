@@ -144,6 +144,7 @@ class ProcessAudioJack : public ProcessAudio {
 			ossia::net::parameter_base * name = nullptr;
 		};
 		ossia::net::node_base * mLinkNode = nullptr;
+		ossia::net::parameter_base * mLinkEnabledParam = nullptr;
 		ossia::net::node_base * mLinkAudioNode = nullptr;
 		ossia::net::node_base * mLinkAudioSourcesNode = nullptr;
 		ossia::net::node_base * mLinkAudioSinksNode = nullptr;

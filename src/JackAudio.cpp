@@ -111,6 +111,7 @@ namespace {
 	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
 	const std::string linkaudio_latency_key("http://www.x37v.info/jack/metadata/linkaudio/latency");
 	const std::string linkaudio_sync_key("http://www.x37v.info/jack/metadata/linkaudio/sync-to-incoming");
+	const std::string link_enabled_key("http://www.x37v.info/jack/metadata/link/enabled");
 	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
 	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
 	const char * linkaudio_json_type = "application/json";
@@ -1615,7 +1616,10 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 	//Link Audio metadata changed on the transport client — re-sync the OSCQuery subtree.
 	//Note: linkaudio key *deletions* are normal (e.g. shrinking counts) so they must NOT
 	//clear mTransportClientUUID; they only schedule a re-sync.
-	if (key != nullptr && std::strncmp(key, linkaudio_prefix.c_str(), linkaudio_prefix.size()) == 0) {
+	//also covers the master link/enabled key, which lives under link/ (not linkaudio/) but is
+	//read back in the same sync pass.
+	if (key != nullptr && (std::strncmp(key, linkaudio_prefix.c_str(), linkaudio_prefix.size()) == 0
+	                       || link_enabled_key.compare(key) == 0)) {
 		mLinkAudioNeedsSync.store(true);
 	}
 
@@ -1698,6 +1702,17 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		return;
 
 	mLinkNode = root->create_child("link");
+	{
+		auto n = mLinkNode->create_child("enabled");
+		n->set(ossia::net::description_attribute{}, "Join the Ableton Link session. When false, peers don't see this device and tempo sync + Link Audio are inactive; the runner still keeps its local JACK transport (default true)");
+		mLinkEnabledParam = n->create_parameter(ossia::val_type::BOOL);
+		mLinkEnabledParam->push_value(true);
+		mLinkEnabledParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() == ossia::val_type::BOOL) {
+				queueLinkAudioWrite(link_enabled_key, val.get<bool>() ? "true" : "false", linkaudio_bool_type);
+			}
+		});
+	}
 	auto audio = mLinkAudioNode = mLinkNode->create_child("audio");
 
 	{
@@ -1927,6 +1942,14 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 	jack_uuid_t tc = mTransportClientUUID.load();
 	std::string channelsJson;
 	bool available = !jack_uuid_empty(tc) && readTransportProperty(tc, linkaudio_channels_key, channelsJson);
+
+	//master Link on/off: independent of Link Audio availability (jtl publishes it whenever it's
+	//running), so read it before the availability early-return below.
+	if (!jack_uuid_empty(tc)) {
+		std::string linkEnabledStr;
+		if (readTransportProperty(tc, link_enabled_key, linkEnabledStr))
+			pushBoolIfChanged(mLinkEnabledParam, linkEnabledStr == "true" || linkEnabledStr == "1");
+	}
 
 	{
 		auto cur = mLinkAudioAvailableParam ? mLinkAudioAvailableParam->value() : ossia::value();
