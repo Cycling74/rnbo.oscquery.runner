@@ -1,6 +1,8 @@
 # RNBO Runner Changes
 
 * *current*
+    * thread thru link audio config from jack_transport_link
+* *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content
 * *1.4.4-8*
