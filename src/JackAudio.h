@@ -33,6 +33,9 @@ enum class JackPortChange {
 };
 
 class JackAudioRecord;
+//UDP OSC sender aimed at jack_transport_link's receive port. Pimpl'd so oscpack's socket headers
+//don't leak in here.
+class JTLCommandSender;
 
 //Global jack settings.
 class ProcessAudioJack : public ProcessAudio {
@@ -50,6 +53,8 @@ class ProcessAudioJack : public ProcessAudio {
 
 		// disconnect non rnbo
 		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) override;
+
+		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) override;
 
 		virtual void handleTransportState(bool running) override;
 		virtual void handleTransportTempo(double bpm) override;
@@ -75,16 +80,20 @@ class ProcessAudioJack : public ProcessAudio {
 
 		//Link Audio (jack_transport_link) bridge
 		void buildLinkAudioNodes(ossia::net::node_base * root);
-		void syncLinkAudioFromMetadata();
+		void syncLinkAudioFromState();
 		//per-slot children are named by the slot key jack_transport_link publishes; the runner
 		//never computes a hash, it only echoes the keys it read
 		void reconcileLinkAudioSourceSlots(const std::vector<std::string>& keys);
 		void reconcileLinkAudioSinkSlots(const std::vector<std::string>& keys);
-		//jack_transport_link's interface is declarative, so every command is a read-modify-write
-		//of the cached list pushed back as a whole array
-		void writeLinkAudioSources();
-		void writeLinkAudioSinks();
-		void queueLinkAudioWrite(const std::string& key, const std::string& value, const char * type);
+		//track jack_transport_link's OSC endpoint (from its osc-port metadata key) and keep our
+		//listener registration alive; main thread only
+		void updateJTLEndpoint(std::chrono::time_point<std::chrono::steady_clock> now);
+		//queue one encoded OSC command for jack_transport_link, from any thread
+		void queueJTLCommand(std::string packet);
+		//send the queued commands; returns true if anything went out. main thread only
+		bool flushJTLCommands();
+		//tell jack_transport_link to stop pushing state at us, and forget the endpoint
+		void unregisterJTLListener();
 		bool readTransportProperty(jack_uuid_t subject, const std::string& key, std::string& out);
 
 		bool createClient(bool startServer);
@@ -98,6 +107,10 @@ class ProcessAudioJack : public ProcessAudio {
 
 		std::atomic<jack_uuid_t> mTransportClientUUID;
 		bool mLinkSyncNeedsUpdate = false;
+		//master Link on/off, requested from an ossia callback and written to metadata in
+		//processEvents -- same deferral as mLinkSyncNeedsUpdate right above
+		std::atomic<bool> mLinkEnabledWrite = true;
+		std::atomic<bool> mLinkEnabledNeedsWrite = false;
 
 		ossia::net::node_base * mInfoNode = nullptr;
 		ossia::net::node_base * mPortInfoNode = nullptr;
@@ -169,14 +182,41 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mLinkAudioSyncToIncomingParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioSourcesOrderParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioSinksOrderParam = nullptr;
-		//cached slot lists, in display order; the read-modify-write base for the commands
+		//cached slot lists, in display order. A strict mirror of jack_transport_link's state: the
+		//commands are identity-based, so no callback writes here and nothing can drift.
 		std::vector<LinkAudioSourceSlot> mLinkAudioSourceSlots;
 		std::vector<LinkAudioSinkSlot> mLinkAudioSinkSlots;
 		std::atomic<bool> mLinkAudioNeedsSync = false;
-		//pending metadata writes queued from ossia callbacks, applied in processEvents
-		struct LinkAudioWrite { std::string key; std::string value; std::string type; };
-		std::vector<LinkAudioWrite> mLinkAudioPendingWrites;
-		std::mutex mLinkAudioWriteMutex;
+
+		//Last state jack_transport_link pushed us, per topic. Each blob is a self-healing snapshot
+		//of its own topic, which is why they stay whole JSON strings: the two lists are the
+		//authority for both the slot set and the display order, and the telemetry is joined to them
+		//by key, so splitting them into per-slot values would lose that atomicity.
+		struct LinkAudioState {
+			bool available = false;
+			std::string channelsJson = "[]";
+			std::string sinksJson = "[]";
+			std::string sourcesJson = "[]";
+			std::string sourceStatusJson = "[]";
+			std::string peerName;
+			float latencyMs = 100.0f;
+			bool syncToIncoming = false;
+		};
+		LinkAudioState mLinkAudioState;
+		//written by handleLinkTransportOSC on the network poll, snapshot-read by processEvents
+		std::mutex mLinkAudioStateMutex;
+
+		//jack_transport_link's OSC receive port, read from its osc-port metadata key. 0 = we don't
+		//know where it is, which is also how Link Audio reports unavailable.
+		int mJTLPort = 0;
+		std::unique_ptr<JTLCommandSender> mJTLSender;
+		std::vector<std::string> mJTLPendingCommands;
+		std::mutex mJTLCommandMutex;
+		//set by the property-change callback; the read itself happens on the main thread
+		std::atomic<bool> mJTLPortNeedsRead = false;
+		//when to re-send our listener registration, and when to next poll for the port key
+		std::chrono::time_point<std::chrono::steady_clock> mJTLRegisterNext;
+		std::chrono::time_point<std::chrono::steady_clock> mJTLDiscoverNext;
 		//connections to jack-transport-link ports that couldn't be made yet (ports not up),
 		//retried when ports register
 		std::vector<SetConnectionInfo> mLinkAudioPendingConnections;

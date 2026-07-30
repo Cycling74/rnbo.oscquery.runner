@@ -9,6 +9,9 @@
 
 #include <readerwriterqueue/readerwriterqueue.h>
 
+#include <oscpack/ip/UdpSocket.h>
+#include <oscpack/osc/OscOutboundPacketStream.h>
+
 #include <ossia/network/generic/generic_device.hpp>
 #include <ossia/network/generic/generic_parameter.hpp>
 
@@ -28,6 +31,22 @@
 namespace fs = boost::filesystem;
 
 using std::chrono::steady_clock;
+
+//oscpack directly rather than an ossia osc protocol: a multiplex sub-protocol would fan *every*
+//runner parameter update at jack_transport_link. It also matches jtl's own stack, which matters
+//because its handlers require real OSC bools (arg->IsBool()) and oscpack emits T/F for `bool`.
+//Touched only from the main thread inside processEvents. Construction can throw; Send cannot.
+class JTLCommandSender {
+	public:
+		JTLCommandSender(const std::string& ip, int port)
+			: mSocket(oscpack::IpEndpointName(ip.c_str(), port)) { }
+		void send(const std::string& packet) {
+			if (packet.size())
+				mSocket.Send(packet.data(), packet.size());
+		}
+	private:
+		oscpack::UdpTransmitSocket mSocket;
+};
 
 namespace {
 	const auto card_poll_period = std::chrono::seconds(2);
@@ -100,25 +119,67 @@ namespace {
 	const std::string linknumpeers_property_key("http://www.x37v.info/jack/metadata/linkpeers");
 	const char *linknumpeers_property_type = "https://www.w3.org/2001/XMLSchema#integer";
 
-	//Link Audio metadata keys (published by jack_transport_link), must match its keys exactly
-	const std::string linkaudio_prefix("http://www.x37v.info/jack/metadata/linkaudio/");
-	const std::string linkaudio_channels_key("http://www.x37v.info/jack/metadata/linkaudio/channels");
-	//the two explicit, ordered lists; declarative and writable (see jack_transport_link's README)
-	const std::string linkaudio_sinks_key("http://www.x37v.info/jack/metadata/linkaudio/sinks");
-	const std::string linkaudio_sources_key("http://www.x37v.info/jack/metadata/linkaudio/sources");
-	//per-source live receive telemetry, key-tagged; joined to linkaudio/sources by key
-	const std::string linkaudio_source_status_key("http://www.x37v.info/jack/metadata/linkaudio/source-status");
-	//write-only command: zero a source's cumulative dropout count (slot key, or "*" for all)
-	const std::string linkaudio_reset_dropouts_key("http://www.x37v.info/jack/metadata/linkaudio/reset-dropouts");
-	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
-	const std::string linkaudio_latency_key("http://www.x37v.info/jack/metadata/linkaudio/latency");
-	const std::string linkaudio_sync_key("http://www.x37v.info/jack/metadata/linkaudio/sync-to-incoming");
+	//Master Link on/off. Still JACK metadata: it is a cheap, occasional toggle, grouped by function
+	//with the other transport/session settings above rather than with the Link Audio state.
 	const std::string link_enabled_key("http://www.x37v.info/jack/metadata/link/enabled");
-	const char * linkaudio_json_type = "application/json";
-	const char * linkaudio_string_type = "text/plain";
-	const char * linkaudio_decimal_type = "https://www.w3.org/2001/XMLSchema#decimal";
-	const char * linkaudio_bool_type = "https://www.w3.org/2001/XMLSchema#boolean";
+	const char * link_enabled_property_type = "https://www.w3.org/2001/XMLSchema#boolean";
+
+	//jack_transport_link's OSC receive port. All the Link Audio state and every command travels over
+	//that socket; this key exists only so we can find it. Because JACK wipes a client's properties
+	//when it disconnects, the key disappearing and reappearing is also how we learn jtl restarted
+	//and needs our listener registration again.
+	const std::string osc_port_property_key("http://www.x37v.info/jack/metadata/osc-port");
 	const std::string linkaudio_transport_client_name("jack-transport-link");
+
+	//how often to re-announce ourselves to jack_transport_link (idempotent there; this is purely the
+	//recovery path for a lost register datagram), and how often to look for its port key when we
+	//have no endpoint at all
+	const auto jtl_register_period = std::chrono::seconds(5);
+	const auto jtl_discover_period = std::chrono::seconds(1);
+
+	//Commands we send to jack_transport_link. Its imperative surface covers every writable node we
+	//expose, so no declarative array routes are needed -- and identity-based commands are strictly
+	//better, because they let our slot caches stay a read-only mirror of jtl's state.
+	const char * jtl_peer_name_address = "/jacklink/audio/peer-name";
+	const char * jtl_latency_address = "/jacklink/audio/latency";
+	const char * jtl_sync_to_incoming_address = "/jacklink/audio/sync-to-incoming";
+	const char * jtl_source_add_address = "/jacklink/audio/source/add";
+	const char * jtl_source_remove_address = "/jacklink/audio/source/remove";
+	const char * jtl_source_reset_dropouts_address = "/jacklink/audio/source/reset-dropouts";
+	const char * jtl_sources_order_address = "/jacklink/audio/sources/order";
+	const char * jtl_sink_add_address = "/jacklink/audio/sink/add";
+	const char * jtl_sink_remove_address = "/jacklink/audio/sink/remove";
+	const char * jtl_sink_rename_address = "/jacklink/audio/sink/rename";
+	const char * jtl_sinks_order_address = "/jacklink/audio/sinks/order";
+	const char * jtl_listeners_add_address = "/jacklink/listeners/add";
+	const char * jtl_listeners_del_address = "/jacklink/listeners/del";
+
+	//Every command we send is a handful of short strings; 4 KiB is plenty and an over-long payload
+	//is dropped with a complaint rather than silently truncated.
+	constexpr std::size_t jtl_encode_buffer_size = 4096;
+
+	template <typename WriteArgs>
+	std::string jtlMessage(const char * address, WriteArgs&& writeArgs) {
+		thread_local std::vector<char> buffer(jtl_encode_buffer_size);
+		try {
+			oscpack::OutboundPacketStream p(buffer.data(), buffer.size());
+			p << oscpack::BeginMessage(address);
+			writeArgs(p);
+			p << oscpack::EndMessage();
+			return std::string(p.Data(), p.Size());
+		} catch (oscpack::Exception& e) {
+			std::cerr << "error encoding osc message " << address << ": " << e.what() << std::endl;
+			return {};
+		}
+	}
+
+	//zero or more string arguments, which covers every command but latency and sync-to-incoming
+	std::string jtlStringsMessage(const char * address, const std::vector<std::string>& args) {
+		return jtlMessage(address, [&args](oscpack::OutboundPacketStream& p) {
+			for (auto& a: args)
+				p << a;
+		});
+	}
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
 		reinterpret_cast<ProcessAudioJack *>(arg)->process(nframes);
@@ -812,6 +873,14 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 		auto createServer = withServer && (mHasCreatedServer || !mHasCreatedClient);
 		return createClient(createServer);
 	} else {
+		//before anything else: stop jack_transport_link pushing Link Audio state at a port we're
+		//about to stop reading
+		unregisterJTLListener();
+		{
+			std::lock_guard<std::mutex> guard(mLinkAudioStateMutex);
+			mLinkAudioState = LinkAudioState();
+		}
+
 		mRecordNode->close();
 		mBuilder([this](ossia::net::node_base * root) {
 			if (mTransportNode) {
@@ -1139,36 +1208,19 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 				std::string s = v ? "true" : "false";
 				jack_set_property(mJackClient, transportClient, linksync_property_key.c_str(), s.c_str(), linksync_property_type);
 			}
+			//master Link on/off, the one Link setting still carried by metadata
+			if (mLinkEnabledNeedsWrite.exchange(false) && !jack_uuid_empty(transportClient) && mJackClient) {
+				const char * s = mLinkEnabledWrite.load() ? "true" : "false";
+				jack_set_property(mJackClient, transportClient, link_enabled_key.c_str(), s, link_enabled_property_type);
+			}
 		}
 
-		//Link Audio: apply queued metadata writes, then re-sync the subtree from the transport client.
-		//We avoid syncing on the same tick as a write so we don't clobber a just-set param before
-		//jack_transport_link echoes the change back (which re-schedules the sync).
-		{
-			std::vector<LinkAudioWrite> writes;
-			{
-				std::lock_guard<std::mutex> guard(mLinkAudioWriteMutex);
-				std::swap(writes, mLinkAudioPendingWrites);
-			}
-			bool didWrites = false;
-			if (!writes.empty()) {
-				jack_uuid_t tc = mTransportClientUUID.load();
-				if (!jack_uuid_empty(tc) && mJackClient) {
-					for (auto& w : writes) {
-						//JACK disallows empty metadata values: an empty value (e.g. a cleared
-						//slot name) is expressed by removing the property instead.
-						if (w.value.empty()) {
-							jack_remove_property(mJackClient, tc, w.key.c_str());
-						} else {
-							jack_set_property(mJackClient, tc, w.key.c_str(), w.value.c_str(), w.type.c_str());
-						}
-					}
-					didWrites = true;
-				}
-			}
-			if (!didWrites && mLinkAudioNeedsSync.exchange(false)) {
-				syncLinkAudioFromMetadata();
-			}
+		//Link Audio: keep jack_transport_link's endpoint current, send queued commands, then re-sync
+		//the subtree from the state it has pushed us. We avoid syncing on the same tick as a command
+		//so we don't briefly push a just-set param back to its old value before jtl answers.
+		updateJTLEndpoint(now);
+		if (!flushJTLCommands() && mLinkAudioNeedsSync.exchange(false)) {
+			syncLinkAudioFromState();
 		}
 	}
 
@@ -1537,6 +1589,11 @@ bool ProcessAudioJack::createClient(bool startServer) {
 										}
 									} else if (linksync_property_key.compare(prop.key) == 0) {
 											transportClient = des.subject;
+									} else if (osc_port_property_key.compare(prop.key) == 0) {
+											//jack_transport_link was already up when we started, so no
+											//property-change notification is coming for its port key
+											transportClient = des.subject;
+											mJTLPortNeedsRead.store(true);
 									}
 								}
 								jack_free_description(&des, 0);
@@ -1597,7 +1654,12 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 		}
 	}
 
-	bool key_match = bpm_property_key.compare(key) == 0 || linksync_property_key.compare(key) == 0 || linknumpeers_property_key.compare(key) == 0;
+	//"Every property for this subject was removed", which is what a client disconnecting produces.
+	//jack/metadata.h documents that as a null key, but jackd marshals a server-side NULL through a
+	//fixed char buffer, so what actually arrives over the wire is the empty string -- accept both,
+	//and note that std::string::compare(const char *) on nullptr would be undefined behaviour.
+	const bool all_keys = key == nullptr || *key == '\0';
+	bool key_match = !all_keys && (bpm_property_key.compare(key) == 0 || linksync_property_key.compare(key) == 0 || linknumpeers_property_key.compare(key) == 0);
 	jack_uuid_t transportClient = mTransportClientUUID.load();
 
 	//update the client uuid in case we don't already have it
@@ -1612,13 +1674,30 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 		}
 	}
 
-	//Link Audio metadata changed on the transport client — re-sync the OSCQuery subtree.
-	//Note: linkaudio key *deletions* are normal (e.g. a client clearing a list) so they must
-	//NOT clear mTransportClientUUID; they only schedule a re-sync.
-	//also covers the master link/enabled key, which lives under link/ (not linkaudio/) but is
-	//read back in the same sync pass.
-	if (key != nullptr && (std::strncmp(key, linkaudio_prefix.c_str(), linkaudio_prefix.size()) == 0
-	                       || link_enabled_key.compare(key) == 0)) {
+	//The master link/enabled key is the one Link setting still carried by metadata; it's read back in
+	//the sync pass.
+	if (!all_keys && link_enabled_key.compare(key) == 0) {
+		mLinkAudioNeedsSync.store(true);
+	}
+
+	//jack_transport_link's OSC port appeared or changed. This is the whole discovery protocol for
+	//the Link Audio bridge: because JACK wipes a client's properties on disconnect, jtl re-setting
+	//this key on every startup always produces a notification even when the port is identical, and
+	//that notification is what tells us to register as a listener again.
+	if (!all_keys && osc_port_property_key.compare(key) == 0) {
+		if (change != jack_property_change_t::PropertyDeleted && !jack_uuid_empty(subject) && subject != transportClient) {
+			transportClient = subject;
+			mTransportClientUUID.store(subject);
+			mLinkSyncNeedsUpdate = true;
+		}
+		//on a delete the read below simply fails, which drops the endpoint
+		mJTLPortNeedsRead.store(true);
+		mLinkAudioNeedsSync.store(true);
+	}
+
+	//jack_transport_link went away: a disconnecting client has all of its properties removed at once.
+	if (all_keys && !jack_uuid_empty(subject) && subject == transportClient) {
+		mJTLPortNeedsRead.store(true);
 		mLinkAudioNeedsSync.store(true);
 	}
 
@@ -1626,7 +1705,7 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 	if (!jack_uuid_empty(transportClient) && (jack_uuid_empty(subject) || subject == transportClient)) {
 		//if the key is 'all' or matches the bpm key and it isn't a delete
 		//grab the info
-		if (!key || key_match) {
+		if (all_keys || key_match) {
 			if (change != jack_property_change_t::PropertyDeleted) {
 				auto with_property = [transportClient](const std::string& key, std::function<void(const char * values, const char * types)> fn) {
 					char * values = nullptr;
@@ -1690,9 +1769,169 @@ bool ProcessAudioJack::readTransportProperty(jack_uuid_t subject, const std::str
 	return ok;
 }
 
-void ProcessAudioJack::queueLinkAudioWrite(const std::string& key, const std::string& value, const char * type) {
-	std::lock_guard<std::mutex> guard(mLinkAudioWriteMutex);
-	mLinkAudioPendingWrites.push_back({key, value, std::string(type)});
+void ProcessAudioJack::queueJTLCommand(std::string packet) {
+	if (packet.empty())
+		return;
+	std::lock_guard<std::mutex> guard(mJTLCommandMutex);
+	mJTLPendingCommands.push_back(std::move(packet));
+}
+
+bool ProcessAudioJack::flushJTLCommands() {
+	std::vector<std::string> commands;
+	{
+		std::lock_guard<std::mutex> guard(mJTLCommandMutex);
+		std::swap(commands, mJTLPendingCommands);
+	}
+	//no endpoint means jack_transport_link isn't there to command; drop rather than queue for a
+	//future that may never come with a state we can no longer vouch for
+	if (commands.empty() || !mJTLSender)
+		return false;
+	for (auto& c: commands)
+		mJTLSender->send(c);
+	return true;
+}
+
+void ProcessAudioJack::unregisterJTLListener() {
+	if (mJTLSender) {
+		mJTLSender->send(jtlStringsMessage(jtl_listeners_del_address,
+					{ "127.0.0.1:" + std::to_string(oscquery_osc_port) }));
+		mJTLSender.reset();
+	}
+	mJTLPort = 0;
+	{
+		std::lock_guard<std::mutex> guard(mJTLCommandMutex);
+		mJTLPendingCommands.clear();
+	}
+}
+
+//main thread only (processEvents)
+void ProcessAudioJack::updateJTLEndpoint(std::chrono::time_point<std::chrono::steady_clock> now) {
+	bool doRead = mJTLPortNeedsRead.exchange(false);
+
+	//Belt and braces: while we have no endpoint, look for the port key on a timer as well. The whole
+	//bridge now hangs off metadata notification semantics, so it's worth not depending on them alone.
+	if (!doRead && mJTLPort == 0 && mJTLDiscoverNext < now) {
+		mJTLDiscoverNext = now + jtl_discover_period;
+		doRead = true;
+		//we may not have jack_transport_link's uuid yet either
+		if (jack_uuid_empty(mTransportClientUUID.load()) && mJackClient) {
+			char * uuids = jack_get_uuid_for_client_name(mJackClient, linkaudio_transport_client_name.c_str());
+			if (uuids) {
+				jack_uuid_t u = 0;
+				if (jack_uuid_parse(uuids, &u) == 0)
+					mTransportClientUUID.store(u);
+				jack_free(uuids);
+			}
+		}
+	}
+
+	if (doRead) {
+		int port = 0;
+		std::string s;
+		if (readTransportProperty(mTransportClientUUID.load(), osc_port_property_key, s)) {
+			try {
+				std::size_t pos = 0;
+				int p = std::stoi(s, &pos);
+				if (pos == s.size() && p > 0 && p <= 65535)
+					port = p;
+				else
+					std::cerr << "property " << osc_port_property_key << " value isn't in expected format" << std::endl;
+			} catch (...) {
+				std::cerr << "property " << osc_port_property_key << " value isn't in expected format" << std::endl;
+			}
+		}
+
+		if (port != mJTLPort) {
+			mJTLSender.reset();
+			mJTLPort = port;
+			if (mJTLPort) {
+				try {
+					mJTLSender = std::make_unique<JTLCommandSender>("127.0.0.1", mJTLPort);
+				} catch (const std::exception& e) {
+					std::cerr << "failed to create jack_transport_link osc sender: " << e.what() << std::endl;
+					//leave mJTLPort clear so the discovery poll retries
+					mJTLPort = 0;
+				}
+			}
+			//register at once on a new endpoint; the periodic re-send below is only recovery
+			mJTLRegisterNext = now;
+			if (!mJTLPort) {
+				//jack_transport_link is gone: forget its state so availability goes false and both
+				//slot lists clear
+				std::lock_guard<std::mutex> guard(mLinkAudioStateMutex);
+				mLinkAudioState = LinkAudioState();
+			}
+			mLinkAudioNeedsSync.store(true);
+		}
+	}
+
+	if (mJTLSender && mJTLRegisterNext <= now) {
+		mJTLRegisterNext = now + jtl_register_period;
+		//Idempotent on jack_transport_link, which answers every add with a full snapshot even when
+		//the entry was already registered -- which is exactly what repopulates our subtree when
+		//*we* restarted and jtl did not.
+		queueJTLCommand(jtlStringsMessage(jtl_listeners_add_address,
+					{ "127.0.0.1:" + std::to_string(oscquery_osc_port) }));
+	}
+}
+
+void ProcessAudioJack::handleLinkTransportOSC(const std::string& addr, const ossia::value& val) {
+	//Runs on the thread that polls the network context, with the ossia context mutex held, so it
+	//must not touch the node tree -- reconcileLinkAudio*Slots create and remove nodes. Record the
+	//value and flag a sync; processEvents does the tree work on the main thread.
+	static const std::string prefix("/jacklink/state/audio/");
+	if (addr.size() <= prefix.size() || addr.compare(0, prefix.size(), prefix) != 0)
+		return;
+	const std::string topic = addr.substr(prefix.size());
+
+	//create_any hands an OSC `i` over as INT, and T/F as BOOL while 1/0 arrive as INT, so accept
+	//both shapes for numbers and for booleans.
+	auto asString = [&val](std::string& out) {
+		if (val.get_type() != ossia::val_type::STRING)
+			return false;
+		out = val.get<std::string>();
+		return true;
+	};
+	auto asFloat = [&val](float& out) {
+		switch (val.get_type()) {
+			case ossia::val_type::FLOAT: out = val.get<float>(); return true;
+			case ossia::val_type::INT: out = static_cast<float>(val.get<int>()); return true;
+			default: return false;
+		}
+	};
+	auto asBool = [&val](bool& out) {
+		switch (val.get_type()) {
+			case ossia::val_type::BOOL: out = val.get<bool>(); return true;
+			case ossia::val_type::INT: out = val.get<int>() != 0; return true;
+			default: return false;
+		}
+	};
+
+	bool handled = false;
+	{
+		std::lock_guard<std::mutex> guard(mLinkAudioStateMutex);
+		if (topic == "available") {
+			handled = asBool(mLinkAudioState.available);
+		} else if (topic == "channels") {
+			handled = asString(mLinkAudioState.channelsJson);
+		} else if (topic == "peer-name") {
+			handled = asString(mLinkAudioState.peerName);
+		} else if (topic == "latency") {
+			handled = asFloat(mLinkAudioState.latencyMs);
+		} else if (topic == "sync-to-incoming") {
+			handled = asBool(mLinkAudioState.syncToIncoming);
+		} else if (topic == "sinks") {
+			handled = asString(mLinkAudioState.sinksJson);
+		} else if (topic == "sources") {
+			handled = asString(mLinkAudioState.sourcesJson);
+		} else if (topic == "source-status") {
+			handled = asString(mLinkAudioState.sourceStatusJson);
+		}
+		//capture-latency / playback-latency and their -auto forms are part of jack_transport_link's
+		//state push but the runner exposes no nodes for them, so they're accepted and ignored.
+	}
+	if (handled)
+		mLinkAudioNeedsSync.store(true);
 }
 
 //build the always-present /rnbo/jack/link/audio subtree; expects to be holding the build mutex
@@ -1708,7 +1947,8 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkEnabledParam->push_value(true);
 		mLinkEnabledParam->add_callback([this](const ossia::value& val) {
 			if (val.get_type() == ossia::val_type::BOOL) {
-				queueLinkAudioWrite(link_enabled_key, val.get<bool>() ? "true" : "false", linkaudio_bool_type);
+				mLinkEnabledWrite.store(val.get<bool>());
+				mLinkEnabledNeedsWrite.store(true);
 			}
 		});
 	}
@@ -1735,7 +1975,9 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkAudioPeerNameParam->push_value(std::string(""));
 		mLinkAudioPeerNameParam->add_callback([this](const ossia::value& val) {
 			if (val.get_type() == ossia::val_type::STRING) {
-				queueLinkAudioWrite(linkaudio_peer_name_key, val.get<std::string>(), linkaudio_string_type);
+				//an empty name is legal here and means "revert to the hostname"; the metadata path
+				//had to express that as a property *removal*, because JACK disallows empty values
+				queueJTLCommand(jtlStringsMessage(jtl_peer_name_address, { val.get<std::string>() }));
 			}
 		});
 	}
@@ -1751,7 +1993,9 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkAudioLatencyMsParam->push_value(100.0f);
 		mLinkAudioLatencyMsParam->add_callback([this](const ossia::value& val) {
 			if (val.get_type() == ossia::val_type::FLOAT) {
-				queueLinkAudioWrite(linkaudio_latency_key, std::to_string(val.get<float>()), linkaudio_decimal_type);
+				const float v = val.get<float>();
+				queueJTLCommand(jtlMessage(jtl_latency_address,
+							[v](oscpack::OutboundPacketStream& p) { p << v; }));
 			}
 		});
 	}
@@ -1762,7 +2006,9 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkAudioSyncToIncomingParam->push_value(false);
 		mLinkAudioSyncToIncomingParam->add_callback([this](const ossia::value& val) {
 			if (val.get_type() == ossia::val_type::BOOL) {
-				queueLinkAudioWrite(linkaudio_sync_key, val.get<bool>() ? "true" : "false", linkaudio_bool_type);
+				const bool v = val.get<bool>();
+				queueJTLCommand(jtlMessage(jtl_sync_to_incoming_address,
+							[v](oscpack::OutboundPacketStream& p) { p << v; }));
 			}
 		});
 	}
@@ -1785,16 +2031,15 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			auto channel = l[1].get<std::string>();
 			if (channel.empty())
 				return;
-			std::lock_guard<std::mutex> guard(mMutex);
-			for (auto& s: mLinkAudioSourceSlots) {
-				if (s.peer == peer && s.channel == channel)
-					return; //already present
+			{
+				//read-only use of the cache: skip a request jack_transport_link would reject anyway
+				std::lock_guard<std::mutex> guard(mMutex);
+				for (auto& s: mLinkAudioSourceSlots) {
+					if (s.peer == peer && s.channel == channel)
+						return; //already present
+				}
 			}
-			LinkAudioSourceSlot slot;
-			slot.peer = peer;
-			slot.channel = channel;
-			mLinkAudioSourceSlots.push_back(slot);
-			writeLinkAudioSources();
+			queueJTLCommand(jtlStringsMessage(jtl_source_add_address, { peer, channel }));
 		});
 	}
 	{
@@ -1810,13 +2055,9 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 				return;
 			auto peer = l[0].get<std::string>();
 			auto channel = l[1].get<std::string>();
-			std::lock_guard<std::mutex> guard(mMutex);
-			auto it = std::find_if(mLinkAudioSourceSlots.begin(), mLinkAudioSourceSlots.end(),
-					[&peer, &channel](const LinkAudioSourceSlot& s) { return s.peer == peer && s.channel == channel; });
-			if (it == mLinkAudioSourceSlots.end())
-				return;
-			mLinkAudioSourceSlots.erase(it);
-			writeLinkAudioSources();
+			//jack_transport_link's source/remove takes (peer, channel) or a key, so the identity
+			//goes through unchanged
+			queueJTLCommand(jtlStringsMessage(jtl_source_remove_address, { peer, channel }));
 		});
 	}
 	{
@@ -1825,7 +2066,8 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::IMPULSE);
 		p->add_callback([this](const ossia::value&) {
-			queueLinkAudioWrite(linkaudio_reset_dropouts_key, "*", linkaudio_string_type);
+			//no argument = every source
+			queueJTLCommand(jtlStringsMessage(jtl_source_reset_dropouts_address, {}));
 		});
 	}
 	{
@@ -1838,24 +2080,15 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkAudioSourcesOrderParam->add_callback([this](const ossia::value& val) {
 			if (val.get_type() != ossia::val_type::LIST)
 				return;
-			std::lock_guard<std::mutex> guard(mMutex);
-			std::vector<LinkAudioSourceSlot> reordered;
-			auto remaining = mLinkAudioSourceSlots;
+			//jack_transport_link's order command puts the slots we name first, in the given order,
+			//and leaves anything we omit at the end -- so pass the keys straight through and let it
+			//decide, rather than reordering a local copy.
+			std::vector<std::string> keys;
 			for (auto& v: val.get<std::vector<ossia::value>>()) {
-				if (v.get_type() != ossia::val_type::STRING)
-					continue;
-				auto key = v.get<std::string>();
-				auto it = std::find_if(remaining.begin(), remaining.end(),
-						[&key](const LinkAudioSourceSlot& s) { return s.key == key; });
-				if (it == remaining.end())
-					continue;
-				reordered.push_back(*it);
-				remaining.erase(it);
+				if (v.get_type() == ossia::val_type::STRING)
+					keys.push_back(v.get<std::string>());
 			}
-			//slots the client didn't mention keep their relative order at the end
-			reordered.insert(reordered.end(), remaining.begin(), remaining.end());
-			mLinkAudioSourceSlots = reordered;
-			writeLinkAudioSources();
+			queueJTLCommand(jtlStringsMessage(jtl_sources_order_address, keys));
 		});
 	}
 
@@ -1871,15 +2104,15 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			auto name = val.get<std::string>();
 			if (name.empty())
 				return;
-			std::lock_guard<std::mutex> guard(mMutex);
-			for (auto& s: mLinkAudioSinkSlots) {
-				if (s.nameValue == name)
-					return; //jack_transport_link would reject the duplicate anyway
+			{
+				//read-only use of the cache: skip a request jack_transport_link would reject anyway
+				std::lock_guard<std::mutex> guard(mMutex);
+				for (auto& s: mLinkAudioSinkSlots) {
+					if (s.nameValue == name)
+						return;
+				}
 			}
-			LinkAudioSinkSlot slot;
-			slot.nameValue = name;
-			mLinkAudioSinkSlots.push_back(slot);
-			writeLinkAudioSinks();
+			queueJTLCommand(jtlStringsMessage(jtl_sink_add_address, { name }));
 		});
 	}
 	{
@@ -1891,13 +2124,11 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			if (val.get_type() != ossia::val_type::STRING)
 				return;
 			auto name = val.get<std::string>();
-			std::lock_guard<std::mutex> guard(mMutex);
-			auto it = std::find_if(mLinkAudioSinkSlots.begin(), mLinkAudioSinkSlots.end(),
-					[&name](const LinkAudioSinkSlot& s) { return s.nameValue == name; });
-			if (it == mLinkAudioSinkSlots.end())
+			if (name.empty())
 				return;
-			mLinkAudioSinkSlots.erase(it);
-			writeLinkAudioSinks();
+			//jack_transport_link's findSink matches a name first and then a key, so this accepts
+			//either
+			queueJTLCommand(jtlStringsMessage(jtl_sink_remove_address, { name }));
 		});
 	}
 	{
@@ -1910,54 +2141,14 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		mLinkAudioSinksOrderParam->add_callback([this](const ossia::value& val) {
 			if (val.get_type() != ossia::val_type::LIST)
 				return;
-			std::lock_guard<std::mutex> guard(mMutex);
-			std::vector<LinkAudioSinkSlot> reordered;
-			auto remaining = mLinkAudioSinkSlots;
+			std::vector<std::string> keys;
 			for (auto& v: val.get<std::vector<ossia::value>>()) {
-				if (v.get_type() != ossia::val_type::STRING)
-					continue;
-				auto key = v.get<std::string>();
-				auto it = std::find_if(remaining.begin(), remaining.end(),
-						[&key](const LinkAudioSinkSlot& s) { return s.key == key; });
-				if (it == remaining.end())
-					continue;
-				reordered.push_back(*it);
-				remaining.erase(it);
+				if (v.get_type() == ossia::val_type::STRING)
+					keys.push_back(v.get<std::string>());
 			}
-			reordered.insert(reordered.end(), remaining.begin(), remaining.end());
-			mLinkAudioSinkSlots = reordered;
-			writeLinkAudioSinks();
+			queueJTLCommand(jtlStringsMessage(jtl_sinks_order_address, keys));
 		});
 	}
-}
-
-//push the cached source list to jack_transport_link as a whole array. Entries carry their key
-//when they have one, so a key-tagged entry with a changed identity is understood as targeting
-//that slot; a new entry has no key and is created from its identity.
-void ProcessAudioJack::writeLinkAudioSources() {
-	RNBO::Json arr = RNBO::Json::array();
-	for (auto& s: mLinkAudioSourceSlots) {
-		RNBO::Json e = RNBO::Json::object();
-		if (s.key.size())
-			e["key"] = s.key;
-		e["peer"] = s.peer;
-		e["channel"] = s.channel;
-		arr.push_back(e);
-	}
-	queueLinkAudioWrite(linkaudio_sources_key, arr.dump(), linkaudio_json_type);
-}
-
-//push the cached sink list; a key-tagged entry with a changed name is a rename
-void ProcessAudioJack::writeLinkAudioSinks() {
-	RNBO::Json arr = RNBO::Json::array();
-	for (auto& s: mLinkAudioSinkSlots) {
-		RNBO::Json e = RNBO::Json::object();
-		if (s.key.size())
-			e["key"] = s.key;
-		e["name"] = s.nameValue;
-		arr.push_back(e);
-	}
-	queueLinkAudioWrite(linkaudio_sinks_key, arr.dump(), linkaudio_json_type);
 }
 
 //create/remove per-slot source nodes so they match the given keys (in display order);
@@ -2043,7 +2234,7 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::stri
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 			auto p = n->create_parameter(ossia::val_type::IMPULSE);
 			p->add_callback([this, key](const ossia::value&) {
-				queueLinkAudioWrite(linkaudio_reset_dropouts_key, key, linkaudio_string_type);
+				queueJTLCommand(jtlStringsMessage(jtl_source_reset_dropouts_address, { key }));
 			});
 		}
 		next.push_back(slot);
@@ -2088,24 +2279,24 @@ void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string
 				auto name = val.get<std::string>();
 				if (name.empty())
 					return;
-				std::lock_guard<std::mutex> guard(mMutex);
-				//a key-tagged entry with a changed name is a rename; reject a collision
-				//client-side so we don't write something jack_transport_link will discard
-				for (auto& s: mLinkAudioSinkSlots) {
-					if (s.key != key && s.nameValue == name)
+				{
+					//read-only uses of the cache: reject a collision, and a rename to the name the
+					//slot already has, so we don't send something jack_transport_link will discard
+					std::lock_guard<std::mutex> guard(mMutex);
+					bool found = false;
+					for (auto& s: mLinkAudioSinkSlots) {
+						if (s.key != key && s.nameValue == name)
+							return;
+						if (s.key == key) {
+							if (s.nameValue == name)
+								return;
+							found = true;
+						}
+					}
+					if (!found)
 						return;
 				}
-				bool found = false;
-				for (auto& s: mLinkAudioSinkSlots) {
-					if (s.key == key) {
-						if (s.nameValue == name)
-							return;
-						s.nameValue = name;
-						found = true;
-					}
-				}
-				if (found)
-					writeLinkAudioSinks();
+				queueJTLCommand(jtlStringsMessage(jtl_sink_rename_address, { key, name }));
 			});
 		}
 		next.push_back(slot);
@@ -2113,10 +2304,10 @@ void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string
 	mLinkAudioSinkSlots = std::move(next);
 }
 
-//re-read Link Audio metadata from the transport client into the OSCQuery subtree.
-//Only pushes on actual change (quiet, so it never re-triggers the write callbacks).
+//push the Link Audio state jack_transport_link last sent us into the OSCQuery subtree.
+//Only pushes on actual change (quiet, so it never re-triggers the command callbacks).
 //expects to be holding the build mutex
-void ProcessAudioJack::syncLinkAudioFromMetadata() {
+void ProcessAudioJack::syncLinkAudioFromState() {
 	if (!mLinkAudioNode)
 		return;
 
@@ -2161,12 +2352,19 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 		p->push_value_quiet(v);
 	};
 
-	jack_uuid_t tc = mTransportClientUUID.load();
-	std::string channelsJson;
-	bool available = !jack_uuid_empty(tc) && readTransportProperty(tc, linkaudio_channels_key, channelsJson);
+	LinkAudioState state;
+	{
+		std::lock_guard<std::mutex> guard(mLinkAudioStateMutex);
+		state = mLinkAudioState;
+	}
+	//Both halves are needed: an endpoint to talk to at all, and jack_transport_link telling us Link
+	//Audio is actually on. It can run with Link Audio disabled (-A), and over OSC there is no
+	//"the channels key isn't readable" tell to infer that from.
+	bool available = mJTLPort != 0 && state.available;
 
-	//master Link on/off: independent of Link Audio availability (jtl publishes it whenever it's
-	//running), so read it before the availability early-return below.
+	//master Link on/off: still JACK metadata, and independent of Link Audio availability (jtl
+	//publishes it whenever it's running), so read it before the availability early-return below.
+	jack_uuid_t tc = mTransportClientUUID.load();
 	if (!jack_uuid_empty(tc)) {
 		std::string linkEnabledStr;
 		if (readTransportProperty(tc, link_enabled_key, linkEnabledStr))
@@ -2189,49 +2387,26 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 		return;
 	}
 
-	pushStringIfChanged(mLinkAudioChannelsParam, channelsJson);
-
-	//peer name (effective name jack_transport_link broadcasts; empty if unset, unlikely)
-	{
-		std::string peerName;
-		readTransportProperty(tc, linkaudio_peer_name_key, peerName);
-		pushStringIfChanged(mLinkAudioPeerNameParam, peerName);
-	}
-
+	pushStringIfChanged(mLinkAudioChannelsParam, state.channelsJson);
+	//effective name jack_transport_link broadcasts (empty if unset, unlikely)
+	pushStringIfChanged(mLinkAudioPeerNameParam, state.peerName);
 	//receiver playout buffer (ms)
-	{
-		std::string latencyStr;
-		if (readTransportProperty(tc, linkaudio_latency_key, latencyStr)) {
-			try {
-				pushFloatIfChanged(mLinkAudioLatencyMsParam, std::stof(latencyStr));
-			} catch (...) {}
-		}
-	}
+	pushFloatIfChanged(mLinkAudioLatencyMsParam, state.latencyMs);
+	pushBoolIfChanged(mLinkAudioSyncToIncomingParam, state.syncToIncoming);
 
-	//sync to incoming audio toggle
-	{
-		std::string syncStr;
-		if (readTransportProperty(tc, linkaudio_sync_key, syncStr)) {
-			pushBoolIfChanged(mLinkAudioSyncToIncomingParam, syncStr == "true" || syncStr == "1");
-		}
-	}
-
-	auto readJsonArray = [this, tc](const std::string& key) -> RNBO::Json {
-		std::string s;
-		if (readTransportProperty(tc, key, s)) {
-			try {
-				auto j = RNBO::Json::parse(s);
-				if (j.is_array())
-					return j;
-			} catch (...) {}
-		}
+	auto parseJsonArray = [](const std::string& s) -> RNBO::Json {
+		try {
+			auto j = RNBO::Json::parse(s);
+			if (j.is_array())
+				return j;
+		} catch (...) {}
 		return RNBO::Json::array();
 	};
 
 	//The two lists are the authority: jack_transport_link publishes them key-tagged and in
 	//display order. The runner never computes a slot key, it only echoes what it read.
-	RNBO::Json sinks = readJsonArray(linkaudio_sinks_key);
-	RNBO::Json sources = readJsonArray(linkaudio_sources_key);
+	RNBO::Json sinks = parseJsonArray(state.sinksJson);
+	RNBO::Json sources = parseJsonArray(state.sourcesJson);
 
 	std::vector<std::string> sourceKeys;
 	std::map<std::string, std::pair<std::string, std::string>> sourceIdentities; //key -> peer, channel
@@ -2272,7 +2447,7 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 	//per-source: the configured identity from the sources list, plus live telemetry joined
 	//from source-status by key
 	std::map<std::string, RNBO::Json> statusByKey;
-	for (auto& e: readJsonArray(linkaudio_source_status_key)) {
+	for (auto& e: parseJsonArray(state.sourceStatusJson)) {
 		if (!e.is_object())
 			continue;
 		std::string key = e.value("key", std::string());

@@ -664,6 +664,10 @@ Controller::Controller(std::string server_name) {
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(callback_proto));
 
 	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
+	//An inbound address whose first component isn't "rnbo" can never resolve to a node -- that is
+	//the device's only root child -- so it can never reach a writable parameter's callback, which is
+	//what makes /jacklink/state/... safe to receive on the same port with no feedback path.
+	mServer->on_unhandled_message.connect<&Controller::onLinkTransportOSC>(this);
 
 	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	mCompileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
@@ -3113,6 +3117,21 @@ void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value&
 	}
 }
 
+
+void Controller::onLinkTransportOSC(ossia::string_view addrview, const ossia::value& val) {
+	static const std::string prefix("/jacklink/state/");
+	if (addrview.size() <= prefix.size())
+		return;
+	std::string addr(addrview.begin(), addrview.end());
+	if (addr.compare(0, prefix.size(), prefix) != 0)
+		return;
+
+	//We can't verify this actually came from jack_transport_link -- on_unhandled_message doesn't
+	//expose the sender -- and that's fine: this port already accepts /rnbo/cmd from anywhere on the
+	//network, so it isn't a new trust boundary.
+	if (mProcessAudio)
+		mProcessAudio->handleLinkTransportOSC(addr, val);
+}
 
 void Controller::registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr) {
 	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);

@@ -66,6 +66,10 @@ class Controller {
 		void dispatchOSC(const std::string& addr, const ossia::value& value);
 		//for calling from incoming OSC -> mapped params and ports
 		void onUnhandledOSC(ossia::string_view addr, const ossia::value& val);
+		//jack_transport_link's Link Audio state push. A second, separate slot on the same signal:
+		//dispatchOSC calls onUnhandledOSC *directly* on the outbound path, so keeping this apart
+		//means it only ever sees traffic that actually arrived over the network.
+		void onLinkTransportOSC(ossia::string_view addr, const ossia::value& val);
 
 		void registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr);
 

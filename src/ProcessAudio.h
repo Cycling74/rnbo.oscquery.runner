@@ -2,6 +2,10 @@
 #include "RNBO.h"
 #include "DB.h"
 
+namespace ossia {
+	class value;
+}
+
 struct ConnectionChange {
   std::vector<std::string> port;
 	bool issource;
@@ -30,6 +34,11 @@ class ProcessAudio {
 
 		virtual void updatePorts() {}
 		virtual void sendReset() {}
+
+		//handle one Link Audio state push from jack_transport_link, addressed under
+		///jacklink/state/. Default no-op: only the JACK implementation has a transport client to
+		//bridge. Called from the network poll, so an implementation must not touch the node tree.
+		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) { }
 
 		//transport handlers
 		virtual void handleTransportState(bool running) = 0;
