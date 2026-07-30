@@ -31,6 +31,20 @@
       already stored in a saved set won't re-apply until the set is re-saved.
     * existing `jack-transport-link` `config.json` sink/source settings are dropped; devices
       come up with no sources or sinks, which is the new default
+    * **requires a newer `jack_transport_link`**: the Link Audio bridge is now carried over
+      UDP/OSC rather than JACK metadata, and the two sides have to match. The OSCQuery tree
+      under `/rnbo/jack/link/audio` is unchanged, so nothing above the runner is affected.
+        * JACK metadata is a disk-backed database whose every write notifies every connected
+          client, so the few-times-a-second receive telemetry was costing the runner a full
+          re-read — eight property reads plus three JSON parses — on the same thread that
+          services the audio graph, port updates and program changes, several times a second,
+          whenever Link Audio had any source configured. That is now zero when nothing changes.
+        * the runner finds `jack_transport_link` via its new `osc-port` metadata key, registers
+          as a state listener on the OSCQuery OSC port (1234), and re-registers periodically.
+          Either process can restart independently and the subtree repopulates on its own.
+        * `link/enabled` still travels over JACK metadata — it's a cheap, occasional toggle.
+    * fixed: `audio/sources/add` was pushing a slot with an empty key into the local cache,
+      which then tried to remove a child named `""` on the next sync
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content
