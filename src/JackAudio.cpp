@@ -2020,6 +2020,12 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::stri
 			slot.unmappable = n->create_parameter(ossia::val_type::INT);
 		}
 		{
+			auto n = slotNode->create_child("arrival_offset_ms");
+			n->set(ossia::net::description_attribute{}, "measured delay between the live beat and the beat the newest arrived buffer begins at. latency_ms has to exceed this for anything to play, so this is the number to compare against when a source needs an unexpectedly large buffer");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.arrival_offset_ms = n->create_parameter(ossia::val_type::FLOAT);
+		}
+		{
 			auto n = slotNode->create_child("jitter_ms");
 			n->set(ossia::net::description_attribute{}, "estimated network jitter (ms), smoothed inter-arrival deviation");
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
@@ -2293,6 +2299,7 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 			pushFloatIfChanged(slot.buffered_ms, s->second.value("buffered_ms", 0.0));
 			pushIntIfChanged(slot.dropouts, s->second.value("dropouts", 0));
 			pushIntIfChanged(slot.unmappable, s->second.value("unmappable", 0));
+			pushFloatIfChanged(slot.arrival_offset_ms, s->second.value("arrival_offset_ms", 0.0));
 			pushFloatIfChanged(slot.jitter_ms, s->second.value("jitter_ms", 0.0));
 			pushBoolIfChanged(slot.connected, s->second.value("connected", false));
 			pushBoolIfChanged(slot.receiving, s->second.value("receiving", false));
@@ -2300,6 +2307,7 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 			pushFloatIfChanged(slot.buffered_ms, 0.0f);
 			pushIntIfChanged(slot.dropouts, 0);
 			pushIntIfChanged(slot.unmappable, 0);
+			pushFloatIfChanged(slot.arrival_offset_ms, 0.0f);
 			pushFloatIfChanged(slot.jitter_ms, 0.0f);
 			pushBoolIfChanged(slot.connected, false);
 			pushBoolIfChanged(slot.receiving, false);

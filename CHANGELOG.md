@@ -18,6 +18,9 @@
         * added `sources/<key>/unmappable`: count of buffers that arrived but were stamped for a
           different Link session, so they can't be beat-aligned and are discarded. Nonzero means
           audio is reaching the device and being thrown away, which no `latency_ms` value can fix
+        * added `sources/<key>/arrival_offset_ms`: measured delay between the live beat and the
+          beat the newest arrived buffer begins at. `latency_ms` must exceed it for a source to
+          play, so it's the number to check when a source needs an unexpectedly large buffer
         * `sources/reset_dropouts` and `sources/<key>/reset_dropouts` (bang) zero the cumulative
           dropout count — for every source, or just one — so it can be read as "dropouts since I
           last changed a setting"
