@@ -18,6 +18,12 @@ namespace ossia {
 //a callback function that lets you safely alter the tree of nodes, passes your root
 typedef std::function<void(std::function<void(ossia::net::node_base*)>)> NodeBuilder;
 
+//The ports our OSCQuery server listens on. The OSC port isn't only ours to talk to: it is also the
+//address we hand to jack_transport_link so it knows where to push Link Audio state, and the port
+//pair the listener feedback guard rejects.
+static const int oscquery_osc_port = 1234;
+static const int oscquery_ws_port = 5678;
+
 enum class CompileLoadStatus : unsigned int {
 	Received = 0,
 	Compiled = 1,

@@ -643,7 +643,7 @@ Controller::Controller(std::string server_name) {
 
 	mProtocol = new ossia::net::multiplex_protocol();
 	mOssiaContext = ossia::net::create_network_context();
-	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, 1234, 5678);
+	auto serv_proto = new ossia::oscquery_asio::oscquery_server_protocol(mOssiaContext, oscquery_osc_port, oscquery_ws_port);
 
 	mServer = std::unique_ptr<ossia::net::generic_device>(new ossia::net::generic_device(std::unique_ptr<ossia::net::protocol_base>(mProtocol), server_name));
 	mServer->set_echo(true);
@@ -4438,7 +4438,7 @@ void Controller::registerCommands() {
 		key = std::make_pair(ip, port);
 
 		//protect against feedback
-		if (ip == "127.0.0.1" && (port == 1234 || port == 5678)) {
+		if (ip == "127.0.0.1" && (port == oscquery_osc_port || port == oscquery_ws_port)) {
 			reportCommandError(id, static_cast<unsigned int>(ListenerCommandStatus::Failed), "feedback detected");
 			return false;
 		}
