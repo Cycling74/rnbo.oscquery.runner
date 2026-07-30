@@ -147,7 +147,6 @@ class ProcessAudioJack : public ProcessAudio {
 			//read-only receive telemetry, proxied from linkaudio/source-status
 			ossia::net::parameter_base * buffered_ms = nullptr;
 			ossia::net::parameter_base * dropouts = nullptr;
-			ossia::net::parameter_base * unmappable = nullptr;
 			ossia::net::parameter_base * arrival_offset_ms = nullptr;
 			ossia::net::parameter_base * jitter_ms = nullptr;
 			ossia::net::parameter_base * connected = nullptr;
