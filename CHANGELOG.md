@@ -2,6 +2,35 @@
 
 * *1.4.5-10*
     * thread thru link audio config from jack_transport_link
+    * **breaking** (relative to the unreleased Link Audio work above): Link Audio is now
+      configured as two explicit, ordered lists rather than stereo-pair counts. Under
+      `/rnbo/jack/link/audio`:
+        * `sources/add` (`[peer, channel]`), `sources/remove` (`[peer, channel]`),
+          `sources/order` (list of slot keys)
+        * `sinks/add` (name), `sinks/remove` (name), `sinks/order` (list of slot keys)
+        * per-slot children are named by the slot key `jack_transport_link` publishes:
+          `sources/<key>/{peer,channel,connected,buffered_ms,dropouts,jitter_ms}` and
+          `sinks/<key>/name` (writing it renames the sink)
+        * added `sources/<key>/receiving`: true while a source is actually rendering audio.
+          Connected-but-not-receiving means it is subscribed yet producing pure silence (usually
+          `latency_ms` too small to cover the network's arrival delay) — a state the dropout count
+          cannot report, since dropouts are only counted once playback has started
+        * added `sources/<key>/unmappable`: count of buffers that arrived but were stamped for a
+          different Link session, so they can't be beat-aligned and are discarded. Nonzero means
+          audio is reaching the device and being thrown away, which no `latency_ms` value can fix
+        * `sources/reset_dropouts` and `sources/<key>/reset_dropouts` (bang) zero the cumulative
+          dropout count — for every source, or just one — so it can be read as "dropouts since I
+          last changed a setting"
+        * removed: `sources/count`, `sinks/count`, and the per-slot `select`, `status` and
+          source `name` nodes
+    * nothing connects on its own any more — no "first available peer" and no substring
+      source filters. A source names an exact peer + channel.
+    * `jack-transport-link`'s JACK ports are now named from the slot identity
+      (`in_<key>_l`/`_r`, `out_<key>_l`/`_r`), so a slot can never inherit an unrelated
+      slot's saved connections. Note that renaming a sink changes its port names: connections
+      already stored in a saved set won't re-apply until the set is re-saved.
+    * existing `jack-transport-link` `config.json` sink/source settings are dropped; devices
+      come up with no sources or sinks, which is the new default
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content

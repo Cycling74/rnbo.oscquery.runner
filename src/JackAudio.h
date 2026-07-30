@@ -76,8 +76,14 @@ class ProcessAudioJack : public ProcessAudio {
 		//Link Audio (jack_transport_link) bridge
 		void buildLinkAudioNodes(ossia::net::node_base * root);
 		void syncLinkAudioFromMetadata();
-		void reconcileLinkAudioSourceSlots(size_t count);
-		void reconcileLinkAudioSinkSlots(size_t count);
+		//per-slot children are named by the slot key jack_transport_link publishes; the runner
+		//never computes a hash, it only echoes the keys it read
+		void reconcileLinkAudioSourceSlots(const std::vector<std::string>& keys);
+		void reconcileLinkAudioSinkSlots(const std::vector<std::string>& keys);
+		//jack_transport_link's interface is declarative, so every command is a read-modify-write
+		//of the cached list pushed back as a whole array
+		void writeLinkAudioSources();
+		void writeLinkAudioSinks();
 		void queueLinkAudioWrite(const std::string& key, const std::string& value, const char * type);
 		bool readTransportProperty(jack_uuid_t subject, const std::string& key, std::string& out);
 
@@ -132,15 +138,23 @@ class ProcessAudioJack : public ProcessAudio {
 
 		//Link Audio bridge (proxies jack_transport_link's linkaudio/* metadata)
 		struct LinkAudioSourceSlot {
-			ossia::net::parameter_base * select = nullptr;
-			ossia::net::parameter_base * status = nullptr;
-			//read-only receive health, proxied from linkaudio/source-health
+			std::string key;
+			//the configured identity, from linkaudio/sources
+			std::string peer;
+			std::string channel;
+			ossia::net::parameter_base * peerParam = nullptr;
+			ossia::net::parameter_base * channelParam = nullptr;
+			//read-only receive telemetry, proxied from linkaudio/source-status
 			ossia::net::parameter_base * buffered_ms = nullptr;
 			ossia::net::parameter_base * dropouts = nullptr;
+			ossia::net::parameter_base * unmappable = nullptr;
 			ossia::net::parameter_base * jitter_ms = nullptr;
 			ossia::net::parameter_base * connected = nullptr;
+			ossia::net::parameter_base * receiving = nullptr;
 		};
 		struct LinkAudioSinkSlot {
+			std::string key;
+			std::string nameValue;
 			ossia::net::parameter_base * name = nullptr;
 		};
 		ossia::net::node_base * mLinkNode = nullptr;
@@ -153,8 +167,9 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mLinkAudioPeerNameParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioLatencyMsParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioSyncToIncomingParam = nullptr;
-		ossia::net::parameter_base * mLinkAudioSourcesCountParam = nullptr;
-		ossia::net::parameter_base * mLinkAudioSinksCountParam = nullptr;
+		ossia::net::parameter_base * mLinkAudioSourcesOrderParam = nullptr;
+		ossia::net::parameter_base * mLinkAudioSinksOrderParam = nullptr;
+		//cached slot lists, in display order; the read-modify-write base for the commands
 		std::vector<LinkAudioSourceSlot> mLinkAudioSourceSlots;
 		std::vector<LinkAudioSinkSlot> mLinkAudioSinkSlots;
 		std::atomic<bool> mLinkAudioNeedsSync = false;

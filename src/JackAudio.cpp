@@ -103,20 +103,19 @@ namespace {
 	//Link Audio metadata keys (published by jack_transport_link), must match its keys exactly
 	const std::string linkaudio_prefix("http://www.x37v.info/jack/metadata/linkaudio/");
 	const std::string linkaudio_channels_key("http://www.x37v.info/jack/metadata/linkaudio/channels");
-	const std::string linkaudio_source_key("http://www.x37v.info/jack/metadata/linkaudio/source");
-	const std::string linkaudio_sink_key("http://www.x37v.info/jack/metadata/linkaudio/sink");
-	const std::string linkaudio_source_filters_key("http://www.x37v.info/jack/metadata/linkaudio/source-filters");
+	//the two explicit, ordered lists; declarative and writable (see jack_transport_link's README)
+	const std::string linkaudio_sinks_key("http://www.x37v.info/jack/metadata/linkaudio/sinks");
+	const std::string linkaudio_sources_key("http://www.x37v.info/jack/metadata/linkaudio/sources");
+	//per-source live receive telemetry, key-tagged; joined to linkaudio/sources by key
 	const std::string linkaudio_source_status_key("http://www.x37v.info/jack/metadata/linkaudio/source-status");
-	const std::string linkaudio_source_health_key("http://www.x37v.info/jack/metadata/linkaudio/source-health");
+	//write-only command: zero a source's cumulative dropout count (slot key, or "*" for all)
+	const std::string linkaudio_reset_dropouts_key("http://www.x37v.info/jack/metadata/linkaudio/reset-dropouts");
 	const std::string linkaudio_peer_name_key("http://www.x37v.info/jack/metadata/linkaudio/peer-name");
 	const std::string linkaudio_latency_key("http://www.x37v.info/jack/metadata/linkaudio/latency");
 	const std::string linkaudio_sync_key("http://www.x37v.info/jack/metadata/linkaudio/sync-to-incoming");
 	const std::string link_enabled_key("http://www.x37v.info/jack/metadata/link/enabled");
-	const std::string linkaudio_in_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/in-stereo-channels");
-	const std::string linkaudio_out_stereo_key("http://www.x37v.info/jack/metadata/linkaudio/out-stereo-channels");
 	const char * linkaudio_json_type = "application/json";
 	const char * linkaudio_string_type = "text/plain";
-	const char * linkaudio_int_type = "https://www.w3.org/2001/XMLSchema#integer";
 	const char * linkaudio_decimal_type = "https://www.w3.org/2001/XMLSchema#decimal";
 	const char * linkaudio_bool_type = "https://www.w3.org/2001/XMLSchema#boolean";
 	const std::string linkaudio_transport_client_name("jack-transport-link");
@@ -829,8 +828,8 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 					mLinkAudioSinksNode = nullptr;
 					mLinkAudioAvailableParam = nullptr;
 					mLinkAudioChannelsParam = nullptr;
-					mLinkAudioSourcesCountParam = nullptr;
-					mLinkAudioSinksCountParam = nullptr;
+					mLinkAudioSourcesOrderParam = nullptr;
+					mLinkAudioSinksOrderParam = nullptr;
 					mLinkAudioSourceSlots.clear();
 					mLinkAudioSinkSlots.clear();
 				}
@@ -1614,8 +1613,8 @@ void ProcessAudioJack::jackPropertyChangeCallback(jack_uuid_t subject, const cha
 	}
 
 	//Link Audio metadata changed on the transport client — re-sync the OSCQuery subtree.
-	//Note: linkaudio key *deletions* are normal (e.g. shrinking counts) so they must NOT
-	//clear mTransportClientUUID; they only schedule a re-sync.
+	//Note: linkaudio key *deletions* are normal (e.g. a client clearing a list) so they must
+	//NOT clear mTransportClientUUID; they only schedule a re-sync.
 	//also covers the master link/enabled key, which lives under link/ (not linkaudio/) but is
 	//read back in the same sync pass.
 	if (key != nullptr && (std::strncmp(key, linkaudio_prefix.c_str(), linkaudio_prefix.size()) == 0
@@ -1768,74 +1767,239 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		});
 	}
 
+	//sources: add/remove take an identity so an OSC client never needs a slot key; order takes
+	//keys because that's what the per-slot child nodes are named.
 	mLinkAudioSourcesNode = audio->create_child("sources");
 	{
-		auto n = mLinkAudioSourcesNode->create_child("count");
-		n->set(ossia::net::description_attribute{}, "number of incoming (source) Link Audio stereo channels");
-		mLinkAudioSourcesCountParam = n->create_parameter(ossia::val_type::INT);
-		mLinkAudioSourcesCountParam->push_value(0);
-		mLinkAudioSourcesCountParam->add_callback([this](const ossia::value& val) {
-			if (val.get_type() == ossia::val_type::INT) {
-				queueLinkAudioWrite(linkaudio_out_stereo_key, std::to_string(val.get<int>()), linkaudio_int_type);
+		auto n = mLinkAudioSourcesNode->create_child("add");
+		n->set(ossia::net::description_attribute{}, "append a source: [peer, channel], matched exactly against an advertised Link Audio channel");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+		auto p = n->create_parameter(ossia::val_type::LIST);
+		p->add_callback([this](const ossia::value& val) {
+			if (val.get_type() != ossia::val_type::LIST)
+				return;
+			auto l = val.get<std::vector<ossia::value>>();
+			if (l.size() < 2 || l[0].get_type() != ossia::val_type::STRING || l[1].get_type() != ossia::val_type::STRING)
+				return;
+			auto peer = l[0].get<std::string>();
+			auto channel = l[1].get<std::string>();
+			if (channel.empty())
+				return;
+			std::lock_guard<std::mutex> guard(mMutex);
+			for (auto& s: mLinkAudioSourceSlots) {
+				if (s.peer == peer && s.channel == channel)
+					return; //already present
 			}
+			LinkAudioSourceSlot slot;
+			slot.peer = peer;
+			slot.channel = channel;
+			mLinkAudioSourceSlots.push_back(slot);
+			writeLinkAudioSources();
+		});
+	}
+	{
+		auto n = mLinkAudioSourcesNode->create_child("remove");
+		n->set(ossia::net::description_attribute{}, "remove a source: [peer, channel]");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+		auto p = n->create_parameter(ossia::val_type::LIST);
+		p->add_callback([this](const ossia::value& val) {
+			if (val.get_type() != ossia::val_type::LIST)
+				return;
+			auto l = val.get<std::vector<ossia::value>>();
+			if (l.size() < 2 || l[0].get_type() != ossia::val_type::STRING || l[1].get_type() != ossia::val_type::STRING)
+				return;
+			auto peer = l[0].get<std::string>();
+			auto channel = l[1].get<std::string>();
+			std::lock_guard<std::mutex> guard(mMutex);
+			auto it = std::find_if(mLinkAudioSourceSlots.begin(), mLinkAudioSourceSlots.end(),
+					[&peer, &channel](const LinkAudioSourceSlot& s) { return s.peer == peer && s.channel == channel; });
+			if (it == mLinkAudioSourceSlots.end())
+				return;
+			mLinkAudioSourceSlots.erase(it);
+			writeLinkAudioSources();
+		});
+	}
+	{
+		auto n = mLinkAudioSourcesNode->create_child("reset_dropouts");
+		n->set(ossia::net::description_attribute{}, "bang to zero the dropout count of every source, so the counts read as \"dropouts since I changed a setting\"");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+		auto p = n->create_parameter(ossia::val_type::IMPULSE);
+		p->add_callback([this](const ossia::value&) {
+			queueLinkAudioWrite(linkaudio_reset_dropouts_key, "*", linkaudio_string_type);
+		});
+	}
+	{
+		auto n = mLinkAudioSourcesNode->create_child("order");
+		n->set(ossia::net::description_attribute{}, "display order of the sources, as a list of slot keys");
+		mLinkAudioSourcesOrderParam = n->create_parameter(ossia::val_type::LIST);
+		//quiet: buildLinkAudioNodes runs with mMutex held (createClient), and the write
+		//callback below takes it
+		mLinkAudioSourcesOrderParam->push_value_quiet(std::vector<ossia::value>());
+		mLinkAudioSourcesOrderParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() != ossia::val_type::LIST)
+				return;
+			std::lock_guard<std::mutex> guard(mMutex);
+			std::vector<LinkAudioSourceSlot> reordered;
+			auto remaining = mLinkAudioSourceSlots;
+			for (auto& v: val.get<std::vector<ossia::value>>()) {
+				if (v.get_type() != ossia::val_type::STRING)
+					continue;
+				auto key = v.get<std::string>();
+				auto it = std::find_if(remaining.begin(), remaining.end(),
+						[&key](const LinkAudioSourceSlot& s) { return s.key == key; });
+				if (it == remaining.end())
+					continue;
+				reordered.push_back(*it);
+				remaining.erase(it);
+			}
+			//slots the client didn't mention keep their relative order at the end
+			reordered.insert(reordered.end(), remaining.begin(), remaining.end());
+			mLinkAudioSourceSlots = reordered;
+			writeLinkAudioSources();
 		});
 	}
 
 	mLinkAudioSinksNode = audio->create_child("sinks");
 	{
-		auto n = mLinkAudioSinksNode->create_child("count");
-		n->set(ossia::net::description_attribute{}, "number of outgoing (sink) Link Audio stereo channels");
-		mLinkAudioSinksCountParam = n->create_parameter(ossia::val_type::INT);
-		mLinkAudioSinksCountParam->push_value(0);
-		mLinkAudioSinksCountParam->add_callback([this](const ossia::value& val) {
-			if (val.get_type() == ossia::val_type::INT) {
-				queueLinkAudioWrite(linkaudio_in_stereo_key, std::to_string(val.get<int>()), linkaudio_int_type);
+		auto n = mLinkAudioSinksNode->create_child("add");
+		n->set(ossia::net::description_attribute{}, "append a sink with this name, announced to the Link session; must be non-empty and unused");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		p->add_callback([this](const ossia::value& val) {
+			if (val.get_type() != ossia::val_type::STRING)
+				return;
+			auto name = val.get<std::string>();
+			if (name.empty())
+				return;
+			std::lock_guard<std::mutex> guard(mMutex);
+			for (auto& s: mLinkAudioSinkSlots) {
+				if (s.nameValue == name)
+					return; //jack_transport_link would reject the duplicate anyway
 			}
+			LinkAudioSinkSlot slot;
+			slot.nameValue = name;
+			mLinkAudioSinkSlots.push_back(slot);
+			writeLinkAudioSinks();
+		});
+	}
+	{
+		auto n = mLinkAudioSinksNode->create_child("remove");
+		n->set(ossia::net::description_attribute{}, "remove the sink with this name");
+		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+		auto p = n->create_parameter(ossia::val_type::STRING);
+		p->add_callback([this](const ossia::value& val) {
+			if (val.get_type() != ossia::val_type::STRING)
+				return;
+			auto name = val.get<std::string>();
+			std::lock_guard<std::mutex> guard(mMutex);
+			auto it = std::find_if(mLinkAudioSinkSlots.begin(), mLinkAudioSinkSlots.end(),
+					[&name](const LinkAudioSinkSlot& s) { return s.nameValue == name; });
+			if (it == mLinkAudioSinkSlots.end())
+				return;
+			mLinkAudioSinkSlots.erase(it);
+			writeLinkAudioSinks();
+		});
+	}
+	{
+		auto n = mLinkAudioSinksNode->create_child("order");
+		n->set(ossia::net::description_attribute{}, "display order of the sinks, as a list of slot keys");
+		mLinkAudioSinksOrderParam = n->create_parameter(ossia::val_type::LIST);
+		//quiet: buildLinkAudioNodes runs with mMutex held (createClient), and the write
+		//callback below takes it
+		mLinkAudioSinksOrderParam->push_value_quiet(std::vector<ossia::value>());
+		mLinkAudioSinksOrderParam->add_callback([this](const ossia::value& val) {
+			if (val.get_type() != ossia::val_type::LIST)
+				return;
+			std::lock_guard<std::mutex> guard(mMutex);
+			std::vector<LinkAudioSinkSlot> reordered;
+			auto remaining = mLinkAudioSinkSlots;
+			for (auto& v: val.get<std::vector<ossia::value>>()) {
+				if (v.get_type() != ossia::val_type::STRING)
+					continue;
+				auto key = v.get<std::string>();
+				auto it = std::find_if(remaining.begin(), remaining.end(),
+						[&key](const LinkAudioSinkSlot& s) { return s.key == key; });
+				if (it == remaining.end())
+					continue;
+				reordered.push_back(*it);
+				remaining.erase(it);
+			}
+			reordered.insert(reordered.end(), remaining.begin(), remaining.end());
+			mLinkAudioSinkSlots = reordered;
+			writeLinkAudioSinks();
 		});
 	}
 }
 
-//create/remove per-slot source nodes to match count; expects to be holding the build mutex
-void ProcessAudioJack::reconcileLinkAudioSourceSlots(size_t count) {
+//push the cached source list to jack_transport_link as a whole array. Entries carry their key
+//when they have one, so a key-tagged entry with a changed identity is understood as targeting
+//that slot; a new entry has no key and is created from its identity.
+void ProcessAudioJack::writeLinkAudioSources() {
+	RNBO::Json arr = RNBO::Json::array();
+	for (auto& s: mLinkAudioSourceSlots) {
+		RNBO::Json e = RNBO::Json::object();
+		if (s.key.size())
+			e["key"] = s.key;
+		e["peer"] = s.peer;
+		e["channel"] = s.channel;
+		arr.push_back(e);
+	}
+	queueLinkAudioWrite(linkaudio_sources_key, arr.dump(), linkaudio_json_type);
+}
+
+//push the cached sink list; a key-tagged entry with a changed name is a rename
+void ProcessAudioJack::writeLinkAudioSinks() {
+	RNBO::Json arr = RNBO::Json::array();
+	for (auto& s: mLinkAudioSinkSlots) {
+		RNBO::Json e = RNBO::Json::object();
+		if (s.key.size())
+			e["key"] = s.key;
+		e["name"] = s.nameValue;
+		arr.push_back(e);
+	}
+	queueLinkAudioWrite(linkaudio_sinks_key, arr.dump(), linkaudio_json_type);
+}
+
+//create/remove per-slot source nodes so they match the given keys (in display order);
+//expects to be holding the build mutex
+void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::string>& keys) {
 	if (!mLinkAudioSourcesNode)
 		return;
-	//remove extra
-	for (size_t i = mLinkAudioSourceSlots.size(); i > count; --i) {
-		mLinkAudioSourcesNode->remove_child(std::to_string(i - 1));
+
+	//index the existing slots by key so surviving slots keep their nodes (and their parameter
+	//values, so nothing re-triggers a write callback)
+	std::map<std::string, LinkAudioSourceSlot> existing;
+	for (auto& s: mLinkAudioSourceSlots)
+		existing.emplace(s.key, s);
+
+	std::set<std::string> wanted(keys.begin(), keys.end());
+	for (auto& [key, slot]: existing) {
+		if (!wanted.count(key))
+			mLinkAudioSourcesNode->remove_child(key);
 	}
-	if (count < mLinkAudioSourceSlots.size())
-		mLinkAudioSourceSlots.resize(count);
-	//add missing
-	for (size_t i = mLinkAudioSourceSlots.size(); i < count; ++i) {
-		auto slotNode = mLinkAudioSourcesNode->create_child(std::to_string(i));
+
+	std::vector<LinkAudioSourceSlot> next;
+	next.reserve(keys.size());
+	for (auto& key: keys) {
+		auto it = existing.find(key);
+		if (it != existing.end()) {
+			next.push_back(it->second);
+			continue;
+		}
+		auto slotNode = mLinkAudioSourcesNode->create_child(key);
 		LinkAudioSourceSlot slot;
+		slot.key = key;
 		{
-			auto n = slotNode->create_child("select");
-			n->set(ossia::net::description_attribute{}, "[peer, channel] substring filter to subscribe to; empty = auto");
-			slot.select = n->create_parameter(ossia::val_type::LIST);
-			slot.select->add_callback([this, i](const ossia::value& val) {
-				RNBO::Json obj = RNBO::Json::object();
-				if (val.get_type() == ossia::val_type::LIST) {
-					auto l = val.get<std::vector<ossia::value>>();
-					if (l.size() > 0 && l[0].get_type() == ossia::val_type::STRING) {
-						auto peer = l[0].get<std::string>();
-						if (peer.size())
-							obj["peer"] = peer;
-					}
-					if (l.size() > 1 && l[1].get_type() == ossia::val_type::STRING) {
-						auto channel = l[1].get<std::string>();
-						if (channel.size())
-							obj["channel"] = channel;
-					}
-				}
-				queueLinkAudioWrite(linkaudio_source_key + "/" + std::to_string(i), obj.dump(), linkaudio_json_type);
-			});
+			auto n = slotNode->create_child("peer");
+			n->set(ossia::net::description_attribute{}, "Link peer name this source subscribes to (exact match)");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.peerParam = n->create_parameter(ossia::val_type::STRING);
 		}
 		{
-			auto n = slotNode->create_child("status");
-			n->set(ossia::net::description_attribute{}, "currently connected peer/channel (JSON), empty object when unconnected");
+			auto n = slotNode->create_child("channel");
+			n->set(ossia::net::description_attribute{}, "Link Audio channel name this source subscribes to (exact match)");
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
-			slot.status = n->create_parameter(ossia::val_type::STRING);
+			slot.channelParam = n->create_parameter(ossia::val_type::STRING);
 		}
 		{
 			auto n = slotNode->create_child("buffered_ms");
@@ -1850,6 +2014,12 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(size_t count) {
 			slot.dropouts = n->create_parameter(ossia::val_type::INT);
 		}
 		{
+			auto n = slotNode->create_child("unmappable");
+			n->set(ossia::net::description_attribute{}, "count of buffers that arrived but were stamped in a different Link session, so their beat time can't be mapped onto ours and they are discarded. Nonzero means audio is reaching this device and being thrown away — raising latency_ms cannot help; the sender has to be in the same Link session");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.unmappable = n->create_parameter(ossia::val_type::INT);
+		}
+		{
 			auto n = slotNode->create_child("jitter_ms");
 			n->set(ossia::net::description_attribute{}, "estimated network jitter (ms), smoothed inter-arrival deviation");
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
@@ -1861,34 +2031,86 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(size_t count) {
 			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
 			slot.connected = n->create_parameter(ossia::val_type::BOOL);
 		}
-		mLinkAudioSourceSlots.push_back(slot);
-	}
-}
-
-//create/remove per-slot sink nodes to match count; expects to be holding the build mutex
-void ProcessAudioJack::reconcileLinkAudioSinkSlots(size_t count) {
-	if (!mLinkAudioSinksNode)
-		return;
-	for (size_t i = mLinkAudioSinkSlots.size(); i > count; --i) {
-		mLinkAudioSinksNode->remove_child(std::to_string(i - 1));
-	}
-	if (count < mLinkAudioSinkSlots.size())
-		mLinkAudioSinkSlots.resize(count);
-	for (size_t i = mLinkAudioSinkSlots.size(); i < count; ++i) {
-		auto slotNode = mLinkAudioSinksNode->create_child(std::to_string(i));
-		LinkAudioSinkSlot slot;
 		{
-			auto n = slotNode->create_child("name");
-			n->set(ossia::net::description_attribute{}, "name announced to the Link session for this outgoing channel");
-			slot.name = n->create_parameter(ossia::val_type::STRING);
-			slot.name->add_callback([this, i](const ossia::value& val) {
-				if (val.get_type() == ossia::val_type::STRING) {
-					queueLinkAudioWrite(linkaudio_sink_key + "/" + std::to_string(i) + "/name", val.get<std::string>(), linkaudio_string_type);
-				}
+			auto n = slotNode->create_child("receiving");
+			n->set(ossia::net::description_attribute{}, "true while this source is actually rendering received audio. Connected but not receiving means it is subscribed yet producing pure silence — usually a playout buffer (latency_ms) too small to cover the network's arrival delay, which the dropout count can't report");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+			slot.receiving = n->create_parameter(ossia::val_type::BOOL);
+		}
+		{
+			auto n = slotNode->create_child("reset_dropouts");
+			n->set(ossia::net::description_attribute{}, "bang to zero this source's dropout count");
+			n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
+			auto p = n->create_parameter(ossia::val_type::IMPULSE);
+			p->add_callback([this, key](const ossia::value&) {
+				queueLinkAudioWrite(linkaudio_reset_dropouts_key, key, linkaudio_string_type);
 			});
 		}
-		mLinkAudioSinkSlots.push_back(slot);
+		next.push_back(slot);
 	}
+	mLinkAudioSourceSlots = std::move(next);
+}
+
+//create/remove per-slot sink nodes so they match the given keys (in display order);
+//expects to be holding the build mutex
+void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string>& keys) {
+	if (!mLinkAudioSinksNode)
+		return;
+
+	std::map<std::string, LinkAudioSinkSlot> existing;
+	for (auto& s: mLinkAudioSinkSlots)
+		existing.emplace(s.key, s);
+
+	std::set<std::string> wanted(keys.begin(), keys.end());
+	for (auto& [key, slot]: existing) {
+		if (!wanted.count(key))
+			mLinkAudioSinksNode->remove_child(key);
+	}
+
+	std::vector<LinkAudioSinkSlot> next;
+	next.reserve(keys.size());
+	for (auto& key: keys) {
+		auto it = existing.find(key);
+		if (it != existing.end()) {
+			next.push_back(it->second);
+			continue;
+		}
+		auto slotNode = mLinkAudioSinksNode->create_child(key);
+		LinkAudioSinkSlot slot;
+		slot.key = key;
+		{
+			auto n = slotNode->create_child("name");
+			n->set(ossia::net::description_attribute{}, "name announced to the Link session for this outgoing channel; writing renames it (which also re-registers its JACK ports)");
+			slot.name = n->create_parameter(ossia::val_type::STRING);
+			slot.name->add_callback([this, key](const ossia::value& val) {
+				if (val.get_type() != ossia::val_type::STRING)
+					return;
+				auto name = val.get<std::string>();
+				if (name.empty())
+					return;
+				std::lock_guard<std::mutex> guard(mMutex);
+				//a key-tagged entry with a changed name is a rename; reject a collision
+				//client-side so we don't write something jack_transport_link will discard
+				for (auto& s: mLinkAudioSinkSlots) {
+					if (s.key != key && s.nameValue == name)
+						return;
+				}
+				bool found = false;
+				for (auto& s: mLinkAudioSinkSlots) {
+					if (s.key == key) {
+						if (s.nameValue == name)
+							return;
+						s.nameValue = name;
+						found = true;
+					}
+				}
+				if (found)
+					writeLinkAudioSinks();
+			});
+		}
+		next.push_back(slot);
+	}
+	mLinkAudioSinkSlots = std::move(next);
 }
 
 //re-read Link Audio metadata from the transport client into the OSCQuery subtree.
@@ -1960,10 +2182,10 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 
 	if (!available) {
 		pushStringIfChanged(mLinkAudioChannelsParam, "[]");
-		pushIntIfChanged(mLinkAudioSourcesCountParam, 0);
-		pushIntIfChanged(mLinkAudioSinksCountParam, 0);
-		reconcileLinkAudioSourceSlots(0);
-		reconcileLinkAudioSinkSlots(0);
+		pushListIfChanged(mLinkAudioSourcesOrderParam, {});
+		pushListIfChanged(mLinkAudioSinksOrderParam, {});
+		reconcileLinkAudioSourceSlots({});
+		reconcileLinkAudioSinkSlots({});
 		return;
 	}
 
@@ -1994,28 +2216,6 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 		}
 	}
 
-	auto readCount = [this, tc](const std::string& key) -> int {
-		std::string s;
-		if (!readTransportProperty(tc, key, s))
-			return 0;
-		try {
-			size_t pos = 0;
-			int v = std::stoi(s, &pos);
-			if (pos == s.size() && v >= 0)
-				return v;
-		} catch (...) {}
-		return 0;
-	};
-	int outCount = readCount(linkaudio_out_stereo_key); //sources (incoming, out_N)
-	int inCount = readCount(linkaudio_in_stereo_key);   //sinks (outgoing, in_N)
-
-	pushIntIfChanged(mLinkAudioSourcesCountParam, outCount);
-	pushIntIfChanged(mLinkAudioSinksCountParam, inCount);
-	reconcileLinkAudioSourceSlots(static_cast<size_t>(outCount));
-	reconcileLinkAudioSinkSlots(static_cast<size_t>(inCount));
-
-	//per-source: configured filter (select) from source-filters reflection, and live
-	//status from the dedicated source-status array (both index-aligned)
 	auto readJsonArray = [this, tc](const std::string& key) -> RNBO::Json {
 		std::string s;
 		if (readTransportProperty(tc, key, s)) {
@@ -2027,44 +2227,91 @@ void ProcessAudioJack::syncLinkAudioFromMetadata() {
 		}
 		return RNBO::Json::array();
 	};
-	RNBO::Json filters = readJsonArray(linkaudio_source_filters_key);
-	RNBO::Json status = readJsonArray(linkaudio_source_status_key);
-	RNBO::Json health = readJsonArray(linkaudio_source_health_key);
-	for (size_t i = 0; i < mLinkAudioSourceSlots.size(); ++i) {
-		auto& slot = mLinkAudioSourceSlots[i];
-		//select
-		std::vector<ossia::value> sel;
-		if (i < filters.size() && filters[i].is_object()) {
-			std::string peer = filters[i].value("peer", "");
-			std::string channel = filters[i].value("channel", "");
-			if (peer.size() || channel.size()) {
-				sel.push_back(peer);
-				sel.push_back(channel);
-			}
+
+	//The two lists are the authority: jack_transport_link publishes them key-tagged and in
+	//display order. The runner never computes a slot key, it only echoes what it read.
+	RNBO::Json sinks = readJsonArray(linkaudio_sinks_key);
+	RNBO::Json sources = readJsonArray(linkaudio_sources_key);
+
+	std::vector<std::string> sourceKeys;
+	std::map<std::string, std::pair<std::string, std::string>> sourceIdentities; //key -> peer, channel
+	for (auto& e: sources) {
+		if (!e.is_object())
+			continue;
+		std::string key = e.value("key", std::string());
+		if (key.empty())
+			continue;
+		sourceKeys.push_back(key);
+		sourceIdentities[key] = { e.value("peer", std::string()), e.value("channel", std::string()) };
+	}
+	std::vector<std::string> sinkKeys;
+	std::map<std::string, std::string> sinkNames;
+	for (auto& e: sinks) {
+		if (!e.is_object())
+			continue;
+		std::string key = e.value("key", std::string());
+		if (key.empty())
+			continue;
+		sinkKeys.push_back(key);
+		sinkNames[key] = e.value("name", std::string());
+	}
+
+	reconcileLinkAudioSourceSlots(sourceKeys);
+	reconcileLinkAudioSinkSlots(sinkKeys);
+
+	auto toList = [](const std::vector<std::string>& keys) {
+		std::vector<ossia::value> l;
+		l.reserve(keys.size());
+		for (auto& k: keys)
+			l.push_back(k);
+		return l;
+	};
+	pushListIfChanged(mLinkAudioSourcesOrderParam, toList(sourceKeys));
+	pushListIfChanged(mLinkAudioSinksOrderParam, toList(sinkKeys));
+
+	//per-source: the configured identity from the sources list, plus live telemetry joined
+	//from source-status by key
+	std::map<std::string, RNBO::Json> statusByKey;
+	for (auto& e: readJsonArray(linkaudio_source_status_key)) {
+		if (!e.is_object())
+			continue;
+		std::string key = e.value("key", std::string());
+		if (key.size())
+			statusByKey[key] = e;
+	}
+	for (auto& slot: mLinkAudioSourceSlots) {
+		auto ident = sourceIdentities.find(slot.key);
+		if (ident != sourceIdentities.end()) {
+			slot.peer = ident->second.first;
+			slot.channel = ident->second.second;
 		}
-		pushListIfChanged(slot.select, sel);
-		//status
-		std::string statusStr = (i < status.size() && status[i].is_object()) ? status[i].dump() : std::string("{}");
-		pushStringIfChanged(slot.status, statusStr);
-		//receive health
-		if (i < health.size() && health[i].is_object()) {
-			pushFloatIfChanged(slot.buffered_ms, health[i].value("buffered_ms", 0.0));
-			pushIntIfChanged(slot.dropouts, health[i].value("dropouts", 0));
-			pushFloatIfChanged(slot.jitter_ms, health[i].value("jitter_ms", 0.0));
-			pushBoolIfChanged(slot.connected, health[i].value("connected", false));
+		pushStringIfChanged(slot.peerParam, slot.peer);
+		pushStringIfChanged(slot.channelParam, slot.channel);
+
+		auto s = statusByKey.find(slot.key);
+		if (s != statusByKey.end()) {
+			pushFloatIfChanged(slot.buffered_ms, s->second.value("buffered_ms", 0.0));
+			pushIntIfChanged(slot.dropouts, s->second.value("dropouts", 0));
+			pushIntIfChanged(slot.unmappable, s->second.value("unmappable", 0));
+			pushFloatIfChanged(slot.jitter_ms, s->second.value("jitter_ms", 0.0));
+			pushBoolIfChanged(slot.connected, s->second.value("connected", false));
+			pushBoolIfChanged(slot.receiving, s->second.value("receiving", false));
 		} else {
 			pushFloatIfChanged(slot.buffered_ms, 0.0f);
 			pushIntIfChanged(slot.dropouts, 0);
+			pushIntIfChanged(slot.unmappable, 0);
 			pushFloatIfChanged(slot.jitter_ms, 0.0f);
 			pushBoolIfChanged(slot.connected, false);
+			pushBoolIfChanged(slot.receiving, false);
 		}
 	}
 
 	//per-sink: name
-	for (size_t i = 0; i < mLinkAudioSinkSlots.size(); ++i) {
-		std::string name;
-		readTransportProperty(tc, linkaudio_sink_key + "/" + std::to_string(i) + "/name", name);
-		pushStringIfChanged(mLinkAudioSinkSlots[i].name, name);
+	for (auto& slot: mLinkAudioSinkSlots) {
+		auto it = sinkNames.find(slot.key);
+		if (it != sinkNames.end())
+			slot.nameValue = it->second;
+		pushStringIfChanged(slot.name, slot.nameValue);
 	}
 	//Note: the graph node grouping + port labels for the jack-transport-link ports are set
 	//by jack_transport_link itself (as JACK port-group/pretty-name metadata on its own
