@@ -1813,13 +1813,17 @@ void ProcessAudioJack::updateJTLEndpoint(std::chrono::time_point<std::chrono::st
 	if (!doRead && mJTLPort == 0 && mJTLDiscoverNext < now) {
 		mJTLDiscoverNext = now + jtl_discover_period;
 		doRead = true;
-		//we may not have jack_transport_link's uuid yet either
-		if (jack_uuid_empty(mTransportClientUUID.load()) && mJackClient) {
+		//Re-resolve jack_transport_link's uuid by name, even when we already hold one: a uuid left
+		//over from a previous jtl instance would otherwise make every read below fail forever and
+		//leave this fallback unable to find the new one on its own.
+		if (mJackClient) {
 			char * uuids = jack_get_uuid_for_client_name(mJackClient, linkaudio_transport_client_name.c_str());
 			if (uuids) {
 				jack_uuid_t u = 0;
-				if (jack_uuid_parse(uuids, &u) == 0)
+				if (jack_uuid_parse(uuids, &u) == 0 && u != mTransportClientUUID.load()) {
 					mTransportClientUUID.store(u);
+					mLinkSyncNeedsUpdate = true;
+				}
 				jack_free(uuids);
 			}
 		}
