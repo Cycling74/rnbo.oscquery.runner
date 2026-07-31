@@ -663,11 +663,10 @@ Controller::Controller(std::string server_name) {
 	});
 	mProtocol->expose_to(std::unique_ptr<ossia::net::protocol_base>(callback_proto));
 
-	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
 	//An inbound address whose first component isn't "rnbo" can never resolve to a node -- that is
 	//the device's only root child -- so it can never reach a writable parameter's callback, which is
 	//what makes /jacklink/state/... safe to receive on the same port with no feedback path.
-	mServer->on_unhandled_message.connect<&Controller::onLinkTransportOSC>(this);
+	mServer->on_unhandled_message.connect<&Controller::onUnhandledOSC>(this);
 
 	mSourceCache = config::get<fs::path>(config::key::SourceCacheDir).get();
 	mCompileCache = config::get<fs::path>(config::key::CompileCacheDir).get();
@@ -3090,15 +3089,34 @@ void Controller::dispatchOSC(const std::string& addr, const ossia::value& v) {
 	//send out but also callback into any local osc listeners
 	if (!message_sent) {
 		mProtocol->push_raw({addr, v});
-		onUnhandledOSC(addr, v);
+		//deliberately only the mapped-parameter half: this is a value *we* are sending out, not
+		//something that arrived from the network, so it must never reach handleLinkTransportOSC
+		dispatchOSCMapped(addr, v);
 	}
 }
 
-void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value& val) {
-	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
+void Controller::onUnhandledOSC(const std::string& addr, const ossia::value& val) {
+	handleLinkTransportOSC(addr, val);
+	//Not an else: an address can in principle be both a Link Audio state push and something a user
+	//has OSC-mapped to a parameter. Letting the mapping still fire costs one failed hash lookup on
+	//a path that sees a handful of messages a second, which is cheaper than the surprise.
+	dispatchOSCMapped(addr, val);
+}
 
-	//c++17 can't use string_view for lookup: https://www.cppstories.com/2021/heterogeneous-access-cpp20/
-	std::string addr(addrview.begin(), addrview.end());
+void Controller::handleLinkTransportOSC(const std::string& addr, const ossia::value& val) {
+	static const std::string prefix("/jacklink/state/");
+	if (addr.size() <= prefix.size() || addr.compare(0, prefix.size(), prefix) != 0)
+		return;
+
+	//We can't verify this actually came from jack_transport_link -- on_unhandled_message doesn't
+	//expose the sender -- and that's fine: this port already accepts /rnbo/cmd from anywhere on the
+	//network, so it isn't a new trust boundary.
+	if (mProcessAudio)
+		mProcessAudio->handleLinkTransportOSC(addr, val);
+}
+
+void Controller::dispatchOSCMapped(const std::string& addr, const ossia::value& val) {
+	std::lock_guard<std::recursive_mutex> guard(mOSCMapMutex);
 
 	auto it = mOSCToParam.find(addr);
 	if (it == mOSCToParam.end()) {
@@ -3115,22 +3133,6 @@ void Controller::onUnhandledOSC(ossia::string_view addrview, const ossia::value&
 			}
 		}
 	}
-}
-
-
-void Controller::onLinkTransportOSC(ossia::string_view addrview, const ossia::value& val) {
-	static const std::string prefix("/jacklink/state/");
-	if (addrview.size() <= prefix.size())
-		return;
-	std::string addr(addrview.begin(), addrview.end());
-	if (addr.compare(0, prefix.size(), prefix) != 0)
-		return;
-
-	//We can't verify this actually came from jack_transport_link -- on_unhandled_message doesn't
-	//expose the sender -- and that's fine: this port already accepts /rnbo/cmd from anywhere on the
-	//network, so it isn't a new trust boundary.
-	if (mProcessAudio)
-		mProcessAudio->handleLinkTransportOSC(addr, val);
 }
 
 void Controller::registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr) {

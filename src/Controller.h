@@ -64,12 +64,18 @@ class Controller {
 
 		//for calling back from mapped params and ports
 		void dispatchOSC(const std::string& addr, const ossia::value& value);
-		//for calling from incoming OSC -> mapped params and ports
-		void onUnhandledOSC(ossia::string_view addr, const ossia::value& val);
-		//jack_transport_link's Link Audio state push. A second, separate slot on the same signal:
-		//dispatchOSC calls onUnhandledOSC *directly* on the outbound path, so keeping this apart
-		//means it only ever sees traffic that actually arrived over the network.
-		void onLinkTransportOSC(ossia::string_view addr, const ossia::value& val);
+		//Entry point for OSC that resolved to no node in our tree. Connected to the device's
+		//on_unhandled_message, so it only ever sees traffic that actually arrived over the
+		//network -- which is what makes it the right and only place to accept jack_transport_link's
+		//Link Audio state push.
+		void onUnhandledOSC(const std::string& addr, const ossia::value& val);
+		//Forward a /jacklink/state/... push to the audio implementation. Split out of
+		//onUnhandledOSC rather than reached from it unconditionally, so that dispatchOSC's
+		//outbound path cannot feed our own values back in as if jack_transport_link had sent them.
+		void handleLinkTransportOSC(const std::string& addr, const ossia::value& val);
+		//Push a value into every local parameter mapped to this OSC address. Reached both from
+		//inbound network traffic and from dispatchOSC, which is why it isn't the slot itself.
+		void dispatchOSCMapped(const std::string& addr, const ossia::value& val);
 
 		void registerOSCMapping(bool doregister, const std::string& oscaddr, const std::string& localaddr);
 
