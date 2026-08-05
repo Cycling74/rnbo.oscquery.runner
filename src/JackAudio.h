@@ -173,8 +173,11 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::node_base * mLinkNode = nullptr;
 		ossia::net::parameter_base * mLinkEnabledParam = nullptr;
 		ossia::net::node_base * mLinkAudioNode = nullptr;
-		ossia::net::node_base * mLinkAudioSourcesNode = nullptr;
-		ossia::net::node_base * mLinkAudioSinksNode = nullptr;
+		//the `list` containers under sources/sinks that hold the per-slot nodes. Slots live in
+		//their own container so a slot key can never collide with a sibling command name --
+		//without it, a client reading the tree would have to tell "add" apart from a hex key.
+		ossia::net::node_base * mLinkAudioSourceListNode = nullptr;
+		ossia::net::node_base * mLinkAudioSinkListNode = nullptr;
 		ossia::net::parameter_base * mLinkAudioAvailableParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioChannelsParam = nullptr;
 		ossia::net::parameter_base * mLinkAudioPeerNameParam = nullptr;

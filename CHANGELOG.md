@@ -8,19 +8,23 @@
         * `sources/add` (`[peer, channel]`), `sources/remove` (`[peer, channel]`),
           `sources/order` (list of slot keys)
         * `sinks/add` (name), `sinks/remove` (name), `sinks/order` (list of slot keys)
-        * per-slot children are named by the slot key `jack_transport_link` publishes:
-          `sources/<key>/{peer,channel,connected,buffered_ms,dropouts,jitter_ms}` and
-          `sinks/<key>/name` (writing it renames the sink)
-        * added `sources/<key>/receiving`: true while a source is actually rendering audio.
+        * per-slot nodes live under a `list` container, named by the slot key
+          `jack_transport_link` publishes:
+          `sources/list/<key>/{peer,channel,connected,buffered_ms,dropouts,jitter_ms}` and
+          `sinks/list/<key>/name` (writing it renames the sink). The container exists so slot
+          keys and the command nodes above never share a namespace — a client walking the tree
+          can treat every child of `list` as a slot instead of having to tell a key apart from
+          `add`/`remove`/`order`, and the key format stays an implementation detail
+        * added `sources/list/<key>/receiving`: true while a source is actually rendering audio.
           Connected-but-not-receiving means it is subscribed yet producing pure silence (usually
           `latency_ms` too small to cover the network's arrival delay) — a state the dropout count
           cannot report, since dropouts are only counted once playback has started
-        * added `sources/<key>/arrival_offset_ms`: measured delay between the live beat and the
-          beat the newest arrived buffer begins at. `latency_ms` must exceed it for a source to
-          play, so it's the number to check when a source needs an unexpectedly large buffer
-        * `sources/reset_dropouts` and `sources/<key>/reset_dropouts` (bang) zero the cumulative
-          dropout count — for every source, or just one — so it can be read as "dropouts since I
-          last changed a setting"
+        * added `sources/list/<key>/arrival_offset_ms`: measured delay between the live beat and
+          the beat the newest arrived buffer begins at. `latency_ms` must exceed it for a source
+          to play, so it's the number to check when a source needs an unexpectedly large buffer
+        * `sources/reset_dropouts` and `sources/list/<key>/reset_dropouts` (bang) zero the
+          cumulative dropout count — for every source, or just one — so it can be read as
+          "dropouts since I last changed a setting"
         * removed: `sources/count`, `sinks/count`, and the per-slot `select`, `status` and
           source `name` nodes
     * nothing connects on its own any more — no "first available peer" and no substring

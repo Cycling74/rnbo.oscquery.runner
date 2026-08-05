@@ -893,8 +893,8 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 				if (root->remove_child("link")) {
 					mLinkNode = nullptr;
 					mLinkAudioNode = nullptr;
-					mLinkAudioSourcesNode = nullptr;
-					mLinkAudioSinksNode = nullptr;
+					mLinkAudioSourceListNode = nullptr;
+					mLinkAudioSinkListNode = nullptr;
 					mLinkAudioAvailableParam = nullptr;
 					mLinkAudioChannelsParam = nullptr;
 					mLinkAudioSourcesOrderParam = nullptr;
@@ -2018,10 +2018,10 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 	}
 
 	//sources: add/remove take an identity so an OSC client never needs a slot key; order takes
-	//keys because that's what the per-slot child nodes are named.
-	mLinkAudioSourcesNode = audio->create_child("sources");
+	//keys because that's what the per-slot nodes under `list` are named.
+	auto sources = audio->create_child("sources");
 	{
-		auto n = mLinkAudioSourcesNode->create_child("add");
+		auto n = sources->create_child("add");
 		n->set(ossia::net::description_attribute{}, "append a source: [peer, channel], matched exactly against an advertised Link Audio channel");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::LIST);
@@ -2047,7 +2047,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		});
 	}
 	{
-		auto n = mLinkAudioSourcesNode->create_child("remove");
+		auto n = sources->create_child("remove");
 		n->set(ossia::net::description_attribute{}, "remove a source: [peer, channel]");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::LIST);
@@ -2065,7 +2065,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		});
 	}
 	{
-		auto n = mLinkAudioSourcesNode->create_child("reset_dropouts");
+		auto n = sources->create_child("reset_dropouts");
 		n->set(ossia::net::description_attribute{}, "bang to zero the dropout count of every source, so the counts read as \"dropouts since I changed a setting\"");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::IMPULSE);
@@ -2075,7 +2075,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		});
 	}
 	{
-		auto n = mLinkAudioSourcesNode->create_child("order");
+		auto n = sources->create_child("order");
 		n->set(ossia::net::description_attribute{}, "display order of the sources, as a list of slot keys");
 		mLinkAudioSourcesOrderParam = n->create_parameter(ossia::val_type::LIST);
 		//quiet: buildLinkAudioNodes runs with mMutex held (createClient), and the write
@@ -2095,10 +2095,13 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			queueJTLCommand(jtlStringsMessage(jtl_sources_order_address, keys));
 		});
 	}
+	//per-slot nodes hang off `list`, keyed by slot key, so nothing has to distinguish a key from
+	//the command nodes above it (see reconcileLinkAudioSourceSlots)
+	mLinkAudioSourceListNode = sources->create_child("list");
 
-	mLinkAudioSinksNode = audio->create_child("sinks");
+	auto sinks = audio->create_child("sinks");
 	{
-		auto n = mLinkAudioSinksNode->create_child("add");
+		auto n = sinks->create_child("add");
 		n->set(ossia::net::description_attribute{}, "append a sink with this name, announced to the Link session; must be non-empty and unused");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::STRING);
@@ -2120,7 +2123,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		});
 	}
 	{
-		auto n = mLinkAudioSinksNode->create_child("remove");
+		auto n = sinks->create_child("remove");
 		n->set(ossia::net::description_attribute{}, "remove the sink with this name");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::STRING);
@@ -2136,7 +2139,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 		});
 	}
 	{
-		auto n = mLinkAudioSinksNode->create_child("order");
+		auto n = sinks->create_child("order");
 		n->set(ossia::net::description_attribute{}, "display order of the sinks, as a list of slot keys");
 		mLinkAudioSinksOrderParam = n->create_parameter(ossia::val_type::LIST);
 		//quiet: buildLinkAudioNodes runs with mMutex held (createClient), and the write
@@ -2153,12 +2156,13 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 			queueJTLCommand(jtlStringsMessage(jtl_sinks_order_address, keys));
 		});
 	}
+	mLinkAudioSinkListNode = sinks->create_child("list");
 }
 
 //create/remove per-slot source nodes so they match the given keys (in display order);
 //expects to be holding the build mutex
 void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::string>& keys) {
-	if (!mLinkAudioSourcesNode)
+	if (!mLinkAudioSourceListNode)
 		return;
 
 	//index the existing slots by key so surviving slots keep their nodes (and their parameter
@@ -2170,7 +2174,7 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::stri
 	std::set<std::string> wanted(keys.begin(), keys.end());
 	for (auto& [key, slot]: existing) {
 		if (!wanted.count(key))
-			mLinkAudioSourcesNode->remove_child(key);
+			mLinkAudioSourceListNode->remove_child(key);
 	}
 
 	std::vector<LinkAudioSourceSlot> next;
@@ -2181,7 +2185,7 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::stri
 			next.push_back(it->second);
 			continue;
 		}
-		auto slotNode = mLinkAudioSourcesNode->create_child(key);
+		auto slotNode = mLinkAudioSourceListNode->create_child(key);
 		LinkAudioSourceSlot slot;
 		slot.key = key;
 		{
@@ -2249,7 +2253,7 @@ void ProcessAudioJack::reconcileLinkAudioSourceSlots(const std::vector<std::stri
 //create/remove per-slot sink nodes so they match the given keys (in display order);
 //expects to be holding the build mutex
 void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string>& keys) {
-	if (!mLinkAudioSinksNode)
+	if (!mLinkAudioSinkListNode)
 		return;
 
 	std::map<std::string, LinkAudioSinkSlot> existing;
@@ -2259,7 +2263,7 @@ void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string
 	std::set<std::string> wanted(keys.begin(), keys.end());
 	for (auto& [key, slot]: existing) {
 		if (!wanted.count(key))
-			mLinkAudioSinksNode->remove_child(key);
+			mLinkAudioSinkListNode->remove_child(key);
 	}
 
 	std::vector<LinkAudioSinkSlot> next;
@@ -2270,7 +2274,7 @@ void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string
 			next.push_back(it->second);
 			continue;
 		}
-		auto slotNode = mLinkAudioSinksNode->create_child(key);
+		auto slotNode = mLinkAudioSinkListNode->create_child(key);
 		LinkAudioSinkSlot slot;
 		slot.key = key;
 		{
