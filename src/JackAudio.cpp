@@ -63,6 +63,7 @@ namespace {
 
 	const char *  RNBO_PROP_INST_ID_KEY = "rnbo-instance-id";
 	const char * rnbo_inst_id_property_type = "http://www.w3.org/2001/XMLSchema#int";
+	const char *bool_property_type = "https://www.w3.org/2001/XMLSchema#boolean";
 
 	const std::string RNBO_GRAPH_SINK_PORTGROUP("rnbo-graph-user-sink");
 	const std::string RNBO_GRAPH_SRC_PORTGROUP("rnbo-graph-user-src");
@@ -1319,6 +1320,9 @@ void ProcessAudioJack::updatePortProperties(jack_port_t* port) {
 				if (end == data.size()) {
 					properties[key] = value;
 				}
+			}
+			else if (strcmp(prop.type, bool_property_type) == 0) {
+				properties[key] = static_cast<bool>(data == "true");
 			}
 			else if (
 					strcmp(prop.type, "http://www.w3.org/2001/XMLSchema#double") == 0||
