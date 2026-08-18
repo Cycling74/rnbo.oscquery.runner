@@ -2134,6 +2134,10 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 		}
 		*/
 
+		//Link Audio slots before the connections that reference their ports: the set's slot list is
+		//what makes those ports exist, and their names are derived from the slot identities.
+		mProcessAudio->setLinkAudioSetup(setInfo.link_audio);
+
 		mProcessAudio->updatePorts();
 		mProcessAudio->connect(setInfo.connections, mFirstSetLoad); //only do control connections when loading first set
 		mFirstSetLoad = false;
@@ -2258,6 +2262,7 @@ SetInfo Controller::setInfo() {
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 
 	info.connections = mProcessAudio->connections();
+	info.link_audio = mProcessAudio->linkAudioSetup();
 
 	for (auto& i: mInstances) {
 		auto& inst = std::get<0>(i);

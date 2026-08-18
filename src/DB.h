@@ -54,9 +54,32 @@ struct SetInstanceInfo {
 	static SetInstanceInfo fromJson(const RNBO::Json& json);
 };
 
+//The Link Audio (jack_transport_link) slots a set expects, in display order.
+//
+//Identities only, never slot keys: jack_transport_link derives a slot's key -- and therefore its
+//JACK port names -- from its identity, so re-stating the identity is what makes the port names,
+//and the connections saved against them in sets_connections, come back the same. A key stored here
+//would be a second source of truth that could drift from the hash.
+struct SetLinkAudioInfo {
+	//local sends, by announced name (jack_transport_link's "sinks")
+	std::vector<std::string> sends;
+	//receives, by exact peer + channel (jack_transport_link's "sources")
+	struct Receive {
+		std::string peer;
+		std::string channel;
+	};
+	std::vector<Receive> receives;
+
+	bool empty() const { return sends.empty() && receives.empty(); }
+
+	RNBO::Json toJson();
+	static SetLinkAudioInfo fromJson(const RNBO::Json& json);
+};
+
 struct SetInfo {
 	std::vector<SetConnectionInfo> connections;
 	std::vector<SetInstanceInfo> instances;
+	SetLinkAudioInfo link_audio;
 	std::string meta = "{}";
 	std::string created_at;
 	std::string name;
@@ -254,6 +277,7 @@ class DB {
 		bool setRename(const std::string& oldName, const std::string& newName);
 
 		bool setMatchesConnections(const std::string& name, const std::vector<std::string>& source, const std::vector<std::vector<std::string>>& dest);
+
 
 		boost::optional<std::string> setNameInitial(
 				std::string rnbo_version = std::string()

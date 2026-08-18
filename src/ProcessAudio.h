@@ -40,6 +40,15 @@ class ProcessAudio {
 		//bridge. Called from the network poll, so an implementation must not touch the node tree.
 		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) { }
 
+		//the Link Audio slots currently configured, in display order, for saving into a set
+		virtual SetLinkAudioInfo linkAudioSetup() { return {}; }
+
+		//the Link Audio slots a set being loaded expects. Declarative: slots not named here go
+		//away. Not necessarily applied by the time this returns -- jack_transport_link may not be
+		//reachable yet, so an implementation may hold this as desired state.
+		virtual void setLinkAudioSetup(const SetLinkAudioInfo& setup) { }
+
+
 		//transport handlers
 		virtual void handleTransportState(bool running) = 0;
 		virtual void handleTransportTempo(double bpm) = 0;

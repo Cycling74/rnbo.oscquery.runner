@@ -743,6 +743,44 @@ END;
     query.exec();
   });
 
+  do_migration(22, [](SQLite::Database &db) {
+    // The Link Audio slots a set expects. Identities only -- slot keys, and the JACK port names
+    // the connections in sets_connections are saved against, are derived from these by
+    // jack_transport_link.
+    //
+    // sort_order is the display order jack_transport_link reported, and it's part of what we
+    // restore, so it's stored rather than relying on row order.
+    db.exec(R"(
+CREATE TABLE sets_link_audio_slots
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	set_id INTEGER NOT NULL,
+
+	kind TEXT NOT NULL CHECK (kind IN ('send', 'receive')),
+	sort_order INTEGER NOT NULL CHECK (sort_order >= 0),
+
+	-- send: the announced name. receive: NULL
+	name TEXT,
+	-- receive: the exact peer + channel. send: NULL
+	peer TEXT,
+	channel TEXT,
+
+	-- a slot carries exactly the identity columns its kind needs. Nothing writes a row that
+	-- violates this today; it's here so the table can't quietly hold a row that no longer maps
+	-- onto a jack_transport_link slot.
+	CHECK (
+		(kind = 'send'    AND name IS NOT NULL AND peer IS NULL     AND channel IS NULL) OR
+		(kind = 'receive' AND name IS NULL     AND peer IS NOT NULL AND channel IS NOT NULL)
+	),
+
+	FOREIGN KEY (set_id) REFERENCES sets(id) ON DELETE CASCADE,
+	UNIQUE (set_id, kind, sort_order)
+)
+			)");
+    db.exec("CREATE INDEX sets_link_audio_slots_set_id ON "
+            "sets_link_audio_slots(set_id)");
+  });
+
   // turn on foreign_keys support
   mDB.exec("PRAGMA foreign_keys=on");
   // clean up a bit
@@ -1772,6 +1810,12 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
       query.bind(1, id);
       query.exec();
     }
+    {
+      SQLite::Statement query(
+          mDB, "DELETE FROM sets_link_audio_slots WHERE set_id = ?1");
+      query.bind(1, id);
+      query.exec();
+    }
   }
 
   {
@@ -1812,6 +1856,40 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
       query.bind(3, static_cast<int>(i.instance_index));
       query.bind(4, i.config);
       query.bind(5, runner::rnbo_compat_version);
+
+      query.exec();
+      query.reset();
+    }
+  }
+
+  {
+    // Link Audio slots, sends then receives, each numbered in display order
+    SQLite::Statement query(mDB, R"(
+			INSERT INTO sets_link_audio_slots
+			(set_id, kind, sort_order, name, peer, channel)
+			VALUES
+			(?1, ?2, ?3, ?4, ?5, ?6)
+			)");
+    int order = 0;
+    for (auto &name : info.link_audio.sends) {
+      query.bind(1, id);
+      query.bind(2, "send");
+      query.bind(3, order++);
+      query.bind(4, name);
+      query.bind(5); // peer: NULL
+      query.bind(6); // channel: NULL
+
+      query.exec();
+      query.reset();
+    }
+    order = 0;
+    for (auto &recv : info.link_audio.receives) {
+      query.bind(1, id);
+      query.bind(2, "receive");
+      query.bind(3, order++);
+      query.bind(4); // name: NULL
+      query.bind(5, recv.peer);
+      query.bind(6, recv.channel);
 
       query.exec();
       query.reset();
@@ -1910,6 +1988,33 @@ boost::optional<SetInfo> DB::setGet(const std::string &name,
       }
 
       info.connections.push_back(c);
+    }
+  }
+
+  // get Link Audio slots
+  {
+    SQLite::Statement query(mDB, R"(
+			SELECT kind, name, peer, channel
+			FROM sets_link_audio_slots
+			WHERE set_id = ?1
+			ORDER BY kind, sort_order
+		)");
+    query.bind(1, set_id);
+    while (query.executeStep()) {
+      const std::string kind = getStringColumn(query, 0);
+      if (kind == "send") {
+        auto name = getStringColumn(query, 1);
+        if (name.size()) {
+          info.link_audio.sends.push_back(name);
+        }
+      } else if (kind == "receive") {
+        SetLinkAudioInfo::Receive recv;
+        recv.peer = getStringColumn(query, 2);
+        recv.channel = getStringColumn(query, 3);
+        if (recv.channel.size()) {
+          info.link_audio.receives.push_back(recv);
+        }
+      }
     }
   }
 
@@ -2433,6 +2538,63 @@ SetInstanceInfo SetInstanceInfo::fromJson(const RNBO::Json &json) {
       json["config"].dump());
 }
 
+RNBO::Json SetLinkAudioInfo::toJson() {
+  RNBO::Json s = RNBO::Json::array();
+  for (auto &name : sends) {
+    s.push_back({{"name", name}});
+  }
+  RNBO::Json r = RNBO::Json::array();
+  for (auto &recv : receives) {
+    r.push_back({{"peer", recv.peer}, {"channel", recv.channel}});
+  }
+  return {{"sends", s}, {"receives", r}};
+}
+
+SetLinkAudioInfo SetLinkAudioInfo::fromJson(const RNBO::Json &json) {
+  SetLinkAudioInfo info;
+  if (!json.is_object()) {
+    return info;
+  }
+  // Skip anything malformed rather than throwing: a set file is shared between devices and
+  // versions, and a bad entry here should cost you one slot, not the whole set.
+  //
+  // Duplicates get dropped here for the same reason. They're deduped rather than rejected by a
+  // UNIQUE constraint on the table because a constraint violation would abort the whole set save
+  // -- and it wouldn't even catch duplicate sends, since SQLite counts NULLs as distinct in a
+  // unique index and a send's peer/channel are NULL.
+  std::set<std::string> seenSends;
+  std::set<std::pair<std::string, std::string>> seenReceives;
+
+  if (json.contains("sends") && json["sends"].is_array()) {
+    for (auto &e : json["sends"]) {
+      if (!e.is_object() || !e.contains("name") || !e["name"].is_string()) {
+        continue;
+      }
+      auto name = e["name"].get<std::string>();
+      if (name.size() && seenSends.insert(name).second) {
+        info.sends.push_back(name);
+      }
+    }
+  }
+  if (json.contains("receives") && json["receives"].is_array()) {
+    for (auto &e : json["receives"]) {
+      if (!e.is_object() || !e.contains("peer") || !e["peer"].is_string() ||
+          !e.contains("channel") || !e["channel"].is_string()) {
+        continue;
+      }
+      Receive recv;
+      recv.peer = e["peer"].get<std::string>();
+      recv.channel = e["channel"].get<std::string>();
+      // an empty channel can't identify a slot; jack_transport_link would reject it
+      if (recv.channel.size() &&
+          seenReceives.insert({recv.peer, recv.channel}).second) {
+        info.receives.push_back(recv);
+      }
+    }
+  }
+  return info;
+}
+
 RNBO::Json SetInfo::toJson() {
   RNBO::Json inst = RNBO::Json::array();
   RNBO::Json conn = RNBO::Json::array();
@@ -2454,12 +2616,13 @@ RNBO::Json SetInfo::toJson() {
     }
   }
 
-  return {{"set_info_version", 2},
+  return {{"set_info_version", 3},
           {"created_at", created_at},
           {"runner_rnbo_version", runner_rnbo_version},
           {"meta", m},
           {"instances", inst},
           {"connections", conn},
+          {"link_audio", link_audio.toJson()},
           {"name", name},
           {"uuid", uuid}};
 }
@@ -2468,7 +2631,18 @@ SetInfo SetInfo::fromJson(const RNBO::Json &json) {
   SetInfo info;
   // test for key
   if (json.contains("set_info_version")) {
-    if (json["set_info_version"].get<int>() == 2) {
+    const int set_info_version = json["set_info_version"].get<int>();
+    // 2 and 3 share a layout; 3 adds link_audio, and a 2 that lacks it reads as no Link Audio
+    // slots -- which, on load, clears them (see Controller::doLoadSet).
+    //
+    // The field is read whenever it's present rather than only for version 3. Deliberate: a
+    // version 2 document carrying link_audio can only have come from a writer that had slots to
+    // record, so honoring it preserves the user's arrangement, where gating on the version would
+    // silently discard it. A version we don't know at all still falls through to the error below.
+    if (set_info_version == 2 || set_info_version == 3) {
+      if (json.contains("link_audio")) {
+        info.link_audio = SetLinkAudioInfo::fromJson(json["link_audio"]);
+      }
       if (json.contains("meta") && json["meta"].is_object()) {
         info.meta = json["meta"].dump();
       }
@@ -2494,8 +2668,7 @@ SetInfo SetInfo::fromJson(const RNBO::Json &json) {
       }
     } else {
       // invalid
-      std::cerr << "unknown set_info_version: "
-                << json["set_info_version"].get<int>() << std::endl;
+      std::cerr << "unknown set_info_version: " << set_info_version << std::endl;
     }
   } else {
     // old format
