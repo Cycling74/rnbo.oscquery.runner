@@ -138,9 +138,19 @@ namespace {
 	const auto jtl_register_period = std::chrono::seconds(5);
 	const auto jtl_discover_period = std::chrono::seconds(1);
 
+	//How long we keep reasserting a set's Link Audio connections after loading it. Long enough to
+	//outlast jack_transport_link's slot churn (each structural change cycles its JACK client), short
+	//enough that a slot which never appears stops costing us anything.
+	const auto linkaudio_connect_retry_period = std::chrono::seconds(10);
+
+	//How long after loading a set its slot churn is still attributed to the load rather than to the
+	//user. Only a bound on the "don't mark a freshly loaded set dirty" suppression, not on applying
+	//the arrangement, which keeps trying regardless.
+	const auto linkaudio_apply_suppress_period = std::chrono::seconds(20);
+
 	//Commands we send to jack_transport_link. Its imperative surface covers every writable node we
-	//expose, so no declarative array routes are needed -- and identity-based commands are strictly
-	//better, because they let our slot caches stay a read-only mirror of jtl's state.
+	//expose, so those stay identity-based: it lets our slot caches be a read-only mirror of jtl's
+	//state. The two `set` routes are the exception, used only to restore a whole saved arrangement.
 	const char * jtl_peer_name_address = "/jacklink/audio/peer-name";
 	const char * jtl_latency_address = "/jacklink/audio/latency";
 	const char * jtl_sync_to_incoming_address = "/jacklink/audio/sync-to-incoming";
@@ -152,6 +162,9 @@ namespace {
 	const char * jtl_sink_remove_address = "/jacklink/audio/sink/remove";
 	const char * jtl_sink_rename_address = "/jacklink/audio/sink/rename";
 	const char * jtl_sinks_order_address = "/jacklink/audio/sinks/order";
+	//declarative: the whole list at once, for restoring a set's arrangement in one reconcile pass
+	const char * jtl_sources_set_address = "/jacklink/audio/sources/set";
+	const char * jtl_sinks_set_address = "/jacklink/audio/sinks/set";
 	const char * jtl_listeners_add_address = "/jacklink/listeners/add";
 	const char * jtl_listeners_del_address = "/jacklink/listeners/del";
 
@@ -764,14 +777,20 @@ bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections
 			replace_raw(source);
 			replace_raw(sink);
 
-			int r = jack_connect(mJackClient, source.c_str(), sink.c_str());
-			//jack_transport_link's ports come up asynchronously and are rebuilt on count
-			//changes, so a connection to them may fail because the port isn't there yet.
-			//Remember it and retry when ports (re)register.
-			if (r != 0 && r != EEXIST &&
-					(info.source_name == linkaudio_transport_client_name || info.sink_name == linkaudio_transport_client_name)) {
+			jack_connect(mJackClient, source.c_str(), sink.c_str());
+
+			//Every edge involving jack_transport_link gets reasserted for a while, whether or not
+			//this attempt reported success. Its slot ports come up asynchronously, so a connect can
+			//be too early; and it cycles jack_deactivate/jack_activate around a structural slot
+			//change, restoring only what it snapshotted first, so a connect that succeeded during
+			//that window can still be dropped. See PendingLinkConnection.
+			if (info.source_name == linkaudio_transport_client_name ||
+					info.sink_name == linkaudio_transport_client_name) {
 				std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
-				mLinkAudioPendingConnections.push_back(info);
+				pendLinkAudioConnection(info, std::chrono::steady_clock::now() + linkaudio_connect_retry_period);
+				//remembered for the whole life of the loaded set, so a jack_transport_link restart
+				//can re-arm them once its slot ports are back
+				mLinkAudioSetConnections.push_back(info);
 			}
 		}
 		return true;
@@ -780,15 +799,158 @@ bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections
 }
 
 void ProcessAudioJack::retryLinkAudioPendingConnections() {
-	std::vector<SetConnectionInfo> pending;
+	if (!mJackClient)
+		return;
+
+	//Prune what's aged out and take a copy of the rest, all under the lock -- the entries stay in
+	//place rather than being swapped out and put back, so a set load landing mid-retry can clear
+	//them without our resurrecting the outgoing set's edges afterwards.
+	std::vector<SetConnectionInfo> retry;
 	{
 		std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
-		std::swap(pending, mLinkAudioPendingConnections);
+		const auto now = std::chrono::steady_clock::now();
+		mLinkAudioPendingConnections.erase(
+				std::remove_if(mLinkAudioPendingConnections.begin(), mLinkAudioPendingConnections.end(),
+					[&now](const PendingLinkConnection& p) { return p.until <= now; }),
+				mLinkAudioPendingConnections.end());
+		for (auto& p: mLinkAudioPendingConnections)
+			retry.push_back(p.info);
 	}
-	if (pending.empty() || !mJackClient)
-		return;
-	//connect() re-adds any that still can't be made (ports still missing)
-	connect(pending, true);
+
+	//Deliberately not via connect(): that queues, and these are already queued. The alias
+	//rewriting connect() does is for physical raw_midi ports, which a Link Audio slot never is.
+	for (auto& info: retry) {
+		std::string source = info.source_name;
+		if (info.source_port_name.size())
+			source += (std::string(":") + info.source_port_name);
+		std::string sink = info.sink_name;
+		if (info.sink_port_name.size())
+			sink += (std::string(":") + info.sink_port_name);
+		//EEXIST when it's already there, which is the common case once things have settled
+		jack_connect(mJackClient, source.c_str(), sink.c_str());
+	}
+}
+
+void ProcessAudioJack::pendLinkAudioConnection(const SetConnectionInfo& info, std::chrono::time_point<std::chrono::steady_clock> until) {
+	for (auto& p: mLinkAudioPendingConnections) {
+		if (p.info.source_name == info.source_name && p.info.source_port_name == info.source_port_name &&
+				p.info.sink_name == info.sink_name && p.info.sink_port_name == info.sink_port_name) {
+			//already reasserting this edge; just give it the longer window
+			if (p.until < until)
+				p.until = until;
+			return;
+		}
+	}
+	mLinkAudioPendingConnections.push_back({ info, until });
+}
+
+void ProcessAudioJack::clearLinkAudioPendingConnections() {
+	std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+	mLinkAudioPendingConnections.clear();
+	mLinkAudioSetConnections.clear();
+}
+
+SetLinkAudioInfo ProcessAudioJack::linkAudioSetup() {
+	SetLinkAudioInfo info;
+	std::lock_guard<std::mutex> guard(mMutex);
+	//the cached slot vectors are a strict mirror of jack_transport_link's own lists, already in
+	//display order, so this is just a projection down to the identities
+	for (auto& s: mLinkAudioSinkSlots) {
+		if (s.nameValue.size())
+			info.sends.push_back(s.nameValue);
+	}
+	for (auto& s: mLinkAudioSourceSlots) {
+		if (s.channel.size())
+			info.receives.push_back({ s.peer, s.channel });
+	}
+	return info;
+}
+
+void ProcessAudioJack::setLinkAudioSetup(const SetLinkAudioInfo& setup) {
+	{
+		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+		mLinkAudioDesired = setup;
+		mLinkAudioDesiredSent = false;
+		//Reset with the arrangement, not later in applyLinkAudioDesired: that only runs when there's
+		//an endpoint, and until it does, a leftover `converged` from the *previous* set would let a
+		//pending slot change be read as a user edit and mark this set dirty before it has even been
+		//applied.
+		mLinkAudioDesiredConverged = false;
+		//bound how long slot changes are attributed to this load rather than to the user
+		mLinkAudioDesiredSuppressUntil = std::chrono::steady_clock::now() + linkaudio_apply_suppress_period;
+	}
+	//the outgoing set's edges are not ours to reassert anymore
+	clearLinkAudioPendingConnections();
+	//try immediately: if we already have an endpoint there's no reason to wait for the next tick
+	applyLinkAudioDesired();
+}
+
+void ProcessAudioJack::linkAudioUserTookOver() {
+	std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+	//From here the live arrangement is the user's, not the set's: stop holding the set's, so a
+	//jack_transport_link restart reinstates what they have now rather than reverting their edit.
+	//(The set is marked dirty by the usual comparison against what it stores.)
+	mLinkAudioDesired = boost::none;
+	mLinkAudioDesiredConverged = false;
+}
+
+bool ProcessAudioJack::takeLinkAudioSetupChanged() {
+	{
+		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+		//A set's arrangement is still on its way to jack_transport_link, so the slot list is expected
+		//to move and none of that movement is a user edit -- swallow it, or loading a set would
+		//immediately mark it dirty. Once jtl confirms the arrangement we report changes again: the
+		//desired setup is still held for restart recovery, but it is no longer in flight.
+		//
+		//Time-bounded as well as convergence-bounded. If an arrangement never converges -- jtl won't
+		//accept part of it, or it isn't running at all -- suppressing forever would silently swallow
+		//every later edit the user makes. After the window we report changes again, which marks the
+		//set dirty, and that is the honest answer: its arrangement is genuinely not what's live.
+		if (mLinkAudioDesired && !mLinkAudioDesiredConverged &&
+				std::chrono::steady_clock::now() < mLinkAudioDesiredSuppressUntil) {
+			mLinkAudioSetupChanged.store(false);
+			return false;
+		}
+	}
+	return mLinkAudioSetupChanged.exchange(false);
+}
+
+//main thread only (processEvents, or a set load): queue the two declarative commands that make
+//jack_transport_link's slot list match the loaded set
+void ProcessAudioJack::applyLinkAudioDesired() {
+	std::vector<std::string> sends;
+	std::vector<std::string> receives; //flattened peer, channel pairs
+	{
+		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+		//No endpoint means the commands would be dropped, so stay pending and try again once
+		//updateJTLEndpoint finds one. mLinkAudioDesiredSent is cleared with the endpoint
+		//(unregisterJTLListener), which is what re-applies this after a jack_transport_link restart.
+		if (!mLinkAudioDesired || mLinkAudioDesiredSent || !mJTLSender)
+			return;
+		mLinkAudioDesiredSent = true;
+		mLinkAudioDesiredConverged = false;
+
+		sends = mLinkAudioDesired->sends;
+		for (auto& r: mLinkAudioDesired->receives) {
+			receives.push_back(r.peer);
+			receives.push_back(r.channel);
+		}
+	}
+
+	//A re-apply means jack_transport_link went away and came back, so its slot ports are new and the
+	//set's edges to them are gone. Give them another window to be reasserted; on the first apply of
+	//a load this is empty, because connect() runs after us and arms them itself.
+	{
+		std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+		const auto until = std::chrono::steady_clock::now() + linkaudio_connect_retry_period;
+		for (auto& info: mLinkAudioSetConnections)
+			pendLinkAudioConnection(info, until);
+	}
+
+	//One message per list, rather than add/remove per slot: jack_transport_link applies each in a
+	//single reconcile pass, so the ports appear once and the connections settle once.
+	queueJTLCommand(jtlStringsMessage(jtl_sinks_set_address, sends));
+	queueJTLCommand(jtlStringsMessage(jtl_sources_set_address, receives));
 }
 
 std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
@@ -1220,6 +1382,8 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 		//the subtree from the state it has pushed us. We avoid syncing on the same tick as a command
 		//so we don't briefly push a just-set param back to its old value before jtl answers.
 		updateJTLEndpoint(now);
+		//a loaded set's slots, once there's somewhere to send them (and again if that changed)
+		applyLinkAudioDesired();
 		if (!flushJTLCommands() && mLinkAudioNeedsSync.exchange(false)) {
 			syncLinkAudioFromState();
 		}
@@ -1806,6 +1970,12 @@ void ProcessAudioJack::unregisterJTLListener() {
 		std::lock_guard<std::mutex> guard(mJTLCommandMutex);
 		mJTLPendingCommands.clear();
 	}
+	//jack_transport_link is gone, so anything we sent it went with it. A set's slots stay desired
+	//and get re-applied against whatever endpoint comes back.
+	{
+		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+		mLinkAudioDesiredSent = false;
+	}
 }
 
 //main thread only (processEvents)
@@ -1852,6 +2022,14 @@ void ProcessAudioJack::updateJTLEndpoint(std::chrono::time_point<std::chrono::st
 		if (port != mJTLPort) {
 			mJTLSender.reset();
 			mJTLPort = port;
+			//A different endpoint is a different jack_transport_link process, which knows nothing of
+			//what we sent the last one. Re-arm the loaded set's arrangement so applyLinkAudioDesired
+			//sends it again (and re-arms its connections) once the new endpoint is usable.
+			{
+				std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+				mLinkAudioDesiredSent = false;
+				mLinkAudioDesiredConverged = false;
+			}
 			if (mJTLPort) {
 				try {
 					mJTLSender = std::make_unique<JTLCommandSender>("127.0.0.1", mJTLPort);
@@ -2047,6 +2225,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 						return; //already present
 				}
 			}
+			linkAudioUserTookOver();
 			queueJTLCommand(jtlStringsMessage(jtl_source_add_address, { peer, channel }));
 		});
 	}
@@ -2076,6 +2255,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 				return;
 			if (args.size() == 2 && args[1].empty())
 				return;
+			linkAudioUserTookOver();
 			queueJTLCommand(jtlStringsMessage(jtl_source_remove_address, args));
 		});
 	}
@@ -2107,6 +2287,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 				if (v.get_type() == ossia::val_type::STRING)
 					keys.push_back(v.get<std::string>());
 			}
+			linkAudioUserTookOver();
 			queueJTLCommand(jtlStringsMessage(jtl_sources_order_address, keys));
 		});
 	}
@@ -2134,6 +2315,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 						return;
 				}
 			}
+			linkAudioUserTookOver();
 			queueJTLCommand(jtlStringsMessage(jtl_sink_add_address, { name }));
 		});
 	}
@@ -2150,6 +2332,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 				return;
 			//jack_transport_link's findSink matches a name first and then a key, so this accepts
 			//either
+			linkAudioUserTookOver();
 			queueJTLCommand(jtlStringsMessage(jtl_sink_remove_address, { name }));
 		});
 	}
@@ -2168,6 +2351,7 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 				if (v.get_type() == ossia::val_type::STRING)
 					keys.push_back(v.get<std::string>());
 			}
+			linkAudioUserTookOver();
 			queueJTLCommand(jtlStringsMessage(jtl_sinks_order_address, keys));
 		});
 	}
@@ -2407,6 +2591,15 @@ void ProcessAudioJack::syncLinkAudioFromState() {
 		pushListIfChanged(mLinkAudioSinksOrderParam, {});
 		reconcileLinkAudioSourceSlots({});
 		reconcileLinkAudioSinkSlots({});
+		//Forget what we last saw, but don't call it a change: Link Audio going away is not a user
+		//editing the arrangement, and it must not mark the loaded set dirty. Any desired setup stays
+		//pending for whenever jack_transport_link comes back.
+		mLinkAudioSetupLastSends.clear();
+		mLinkAudioSetupLastReceives.clear();
+		{
+			std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+			mLinkAudioSawUnavailable = true;
+		}
 		return;
 	}
 
@@ -2452,6 +2645,84 @@ void ProcessAudioJack::syncLinkAudioFromState() {
 			continue;
 		sinkKeys.push_back(key);
 		sinkNames[key] = e.value("name", std::string());
+	}
+
+	//The identity lists, in display order -- what a set stores, and what tells us whether the slot
+	//list actually changed as opposed to jack_transport_link re-publishing the same one.
+	{
+		std::vector<std::string> sends;
+		for (auto& k: sinkKeys) {
+			auto it = sinkNames.find(k);
+			if (it != sinkNames.end() && it->second.size())
+				sends.push_back(it->second);
+		}
+		std::vector<std::pair<std::string, std::string>> receives;
+		for (auto& k: sourceKeys) {
+			auto it = sourceIdentities.find(k);
+			if (it != sourceIdentities.end() && it->second.second.size())
+				receives.push_back(it->second);
+		}
+
+		const bool listChanged = sends != mLinkAudioSetupLastSends ||
+			receives != mLinkAudioSetupLastReceives;
+		if (listChanged) {
+			mLinkAudioSetupLastSends = sends;
+			mLinkAudioSetupLastReceives = receives;
+			mLinkAudioSetupChanged.store(true);
+		}
+
+		//Confirm the loaded set's arrangement, and notice when the user takes it over.
+		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+
+		//jack_transport_link was away and is back, so it no longer knows the arrangement we sent it
+		//(and what it restored from its own config is not authoritative -- the loaded set is). Send
+		//it again. Checked before the comparison below, because the two are indistinguishable by
+		//list contents: a restart that came back empty looks like every slot having been deleted.
+		if (mLinkAudioSawUnavailable) {
+			mLinkAudioSawUnavailable = false;
+			if (mLinkAudioDesired) {
+				mLinkAudioDesiredSent = false;
+				mLinkAudioDesiredConverged = false;
+			}
+		}
+
+		if (mLinkAudioDesired) {
+			bool same = mLinkAudioDesired->sends == sends &&
+				mLinkAudioDesired->receives.size() == receives.size();
+			for (size_t i = 0; i < receives.size() && same; i++) {
+				same = mLinkAudioDesired->receives[i].peer == receives[i].first &&
+					mLinkAudioDesired->receives[i].channel == receives[i].second;
+			}
+			if (same) {
+				//jack_transport_link is where we asked it to be. Hold the arrangement anyway: if jtl
+				//restarts, this is what gets re-applied, in preference to whatever it restored from
+				//its own config file.
+				if (!mLinkAudioDesiredConverged) {
+					mLinkAudioDesiredConverged = true;
+					//Arriving at the loaded set's own arrangement is not a deviation from it, so it
+					//must not be reported as a change -- otherwise loading a set marks it dirty,
+					//depending on whether the set name has caught up by the time it's compared.
+					mLinkAudioSetupChanged.store(false);
+				}
+			} else if (listChanged) {
+				//The list moved somewhere we didn't ask for. A user edit can't be the cause -- that
+				//releases the desired arrangement outright (linkAudioUserTookOver) -- so this is
+				//jack_transport_link's own doing, in practice a restart that came back with a
+				//different arrangement. Send it again.
+				//
+				//Gated on listChanged, not on the mismatch alone, so this is bounded by the number of
+				//times jtl's list actually moves: an arrangement it won't accept leaves its list
+				//unchanged, so we stop coming back here rather than resending on every publish.
+				//
+				//Deliberately not also gated on having converged once. That would be tidier -- it
+				//would spare the redundant resend when jtl publishes its sink and source lists
+				//separately mid-apply -- but it strands a first apply that never converged (a
+				//rejected entry, or a restart we didn't observe) as permanently "in flight", with
+				//nothing able to rearm it. A few idempotent resends are the cheaper mistake.
+				mLinkAudioDesiredSent = false;
+				mLinkAudioDesiredConverged = false;
+			}
+		}
 	}
 
 	reconcileLinkAudioSourceSlots(sourceKeys);

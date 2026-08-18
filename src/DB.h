@@ -278,6 +278,8 @@ class DB {
 
 		bool setMatchesConnections(const std::string& name, const std::vector<std::string>& source, const std::vector<std::vector<std::string>>& dest);
 
+		//does the named set's stored Link Audio arrangement match this one, order included?
+		bool setMatchesLinkAudio(const std::string& name, const SetLinkAudioInfo& setup);
 
 		boost::optional<std::string> setNameInitial(
 				std::string rnbo_version = std::string()

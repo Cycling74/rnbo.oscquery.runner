@@ -56,6 +56,10 @@ class ProcessAudioJack : public ProcessAudio {
 
 		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) override;
 
+		virtual SetLinkAudioInfo linkAudioSetup() override;
+		virtual void setLinkAudioSetup(const SetLinkAudioInfo& setup) override;
+		virtual bool takeLinkAudioSetupChanged() override;
+
 		virtual void handleTransportState(bool running) override;
 		virtual void handleTransportTempo(double bpm) override;
 		virtual void handleTransportBeatTime(double btime) override;
@@ -220,11 +224,59 @@ class ProcessAudioJack : public ProcessAudio {
 		//when to re-send our listener registration, and when to next poll for the port key
 		std::chrono::time_point<std::chrono::steady_clock> mJTLRegisterNext;
 		std::chrono::time_point<std::chrono::steady_clock> mJTLDiscoverNext;
-		//connections to jack-transport-link ports that couldn't be made yet (ports not up),
-		//retried when ports register
-		std::vector<SetConnectionInfo> mLinkAudioPendingConnections;
+		//Connections involving jack-transport-link ports, held until we've seen them actually made.
+		//
+		//Not just the ones that failed: jack_transport_link cycles jack_deactivate/jack_activate
+		//around a structural slot change and restores only the connections it snapshotted first, so
+		//a connect that *succeeded* inside that window is silently dropped. Reissuing until the
+		//deadline covers both cases -- jack_connect on an existing connection is a cheap EEXIST.
+		struct PendingLinkConnection {
+			SetConnectionInfo info;
+			std::chrono::time_point<std::chrono::steady_clock> until;
+		};
+		std::vector<PendingLinkConnection> mLinkAudioPendingConnections;
 		std::mutex mPendingConnectionsMutex;
 		void retryLinkAudioPendingConnections();
+		//add or refresh one pending edge, keyed by identity so repeated re-applies extend a deadline
+		//instead of stacking up duplicate connect attempts (expects mPendingConnectionsMutex held)
+		void pendLinkAudioConnection(const SetConnectionInfo& info, std::chrono::time_point<std::chrono::steady_clock> until);
+		//forget everything pending, so a previous set's unreachable edges don't leak into the next
+		void clearLinkAudioPendingConnections();
+
+		//The slots the loaded set expects, held as desired state rather than sent outright:
+		//flushJTLCommands drops commands when we have no endpoint, and at boot the initial set
+		//loads well before jack_transport_link is discovered. Applied when we have an endpoint,
+		//re-applied if that endpoint changes, cleared once jtl echoes a matching list back.
+		//It is kept after jtl confirms it, not dropped, so that a jack_transport_link restart
+		//re-applies the loaded set rather than inheriting whatever jtl restored from its own config.
+		//It is dropped when the user edits the arrangement, because from then on the live slots --
+		//not the set's -- are what should survive a restart.
+		boost::optional<SetLinkAudioInfo> mLinkAudioDesired;
+		bool mLinkAudioDesiredSent = false;
+		bool mLinkAudioDesiredConverged = false;
+		//Link Audio has been unavailable since we last applied. Whatever we told jack_transport_link
+		//died with it, so the arrangement has to be sent again once it's back -- and this is the
+		//signal for that, rather than inferring a restart from the reported list, which reads exactly
+		//like a user edit.
+		bool mLinkAudioSawUnavailable = false;
+		//how long slot changes are still attributed to an in-flight load rather than to the user
+		std::chrono::time_point<std::chrono::steady_clock> mLinkAudioDesiredSuppressUntil;
+		std::mutex mLinkAudioDesiredMutex;
+		void applyLinkAudioDesired();
+		//the user has issued a slot command of their own, so the loaded set's arrangement is no
+		//longer what should be reinstated. Called from the imperative ossia callbacks, which are the
+		//only way a slot changes at our request.
+		void linkAudioUserTookOver();
+
+		//the loaded set's edges that touch jack_transport_link, kept so they can be reasserted after
+		//a jtl restart re-creates the slot ports (guarded by mPendingConnectionsMutex)
+		std::vector<SetConnectionInfo> mLinkAudioSetConnections;
+
+		//the slot identities we last saw jack_transport_link report, so a change can be
+		//distinguished from a re-publish of the same list
+		std::vector<std::string> mLinkAudioSetupLastSends;
+		std::vector<std::pair<std::string, std::string>> mLinkAudioSetupLastReceives;
+		std::atomic<bool> mLinkAudioSetupChanged = false;
 
 		NodeBuilder mBuilder;
 		std::mutex mMutex;

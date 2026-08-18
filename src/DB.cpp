@@ -2063,6 +2063,47 @@ bool DB::setRename(const std::string &oldName, const std::string &newName) {
   }
 }
 
+bool DB::setMatchesLinkAudio(const std::string &name,
+                             const SetLinkAudioInfo &setup) {
+  std::lock_guard<std::mutex> guard(mMutex);
+  int setid = getsetid(mDB, name);
+
+  // Order is part of the arrangement, so this compares sequences, not sets.
+  SetLinkAudioInfo stored;
+  {
+    SQLite::Statement query(mDB, R"(
+			SELECT kind, name, peer, channel
+			FROM sets_link_audio_slots
+			WHERE set_id = ?1
+			ORDER BY kind, sort_order
+		)");
+    query.bind(1, setid);
+    while (query.executeStep()) {
+      const std::string kind = getStringColumn(query, 0);
+      if (kind == "send") {
+        stored.sends.push_back(getStringColumn(query, 1));
+      } else if (kind == "receive") {
+        SetLinkAudioInfo::Receive recv;
+        recv.peer = getStringColumn(query, 2);
+        recv.channel = getStringColumn(query, 3);
+        stored.receives.push_back(recv);
+      }
+    }
+  }
+
+  if (stored.sends != setup.sends ||
+      stored.receives.size() != setup.receives.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < stored.receives.size(); i++) {
+    if (stored.receives[i].peer != setup.receives[i].peer ||
+        stored.receives[i].channel != setup.receives[i].channel) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool DB::setMatchesConnections(
     const std::string &name, const std::vector<std::string> &source,
     const std::vector<std::vector<std::string>> &dest) {

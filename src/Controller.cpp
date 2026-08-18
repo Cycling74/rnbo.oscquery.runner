@@ -2868,6 +2868,16 @@ bool Controller::processEvents() {
 			}
 		};
 
+		//A Link Audio send or receive is a graph node now, so adding, removing or reordering one is
+		//an edit to the set. Compared against what the set stores rather than tracked as a delta,
+		//the same way connection changes are handled just above.
+		if (mProcessAudio && mProcessAudio->takeLinkAudioSetupChanged()) {
+			if (!mDB->setMatchesLinkAudio(loadedset, mProcessAudio->linkAudioSetup())) {
+				mSetDirtyParam->push_value(true);
+				queueSave();
+			}
+		}
+
 		bool stoppingInstances = false;
 		{
 			std::lock_guard<std::mutex> guard(mBuildMutex);

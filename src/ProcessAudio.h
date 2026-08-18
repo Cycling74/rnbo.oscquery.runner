@@ -48,6 +48,9 @@ class ProcessAudio {
 		//reachable yet, so an implementation may hold this as desired state.
 		virtual void setLinkAudioSetup(const SetLinkAudioInfo& setup) { }
 
+		//has the Link Audio slot list changed since this was last called? Returns and clears, so
+		//the caller can compare the live setup against the loaded set and mark it dirty.
+		virtual bool takeLinkAudioSetupChanged() { return false; }
 
 		//transport handlers
 		virtual void handleTransportState(bool running) = 0;
