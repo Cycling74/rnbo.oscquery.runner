@@ -2052,20 +2052,31 @@ void ProcessAudioJack::buildLinkAudioNodes(ossia::net::node_base * root) {
 	}
 	{
 		auto n = sources->create_child("remove");
-		n->set(ossia::net::description_attribute{}, "remove a source: [peer, channel]");
+		n->set(ossia::net::description_attribute{}, "remove a source: [peer, channel] or [key]");
 		n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::SET);
 		auto p = n->create_parameter(ossia::val_type::LIST);
 		p->add_callback([this](const ossia::value& val) {
-			if (val.get_type() != ossia::val_type::LIST)
+			//jack_transport_link's source/remove takes (peer, channel) or a bare slot key, so
+			//accept both here and let the identity go through unchanged. A one-argument message
+			//can arrive as a single-entry list or, depending on how it was sent, as a bare string.
+			std::vector<std::string> args;
+			if (val.get_type() == ossia::val_type::STRING) {
+				args.push_back(val.get<std::string>());
+			} else if (val.get_type() == ossia::val_type::LIST) {
+				for (auto& v: val.get<std::vector<ossia::value>>()) {
+					if (v.get_type() != ossia::val_type::STRING)
+						return;
+					args.push_back(v.get<std::string>());
+				}
+			} else {
 				return;
-			auto l = val.get<std::vector<ossia::value>>();
-			if (l.size() < 2 || l[0].get_type() != ossia::val_type::STRING || l[1].get_type() != ossia::val_type::STRING)
+			}
+			//more than a (peer, channel) pair is a request we don't understand
+			if (args.empty() || args.size() > 2 || args[0].empty())
 				return;
-			auto peer = l[0].get<std::string>();
-			auto channel = l[1].get<std::string>();
-			//jack_transport_link's source/remove takes (peer, channel) or a key, so the identity
-			//goes through unchanged
-			queueJTLCommand(jtlStringsMessage(jtl_source_remove_address, { peer, channel }));
+			if (args.size() == 2 && args[1].empty())
+				return;
+			queueJTLCommand(jtlStringsMessage(jtl_source_remove_address, args));
 		});
 	}
 	{

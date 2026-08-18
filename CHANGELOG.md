@@ -5,8 +5,8 @@
     * **breaking** (relative to the unreleased Link Audio work above): Link Audio is now
       configured as two explicit, ordered lists rather than stereo-pair counts. Under
       `/rnbo/jack/link/audio`:
-        * `sources/add` (`[peer, channel]`), `sources/remove` (`[peer, channel]`),
-          `sources/order` (list of slot keys)
+        * `sources/add` (`[peer, channel]`), `sources/remove` (`[peer, channel]` or a bare
+          slot key), `sources/order` (list of slot keys)
         * `sinks/add` (name), `sinks/remove` (name), `sinks/order` (list of slot keys)
         * per-slot nodes live under a `list` container, named by the slot key
           `jack_transport_link` publishes:
