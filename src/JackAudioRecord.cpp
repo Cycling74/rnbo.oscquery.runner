@@ -343,6 +343,10 @@ bool JackAudioRecord::resize(int channels, bool toggleactive) {
 
 		jack_uuid_t uuid = jack_port_uuid(port);
 		if (!jack_uuid_empty(uuid)) {
+			//preventative: uuids come from the port index and the server's metadata db is only deleted
+			//on an orderly shutdown -- a kill or a crash leaves it behind -- so this port may arrive
+			//holding a previous occupant's properties
+			jack_remove_properties(mJackClient, uuid);
 			std::string pretty = "Record In " + std::to_string(i + 1);
 			jack_set_property(mJackClient, uuid, JACK_METADATA_PRETTY_NAME, pretty.c_str(), "text/plain");
 			jack_set_property(mJackClient, uuid, JACK_METADATA_PORT_GROUP, record_port_group, "text/plain");

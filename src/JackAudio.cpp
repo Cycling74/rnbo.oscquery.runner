@@ -65,6 +65,17 @@ namespace {
 	const char * rnbo_inst_id_property_type = "http://www.w3.org/2001/XMLSchema#int";
 	const char *bool_property_type = "https://www.w3.org/2001/XMLSchema#boolean";
 
+	//preventative: uuids come from the port index and the server's metadata db is only deleted on an
+	//orderly shutdown -- a kill or a crash leaves it behind -- so a port we just registered may
+	//arrive holding whatever the previous occupant of that index left behind
+	void clear_port_properties(jack_client_t * client, jack_port_t * port) {
+		if (port == nullptr)
+			return;
+		jack_uuid_t uuid = jack_port_uuid(port);
+		if (!jack_uuid_empty(uuid))
+			jack_remove_properties(client, uuid);
+	}
+
 	const std::string RNBO_GRAPH_SINK_PORTGROUP("rnbo-graph-user-sink");
 	const std::string RNBO_GRAPH_SRC_PORTGROUP("rnbo-graph-user-src");
 	const std::string RNBO_HIDDEN_PORTGROUP("rnbo-graph-hidden");
@@ -1582,6 +1593,8 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					JackPortFlags::JackPortIsOutput,
 					0
 			);
+			clear_port_properties(mJackClient, mJackMidiIn);
+			clear_port_properties(mJackClient, mResetMidiOut);
 
 			jack_set_process_callback(mJackClient, processJackProcess, this);
 			jack_set_port_rename_callback(mJackClient, processJackPortRenamed, this);
@@ -3329,6 +3342,7 @@ InstanceAudioJack::InstanceAudioJack(
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sinks, name, true)});
 
+				clear_port_properties(mJackClient, port);
 				jack_uuid_t uuid = jack_port_uuid(port);
 				if (!jack_uuid_empty(uuid)) {
 					jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
@@ -3373,6 +3387,7 @@ InstanceAudioJack::InstanceAudioJack(
 
 				mPortParamMap.insert({port, build_port_param(port, audio_sources, name, false)});
 
+				clear_port_properties(mJackClient, port);
 				jack_uuid_t uuid = jack_port_uuid(port);
 				if (!jack_uuid_empty(uuid)) {
 					jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
@@ -3420,6 +3435,7 @@ InstanceAudioJack::InstanceAudioJack(
 
 			midi_ins->push_value(ossia::value({ossia::value(name)}));
 
+			clear_port_properties(mJackClient, mJackMidiIn);
 			jack_uuid_t uuid = jack_port_uuid(mJackMidiIn);
 			if (!jack_uuid_empty(uuid)) {
 				jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
@@ -3447,6 +3463,7 @@ InstanceAudioJack::InstanceAudioJack(
 
 			midi_outs->push_value(ossia::value({ossia::value(name)}));
 
+			clear_port_properties(mJackClient, mJackMidiOut);
 			jack_uuid_t uuid = jack_port_uuid(mJackMidiOut);
 			if (!jack_uuid_empty(uuid)) {
 				jack_set_property(mJackClient, uuid, RNBO_PROP_INST_ID_KEY, index_s.c_str(), rnbo_inst_id_property_type);
