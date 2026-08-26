@@ -1,8 +1,9 @@
 # RNBO Runner Changes
 
 * *1.4.5-10*
-    * thread thru link audio config from jack_transport_link, sets save their Link Audio arrangement,
-    * communicate to/from jack_transport_link with OSC
+    * jack_transport_link updates
+        * thread thru link audio config, sets save their Link Audio arrangement
+        * communicate to/from jack_transport_link with OSC
     * fixed: a JACK port could come up carrying metadata left behind by the previous port at
       that index. Port UUIDs are a function of the port index and the server's metadata
       database only gets deleted on an orderly shutdown, so after a kill, a crash or a power
