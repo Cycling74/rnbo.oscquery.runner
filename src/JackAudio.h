@@ -56,7 +56,7 @@ class ProcessAudioJack : public ProcessAudio {
 
 		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) override;
 
-		virtual SetLinkAudioInfo linkAudioSetup() override;
+		virtual boost::optional<SetLinkAudioInfo> linkAudioSetup() override;
 		virtual void setLinkAudioSetup(const SetLinkAudioInfo& setup) override;
 		virtual bool takeLinkAudioSetupChanged() override;
 
@@ -259,8 +259,18 @@ class ProcessAudioJack : public ProcessAudio {
 		//signal for that, rather than inferring a restart from the reported list, which reads exactly
 		//like a user edit.
 		bool mLinkAudioSawUnavailable = false;
-		//how long slot changes are still attributed to an in-flight load rather than to the user
+		//how long slot changes are still attributed to an in-flight load rather than to the user.
+		//Re-armed on every (re-)apply, not just the first: a jack_transport_link restart is another
+		//arrangement in flight, and its convergence must not read as a user edit either.
 		std::chrono::time_point<std::chrono::steady_clock> mLinkAudioDesiredSuppressUntil;
+		//Link Audio has been available at least once, so the live arrangement is something we know
+		//rather than something we've never been told. A runner that has never seen it has no
+		//arrangement to record into a set (see linkAudioSetup).
+		bool mLinkAudioEverAvailable = false;
+		//the slot identities jack_transport_link last reported while it was available -- what a set
+		//records. Deliberately kept across an outage: jtl going away empties the live slot mirrors,
+		//and saving a set in that window must not write the emptiness down as the arrangement.
+		SetLinkAudioInfo mLinkAudioLastLive;
 		std::mutex mLinkAudioDesiredMutex;
 		void applyLinkAudioDesired();
 		//the user has issued a slot command of their own, so the loaded set's arrangement is no
@@ -268,9 +278,14 @@ class ProcessAudioJack : public ProcessAudio {
 		//only way a slot changes at our request.
 		void linkAudioUserTookOver();
 
-		//the loaded set's edges that touch jack_transport_link, kept so they can be reasserted after
-		//a jtl restart re-creates the slot ports (guarded by mPendingConnectionsMutex)
+		//the loaded set's edges that touch jack_transport_link, kept so they can be reasserted
+		//whenever its slot ports are (re-)created: a jtl restart, or a slot port that only shows up
+		//later (guarded by mPendingConnectionsMutex). Held for the life of the loaded set,
+		//independently of mLinkAudioDesired -- the set's edges are still the set's after the user
+		//takes over its slot arrangement.
 		std::vector<SetConnectionInfo> mLinkAudioSetConnections;
+		//give every one of those edges another window to be reasserted
+		void rependLinkAudioSetConnections();
 
 		//the slot identities we last saw jack_transport_link report, so a change can be
 		//distinguished from a re-publish of the same list

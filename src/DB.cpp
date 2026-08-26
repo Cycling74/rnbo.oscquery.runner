@@ -46,6 +46,42 @@ int getsetid(SQLite::Database &db, const std::string &name) {
   return 0;
 };
 
+// The Link Audio arrangement a set records, in display order.
+//
+// One decoder for every reader: setGet reproduces the arrangement on load and
+// setMatchesLinkAudio decides whether the live one still matches it, so if the two disagreed
+// about what a row means -- which of them filters an identity the schema permits but a slot
+// cannot carry -- a set could sit permanently dirty with no save able to reconcile it.
+SetLinkAudioInfo loadLinkAudioSlots(SQLite::Database &db, int64_t set_id) {
+  SetLinkAudioInfo info;
+  SQLite::Statement query(db, R"(
+			SELECT kind, name, peer, channel
+			FROM sets_link_audio_slots
+			WHERE set_id = ?1
+			ORDER BY kind, sort_order
+		)");
+  query.bind(1, set_id);
+  while (query.executeStep()) {
+    const std::string kind = getStringColumn(query, 0);
+    if (kind == "send") {
+      // an empty identity names no slot jack_transport_link could create, so it is dropped
+      // rather than reproduced (the CHECK constraint permits the empty string)
+      auto name = getStringColumn(query, 1);
+      if (name.size()) {
+        info.sends.push_back(name);
+      }
+    } else if (kind == "receive") {
+      SetLinkAudioInfo::Receive recv;
+      recv.peer = getStringColumn(query, 2);
+      recv.channel = getStringColumn(query, 3);
+      if (recv.channel.size()) {
+        info.receives.push_back(recv);
+      }
+    }
+  }
+  return info;
+}
+
 int getsetviewid(SQLite::Database &db, int set_id, int view_index) {
   SQLite::Statement query(
       db, "SELECT id FROM sets_views WHERE set_id = ?1 AND view_index = ?2");
@@ -779,6 +815,19 @@ CREATE TABLE sets_link_audio_slots
 			)");
     db.exec("CREATE INDEX sets_link_audio_slots_set_id ON "
             "sets_link_audio_slots(set_id)");
+  });
+
+  do_migration(23, [](SQLite::Database &db) {
+    // Whether a set records a Link Audio arrangement at all, which zero rows in
+    // sets_link_audio_slots cannot say: a set with no slots and a set saved before slots were
+    // persisted look identical there. Defaulting existing rows to 0 is the point -- loading a set
+    // from before this migration must leave whatever the user has configured in
+    // jack_transport_link alone rather than clearing it (see Controller::doLoadSet).
+    //
+    // Separate from migration 22, which created the table, so that a database which already ran
+    // 22 still picks the column up.
+    db.exec("ALTER TABLE sets ADD COLUMN link_audio_saved INTEGER NOT NULL "
+            "DEFAULT 0");
   });
 
   // turn on foreign_keys support
@@ -1776,26 +1825,34 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
     uuid = make_uuid();
   }
 
+  // A save that has nothing to say about Link Audio leaves the set's recorded arrangement --
+  // flag and rows both -- exactly as it was, rather than clearing it.
+  const int link_audio_saved = info.link_audio ? 1 : 0;
+
   if (id == 0) {
     SQLite::Statement query(
         mDB, "INSERT INTO sets (name, runner_rnbo_version, filename, meta, "
-             "created_at, uuid) VALUES (?1, ?2, ?3, ?4, CASE LENGTH(?5) WHEN 0 "
-             "THEN datetime('now', 'localtime') ELSE ?5 END, ?6)");
+             "created_at, uuid, link_audio_saved) VALUES (?1, ?2, ?3, ?4, CASE "
+             "LENGTH(?5) WHEN 0 "
+             "THEN datetime('now', 'localtime') ELSE ?5 END, ?6, ?7)");
     query.bind(1, name);
     query.bind(2, runner_rnbo_version);
     query.bind(3, "DB"); // no longer used
     query.bind(4, info.meta);
     query.bind(5, info.created_at);
     query.bind(6, uuid);
+    query.bind(7, link_audio_saved);
     query.exec();
     id = mDB.getLastInsertRowid();
   } else {
     {
       SQLite::Statement query(
-          mDB, "UPDATE sets SET meta = ?1, uuid = ?3 WHERE id = ?2");
+          mDB, "UPDATE sets SET meta = ?1, uuid = ?3, link_audio_saved = "
+               "MAX(link_audio_saved, ?4) WHERE id = ?2");
       query.bind(1, info.meta);
       query.bind(2, id);
       query.bind(3, uuid);
+      query.bind(4, link_audio_saved);
       query.exec();
     }
     {
@@ -1810,7 +1867,7 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
       query.bind(1, id);
       query.exec();
     }
-    {
+    if (info.link_audio) {
       SQLite::Statement query(
           mDB, "DELETE FROM sets_link_audio_slots WHERE set_id = ?1");
       query.bind(1, id);
@@ -1862,7 +1919,7 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
     }
   }
 
-  {
+  if (info.link_audio) {
     // Link Audio slots, sends then receives, each numbered in display order
     SQLite::Statement query(mDB, R"(
 			INSERT INTO sets_link_audio_slots
@@ -1871,7 +1928,7 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
 			(?1, ?2, ?3, ?4, ?5, ?6)
 			)");
     int order = 0;
-    for (auto &name : info.link_audio.sends) {
+    for (auto &name : info.link_audio->sends) {
       query.bind(1, id);
       query.bind(2, "send");
       query.bind(3, order++);
@@ -1883,7 +1940,7 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
       query.reset();
     }
     order = 0;
-    for (auto &recv : info.link_audio.receives) {
+    for (auto &recv : info.link_audio->receives) {
       query.bind(1, id);
       query.bind(2, "receive");
       query.bind(3, order++);
@@ -1906,11 +1963,13 @@ boost::optional<SetInfo> DB::setGet(const std::string &name,
   std::lock_guard<std::mutex> guard(mMutex);
 
   int64_t set_id = 0;
+  bool link_audio_saved = false;
   SetInfo info;
 
   {
     SQLite::Statement query(
-        mDB, "SELECT id, meta, created_at, uuid, runner_rnbo_version FROM sets "
+        mDB, "SELECT id, meta, created_at, uuid, runner_rnbo_version, "
+             "link_audio_saved FROM sets "
              "WHERE name = ?1 AND rnbo_compat_version = ?2 ORDER BY created_at "
              "DESC LIMIT 1");
     query.bind(1, name);
@@ -1925,6 +1984,7 @@ boost::optional<SetInfo> DB::setGet(const std::string &name,
     info.created_at = getStringColumn(query, 2);
     info.uuid = getStringColumn(query, 3);
     info.runner_rnbo_version = getStringColumn(query, 4);
+    link_audio_saved = query.getColumn(5).getInt() != 0;
   }
 
   // instance index -> name
@@ -1991,31 +2051,10 @@ boost::optional<SetInfo> DB::setGet(const std::string &name,
     }
   }
 
-  // get Link Audio slots
-  {
-    SQLite::Statement query(mDB, R"(
-			SELECT kind, name, peer, channel
-			FROM sets_link_audio_slots
-			WHERE set_id = ?1
-			ORDER BY kind, sort_order
-		)");
-    query.bind(1, set_id);
-    while (query.executeStep()) {
-      const std::string kind = getStringColumn(query, 0);
-      if (kind == "send") {
-        auto name = getStringColumn(query, 1);
-        if (name.size()) {
-          info.link_audio.sends.push_back(name);
-        }
-      } else if (kind == "receive") {
-        SetLinkAudioInfo::Receive recv;
-        recv.peer = getStringColumn(query, 2);
-        recv.channel = getStringColumn(query, 3);
-        if (recv.channel.size()) {
-          info.link_audio.receives.push_back(recv);
-        }
-      }
-    }
+  // get Link Audio slots, but only if this set records an arrangement at all: a set from before
+  // they were persisted has no opinion, and must not be read as "no slots"
+  if (link_audio_saved) {
+    info.link_audio = loadLinkAudioSlots(mDB, set_id);
   }
 
   return info;
@@ -2068,28 +2107,10 @@ bool DB::setMatchesLinkAudio(const std::string &name,
   std::lock_guard<std::mutex> guard(mMutex);
   int setid = getsetid(mDB, name);
 
-  // Order is part of the arrangement, so this compares sequences, not sets.
-  SetLinkAudioInfo stored;
-  {
-    SQLite::Statement query(mDB, R"(
-			SELECT kind, name, peer, channel
-			FROM sets_link_audio_slots
-			WHERE set_id = ?1
-			ORDER BY kind, sort_order
-		)");
-    query.bind(1, setid);
-    while (query.executeStep()) {
-      const std::string kind = getStringColumn(query, 0);
-      if (kind == "send") {
-        stored.sends.push_back(getStringColumn(query, 1));
-      } else if (kind == "receive") {
-        SetLinkAudioInfo::Receive recv;
-        recv.peer = getStringColumn(query, 2);
-        recv.channel = getStringColumn(query, 3);
-        stored.receives.push_back(recv);
-      }
-    }
-  }
+  // Order is part of the arrangement, so this compares sequences, not sets. Decoded exactly the
+  // way loading the set decodes it, so "matches" means "loading this set would reproduce what is
+  // live" -- an unknown set reads as no slots, which is what loading one would leave behind.
+  const SetLinkAudioInfo stored = loadLinkAudioSlots(mDB, setid);
 
   if (stored.sends != setup.sends ||
       stored.receives.size() != setup.receives.size()) {
@@ -2657,15 +2678,23 @@ RNBO::Json SetInfo::toJson() {
     }
   }
 
-  return {{"set_info_version", 3},
-          {"created_at", created_at},
-          {"runner_rnbo_version", runner_rnbo_version},
-          {"meta", m},
-          {"instances", inst},
-          {"connections", conn},
-          {"link_audio", link_audio.toJson()},
-          {"name", name},
-          {"uuid", uuid}};
+  // Still version 2. Link Audio is a purely additive key, so a reader that predates it drops the
+  // slots and imports everything else -- where bumping the version would have it reject the
+  // document outright and import a default-empty set over the user's, destroying their instances
+  // and connections. The key's presence, not the version, is what says the set records an
+  // arrangement (see fromJson).
+  RNBO::Json j = {{"set_info_version", 2},
+                  {"created_at", created_at},
+                  {"runner_rnbo_version", runner_rnbo_version},
+                  {"meta", m},
+                  {"instances", inst},
+                  {"connections", conn},
+                  {"name", name},
+                  {"uuid", uuid}};
+  if (link_audio) {
+    j["link_audio"] = link_audio->toJson();
+  }
+  return j;
 }
 
 SetInfo SetInfo::fromJson(const RNBO::Json &json) {
@@ -2673,13 +2702,13 @@ SetInfo SetInfo::fromJson(const RNBO::Json &json) {
   // test for key
   if (json.contains("set_info_version")) {
     const int set_info_version = json["set_info_version"].get<int>();
-    // 2 and 3 share a layout; 3 adds link_audio, and a 2 that lacks it reads as no Link Audio
-    // slots -- which, on load, clears them (see Controller::doLoadSet).
+    // 2 and 3 share a layout. Version 3 was written by a development build that bumped the
+    // version to announce link_audio; it's read here so those documents still import, but
+    // nothing writes it anymore -- the key is additive and carries itself (see toJson).
     //
-    // The field is read whenever it's present rather than only for version 3. Deliberate: a
-    // version 2 document carrying link_audio can only have come from a writer that had slots to
-    // record, so honoring it preserves the user's arrangement, where gating on the version would
-    // silently discard it. A version we don't know at all still falls through to the error below.
+    // Presence of the key, not the version, is what says the document records an arrangement.
+    // A document without it says nothing about Link Audio, and loading it leaves the live
+    // arrangement alone (see Controller::doLoadSet) rather than clearing it.
     if (set_info_version == 2 || set_info_version == 3) {
       if (json.contains("link_audio")) {
         info.link_audio = SetLinkAudioInfo::fromJson(json["link_audio"]);

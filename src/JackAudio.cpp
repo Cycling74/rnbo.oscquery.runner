@@ -861,20 +861,33 @@ void ProcessAudioJack::clearLinkAudioPendingConnections() {
 	mLinkAudioSetConnections.clear();
 }
 
-SetLinkAudioInfo ProcessAudioJack::linkAudioSetup() {
-	SetLinkAudioInfo info;
-	std::lock_guard<std::mutex> guard(mMutex);
-	//the cached slot vectors are a strict mirror of jack_transport_link's own lists, already in
-	//display order, so this is just a projection down to the identities
-	for (auto& s: mLinkAudioSinkSlots) {
-		if (s.nameValue.size())
-			info.sends.push_back(s.nameValue);
-	}
-	for (auto& s: mLinkAudioSourceSlots) {
-		if (s.channel.size())
-			info.receives.push_back({ s.peer, s.channel });
-	}
-	return info;
+//jack_transport_link's slot ports have (re-)appeared, so the loaded set's edges to them are worth
+//attempting again. Deliberately not conditioned on the set's arrangement still being held: the
+//user taking over the slots changes which arrangement survives a restart, not whose connections
+//these are.
+void ProcessAudioJack::rependLinkAudioSetConnections() {
+	std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+	const auto until = std::chrono::steady_clock::now() + linkaudio_connect_retry_period;
+	for (auto& info: mLinkAudioSetConnections)
+		pendLinkAudioConnection(info, until);
+}
+
+boost::optional<SetLinkAudioInfo> ProcessAudioJack::linkAudioSetup() {
+	std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
+	//An arrangement still on its way to jack_transport_link is what the set means to have, even
+	//though nothing live reflects it yet -- and that covers the dangerous case: jtl is down, the
+	//live slots are empty because it took them with it, and a save in that window would otherwise
+	//write the emptiness down and erase the set's arrangement.
+	if (mLinkAudioDesired && !mLinkAudioDesiredConverged)
+		return *mLinkAudioDesired;
+	//Nothing has ever told us what the arrangement is -- no jack_transport_link, or none that has
+	//reached us yet -- so this runner has nothing to record. Saying "no slots" here is a claim we
+	//can't support, and loading the set back would act on it.
+	if (!mLinkAudioEverAvailable && !mLinkAudioDesired)
+		return boost::none;
+	//What jack_transport_link last told us, which is the live arrangement whenever it's running and
+	//the last one we knew while it isn't.
+	return mLinkAudioLastLive;
 }
 
 void ProcessAudioJack::setLinkAudioSetup(const SetLinkAudioInfo& setup) {
@@ -913,10 +926,18 @@ bool ProcessAudioJack::takeLinkAudioSetupChanged() {
 		//immediately mark it dirty. Once jtl confirms the arrangement we report changes again: the
 		//desired setup is still held for restart recovery, but it is no longer in flight.
 		//
-		//Time-bounded as well as convergence-bounded. If an arrangement never converges -- jtl won't
-		//accept part of it, or it isn't running at all -- suppressing forever would silently swallow
-		//every later edit the user makes. After the window we report changes again, which marks the
-		//set dirty, and that is the honest answer: its arrangement is genuinely not what's live.
+		//Time-bounded as well as convergence-bounded, and re-armed on every re-apply. If an
+		//arrangement never converges -- jtl won't accept part of it, or it isn't running at all --
+		//suppressing forever would silently swallow every later edit the user makes. After the
+		//window we report changes again, and let the comparison against the set decide.
+		//
+		//Note what that comparison sees in the never-converged case: linkAudioSetup() answers with
+		//the arrangement the set asked for, not the one jtl settled on, so a reported change there
+		//compares equal and the set stays clean. That is the right answer -- saving would write back
+		//exactly what is already stored, so there is nothing unsaved -- and it is why nothing here
+		//needs to manufacture a change when the window lapses. A user edit is a different matter,
+		//and it isn't suppressed at all: editing a slot releases the desired arrangement outright
+		//(linkAudioUserTookOver), so this whole branch stops applying from that point on.
 		if (mLinkAudioDesired && !mLinkAudioDesiredConverged &&
 				std::chrono::steady_clock::now() < mLinkAudioDesiredSuppressUntil) {
 			mLinkAudioSetupChanged.store(false);
@@ -950,13 +971,10 @@ void ProcessAudioJack::applyLinkAudioDesired() {
 
 	//A re-apply means jack_transport_link went away and came back, so its slot ports are new and the
 	//set's edges to them are gone. Give them another window to be reasserted; on the first apply of
-	//a load this is empty, because connect() runs after us and arms them itself.
-	{
-		std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
-		const auto until = std::chrono::steady_clock::now() + linkaudio_connect_retry_period;
-		for (auto& info: mLinkAudioSetConnections)
-			pendLinkAudioConnection(info, until);
-	}
+	//a load this is empty, because connect() runs after us and arms them itself. (This is not the
+	//only site that re-arms them -- see syncLinkAudioFromState, which does it whether or not the
+	//set's arrangement is still held, and the port registration handler in processEvents.)
+	rependLinkAudioSetConnections();
 
 	//One message per list, rather than add/remove per slot: jack_transport_link applies each in a
 	//single reconcile pass, so the ports appear once and the connections settle once.
@@ -1148,9 +1166,21 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 
 		{
 			std::pair<jack_port_id_t, JackPortChange> entry;
+			bool linkAudioPortRegistered = false;
 			while (mPortQueue->try_dequeue(entry)) {
 				if (entry.second == JackPortChange::Register) {
-					connectToMidiIf(jack_port_by_id(mJackClient, entry.first));
+					auto port = jack_port_by_id(mJackClient, entry.first);
+					connectToMidiIf(port);
+
+					//A jack_transport_link slot port has appeared. That is the event the loaded set's
+					//edges to it are waiting on, and it doesn't only happen at load or after a jtl
+					//restart: a receive slot's port materializes when its remote Link peer joins,
+					//which can be long after the retry window from either of those has expired.
+					if (port != nullptr) {
+						const char * pname = jack_port_name(port);
+						if (pname != nullptr && std::string(pname).starts_with(linkaudio_transport_client_name + ":"))
+							linkAudioPortRegistered = true;
+					}
 				}
 
 				if (entry.second == JackPortChange::Connection) {
@@ -1165,6 +1195,10 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 					mPortPoll = now + port_poll_timeout;
 				}
 			}
+
+			//once for the batch: a structural change registers a whole slot's worth of ports at a time
+			if (linkAudioPortRegistered)
+				rependLinkAudioSetConnections();
 		}
 
 		//manage port connections/disconnections to and from oscquery
@@ -2516,6 +2550,9 @@ void ProcessAudioJack::reconcileLinkAudioSinkSlots(const std::vector<std::string
 					if (!found)
 						return;
 				}
+				//a rename is a slot edit like any other: the live arrangement is the user's from
+				//here, or the loaded set's would be re-sent over the top of it and revert them
+				linkAudioUserTookOver();
 				queueJTLCommand(jtlStringsMessage(jtl_sink_rename_address, { key, name }));
 			});
 		}
@@ -2660,6 +2697,10 @@ void ProcessAudioJack::syncLinkAudioFromState() {
 		sinkNames[key] = e.value("name", std::string());
 	}
 
+	//jack_transport_link went away and came back, so its slot ports are new (set below, acted on
+	//once the desired-state lock is released)
+	bool jtlReturned = false;
+
 	//The identity lists, in display order -- what a set stores, and what tells us whether the slot
 	//list actually changed as opposed to jack_transport_link re-publishing the same one.
 	{
@@ -2687,15 +2728,30 @@ void ProcessAudioJack::syncLinkAudioFromState() {
 		//Confirm the loaded set's arrangement, and notice when the user takes it over.
 		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
 
+		mLinkAudioEverAvailable = true;
+		//What a set records, kept here rather than re-derived from the slot mirrors at save time:
+		//those go empty when jack_transport_link does, and a save in that window would write the
+		//emptiness down as the arrangement (see linkAudioSetup).
+		mLinkAudioLastLive.sends = sends;
+		mLinkAudioLastLive.receives.clear();
+		for (auto& r: receives)
+			mLinkAudioLastLive.receives.push_back({ r.first, r.second });
+
 		//jack_transport_link was away and is back, so it no longer knows the arrangement we sent it
 		//(and what it restored from its own config is not authoritative -- the loaded set is). Send
 		//it again. Checked before the comparison below, because the two are indistinguishable by
 		//list contents: a restart that came back empty looks like every slot having been deleted.
 		if (mLinkAudioSawUnavailable) {
 			mLinkAudioSawUnavailable = false;
+			//its slot ports are new whether or not we still hold the set's arrangement, so the set's
+			//edges to them need re-arming either way -- done outside the lock, below
+			jtlReturned = true;
 			if (mLinkAudioDesired) {
 				mLinkAudioDesiredSent = false;
 				mLinkAudioDesiredConverged = false;
+				//another arrangement in flight, so give it its own window before its convergence
+				//starts reading as a user edit
+				mLinkAudioDesiredSuppressUntil = std::chrono::steady_clock::now() + linkaudio_apply_suppress_period;
 			}
 		}
 
@@ -2734,9 +2790,16 @@ void ProcessAudioJack::syncLinkAudioFromState() {
 				//nothing able to rearm it. A few idempotent resends are the cheaper mistake.
 				mLinkAudioDesiredSent = false;
 				mLinkAudioDesiredConverged = false;
+				//in flight again, so the window that separates this load from a user edit starts over
+				mLinkAudioDesiredSuppressUntil = std::chrono::steady_clock::now() + linkaudio_apply_suppress_period;
 			}
 		}
 	}
+
+	//outside mLinkAudioDesiredMutex: this takes mPendingConnectionsMutex, and the two are never
+	//held together
+	if (jtlReturned)
+		rependLinkAudioSetConnections();
 
 	reconcileLinkAudioSourceSlots(sourceKeys);
 	reconcileLinkAudioSinkSlots(sinkKeys);

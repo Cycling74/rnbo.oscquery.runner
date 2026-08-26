@@ -2136,7 +2136,15 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 
 		//Link Audio slots before the connections that reference their ports: the set's slot list is
 		//what makes those ports exist, and their names are derived from the slot identities.
-		mProcessAudio->setLinkAudioSetup(setInfo.link_audio);
+		//
+		//Only if the set records an arrangement at all. Applying is declarative -- slots the set
+		//doesn't name go away -- so a set that predates Link Audio persistence, or one saved by a
+		//runner that never reached jack_transport_link, would otherwise clear the user's live
+		//arrangement on the first load after an upgrade. A set that records an empty arrangement
+		//still clears it: that one means it.
+		if (setInfo.link_audio) {
+			mProcessAudio->setLinkAudioSetup(*setInfo.link_audio);
+		}
 
 		mProcessAudio->updatePorts();
 		mProcessAudio->connect(setInfo.connections, mFirstSetLoad); //only do control connections when loading first set
@@ -2870,11 +2878,14 @@ bool Controller::processEvents() {
 
 		//A Link Audio send or receive is a graph node now, so adding, removing or reordering one is
 		//an edit to the set. Compared against what the set stores rather than tracked as a delta,
-		//the same way connection changes are handled just above.
+		//and only marked dirty -- the same way connection changes are handled just above. Notably
+		//not saved: an autosave here would write whatever jack_transport_link happens to be doing
+		//into the untitled set, including the arrangement it restores from its own config at boot,
+		//as though the user had built it.
 		if (mProcessAudio && mProcessAudio->takeLinkAudioSetupChanged()) {
-			if (!mDB->setMatchesLinkAudio(loadedset, mProcessAudio->linkAudioSetup())) {
+			auto live = mProcessAudio->linkAudioSetup();
+			if (live && !mDB->setMatchesLinkAudio(loadedset, *live)) {
 				mSetDirtyParam->push_value(true);
-				queueSave();
 			}
 		}
 

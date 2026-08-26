@@ -79,7 +79,13 @@ struct SetLinkAudioInfo {
 struct SetInfo {
 	std::vector<SetConnectionInfo> connections;
 	std::vector<SetInstanceInfo> instances;
-	SetLinkAudioInfo link_audio;
+	//The Link Audio arrangement this set records, engaged only if it actually records one.
+	//
+	//Disengaged is not the same as engaged-and-empty: a set saved before Link Audio slots were
+	//persisted -- or by a runner that has never seen jack_transport_link -- says nothing about
+	//them, and loading it must leave the live arrangement alone. Engaged-and-empty is a set that
+	//means "no slots", and loading it clears them.
+	boost::optional<SetLinkAudioInfo> link_audio;
 	std::string meta = "{}";
 	std::string created_at;
 	std::string name;

@@ -40,8 +40,13 @@ class ProcessAudio {
 		//bridge. Called from the network poll, so an implementation must not touch the node tree.
 		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) { }
 
-		//the Link Audio slots currently configured, in display order, for saving into a set
-		virtual SetLinkAudioInfo linkAudioSetup() { return {}; }
+		//The Link Audio slots currently configured, in display order, for saving into a set.
+		//
+		//Disengaged means "no arrangement to record", which is not the same as an empty one: an
+		//implementation with no Link Audio at all, or one that has never reached
+		//jack_transport_link, must not have a set write down that there are no slots -- loading
+		//that set would then clear a perfectly good arrangement.
+		virtual boost::optional<SetLinkAudioInfo> linkAudioSetup() { return boost::none; }
 
 		//the Link Audio slots a set being loaded expects. Declarative: slots not named here go
 		//away. Not necessarily applied by the time this returns -- jack_transport_link may not be
