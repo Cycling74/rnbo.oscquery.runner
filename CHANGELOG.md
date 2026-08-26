@@ -1,54 +1,15 @@
 # RNBO Runner Changes
 
 * *1.4.5-10*
-    * thread thru link audio config from jack_transport_link
-    * **breaking** (relative to the unreleased Link Audio work above): Link Audio is now
-      configured as two explicit, ordered lists rather than stereo-pair counts. Under
-      `/rnbo/jack/link/audio`:
-        * `sources/add` (`[peer, channel]`), `sources/remove` (`[peer, channel]` or a bare
-          slot key), `sources/order` (list of slot keys)
-        * `sinks/add` (name), `sinks/remove` (name), `sinks/order` (list of slot keys)
-        * per-slot nodes live under a `list` container, named by the slot key
-          `jack_transport_link` publishes:
-          `sources/list/<key>/{peer,channel,connected,buffered_ms,dropouts,jitter_ms}` and
-          `sinks/list/<key>/name` (writing it renames the sink). The container exists so slot
-          keys and the command nodes above never share a namespace — a client walking the tree
-          can treat every child of `list` as a slot instead of having to tell a key apart from
-          `add`/`remove`/`order`, and the key format stays an implementation detail
-        * added `sources/list/<key>/receiving`: true while a source is actually rendering audio.
-          Connected-but-not-receiving means it is subscribed yet producing pure silence (usually
-          `latency_ms` too small to cover the network's arrival delay) — a state the dropout count
-          cannot report, since dropouts are only counted once playback has started
-        * added `sources/list/<key>/arrival_offset_ms`: measured delay between the live beat and
-          the beat the newest arrived buffer begins at. `latency_ms` must exceed it for a source
-          to play, so it's the number to check when a source needs an unexpectedly large buffer
-        * `sources/reset_dropouts` and `sources/list/<key>/reset_dropouts` (bang) zero the
-          cumulative dropout count — for every source, or just one — so it can be read as
-          "dropouts since I last changed a setting"
-        * removed: `sources/count`, `sinks/count`, and the per-slot `select`, `status` and
-          source `name` nodes
-    * nothing connects on its own any more — no "first available peer" and no substring
-      source filters. A source names an exact peer + channel.
-    * `jack-transport-link`'s JACK ports are now named from the slot identity
-      (`in_<key>_l`/`_r`, `out_<key>_l`/`_r`), so a slot can never inherit an unrelated
-      slot's saved connections. Note that renaming a sink changes its port names: connections
-      already stored in a saved set won't re-apply until the set is re-saved.
-    * existing `jack-transport-link` `config.json` sink/source settings are dropped; devices
-      come up with no sources or sinks, which is the new default
-    * **requires a newer `jack_transport_link`**: the Link Audio bridge is now carried over
-      UDP/OSC rather than JACK metadata, and the two sides have to match. The OSCQuery tree
-      under `/rnbo/jack/link/audio` is unchanged, so nothing above the runner is affected.
-        * JACK metadata is a disk-backed database whose every write notifies every connected
-          client, so the few-times-a-second receive telemetry was costing the runner a full
-          re-read — eight property reads plus three JSON parses — on the same thread that
-          services the audio graph, port updates and program changes, several times a second,
-          whenever Link Audio had any source configured. That is now zero when nothing changes.
-        * the runner finds `jack_transport_link` via its new `osc-port` metadata key, registers
-          as a state listener on the OSCQuery OSC port (1234), and re-registers periodically.
-          Either process can restart independently and the subtree repopulates on its own.
-        * `link/enabled` still travels over JACK metadata — it's a cheap, occasional toggle.
-    * fixed: `audio/sources/add` was pushing a slot with an empty key into the local cache,
-      which then tried to remove a child named `""` on the next sync
+    * thread thru link audio config from jack_transport_link, sets save their Link Audio arrangement,
+    * communicate to/from jack_transport_link with OSC
+    * fixed: a JACK port could come up carrying metadata left behind by the previous port at
+      that index. Port UUIDs are a function of the port index and the server's metadata
+      database only gets deleted on an orderly shutdown, so after a kill, a crash or a power
+      cut, the next port to land on that index read back the previous occupant's properties —
+      seen on a Move as `rnbo-record:in1`/`in2` coming up with a Link Audio send's slot key,
+      which made the runner panel treat the record sink as a Link Audio device. Each port's
+      properties are now cleared as it is registered, before we write our own.
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content
