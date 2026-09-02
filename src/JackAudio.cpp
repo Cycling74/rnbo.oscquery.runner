@@ -178,6 +178,8 @@ namespace {
 	const char * jtl_sinks_set_address = "/jacklink/audio/sinks/set";
 	const char * jtl_listeners_add_address = "/jacklink/listeners/add";
 	const char * jtl_listeners_del_address = "/jacklink/listeners/del";
+	//jtl is the sole time-signature authority; identity-based like the rest of the imperative surface
+	const char * jtl_timesig_address = "/jacklink/timesig";
 
 	//Every command we send is a handful of short strings; 4 KiB is plenty and an over-long payload
 	//is dropped with a complaint rather than silently truncated.
@@ -204,6 +206,33 @@ namespace {
 			for (auto& a: args)
 				p << a;
 		});
+	}
+
+	//ossia hands back whatever type the sender actually used -- the runner panel sends Int32, while
+	//a hand-rolled oscsend may well send a float -- and get<T>() is strict: asking an INT-typed
+	//value for a float throws. Read through the type instead of guessing it.
+	bool ossiaValueToDouble(const ossia::value& v, double& out) {
+		switch (v.get_type()) {
+			case ossia::val_type::INT:   out = static_cast<double>(v.get<int>());   return true;
+			case ossia::val_type::FLOAT: out = static_cast<double>(v.get<float>()); return true;
+			default: return false;
+		}
+	}
+
+	//jack_transport_link's accepted range for /jacklink/timesig: beats_per_bar is an integer 1..64,
+	//beat_type is an integer power of two 1..32. beats_per_bar counts notes of beat_type (so 6/8 is
+	//six eighth notes); out params are only written when the pair validates.
+	bool validJTLTimeSig(double numerator, double denominator, int32_t& beatsPerBar, int32_t& beatType) {
+		if (!(numerator >= 1.0 && numerator <= 64.0) || std::trunc(numerator) != numerator)
+			return false;
+		if (!(denominator >= 1.0 && denominator <= 32.0) || std::trunc(denominator) != denominator)
+			return false;
+		int32_t bt = static_cast<int32_t>(denominator);
+		if ((bt & (bt - 1)) != 0) //power of two
+			return false;
+		beatsPerBar = static_cast<int32_t>(numerator);
+		beatType = bt;
+		return true;
 	}
 
 	static int processJackProcess(jack_nframes_t nframes, void *arg) {
@@ -1164,6 +1193,45 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 			}
 		}
 
+		if (mTransportBarBeatParam){
+			jack_position_t jackPos;
+			jack_transport_query(mJackClient, &jackPos);
+			if (jackPos.valid & JackPositionBBT) {
+				if (jackPos.beat != mTransportBeatLast || jackPos.bar != mTransportBarLast) {
+					mTransportBarLast = jackPos.bar;
+					mTransportBeatLast = jackPos.beat;
+
+					std::vector<ossia::value> v = {
+						static_cast<int>(mTransportBarLast),
+						static_cast<int>(mTransportBeatLast)
+					};
+
+					mTransportBarBeatParam->push_value(v);
+				}
+			}
+		}
+
+		//jack_transport_link is the sole writer of time_sig; it pushes /jacklink/state/transport/timesig
+		//and handleLinkTransportOSC records it here for us to reconcile on the main thread
+		if (mTransportTimeSigParam && mTransportTimeSigNeedsSync.exchange(false)) {
+			TransportTimeSig sig;
+			{
+				std::lock_guard<std::mutex> guard(mTransportTimeSigMutex);
+				sig = mTransportTimeSigState;
+			}
+			if (sig.beatsPerBar != mTransportBeatsPerBarLast || sig.beatType != mTransportBeatTypeLast) {
+				mTransportBeatsPerBarLast = sig.beatsPerBar;
+				mTransportBeatTypeLast = sig.beatType;
+
+				std::vector<ossia::value> v = {
+					mTransportBeatsPerBarLast,
+					mTransportBeatTypeLast,
+				};
+
+				mTransportTimeSigParam->push_value(v);
+			}
+		}
+
 		{
 			std::pair<jack_port_id_t, JackPortChange> entry;
 			bool linkAudioPortRegistered = false;
@@ -1700,6 +1768,47 @@ bool ProcessAudioJack::createClient(bool startServer) {
 					}
 
 					{
+						auto n = transport->create_child("bar_beat");
+						auto p = mTransportBarBeatParam = n->create_parameter(ossia::val_type::LIST);
+						n->set(ossia::net::description_attribute{}, "position bar beat");
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+					}
+
+					{
+						auto n = transport->create_child("time_sig");
+						auto p = mTransportTimeSigParam = n->create_parameter(ossia::val_type::LIST);
+						n->set(ossia::net::description_attribute{}, "time signature");
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
+
+						p->add_callback([this](const ossia::value& val) {
+							if (val.get_type() != ossia::val_type::LIST)
+								return;
+							try {
+								auto l = val.get<std::vector<ossia::value>>();
+								if (l.size() != 2) {
+									std::cerr << "time signature expects 2 values, got " << l.size() << ", ignoring" << std::endl;
+									return;
+								}
+								double beats_per_bar = 0.0, beat_type = 0.0;
+								if (!ossiaValueToDouble(l[0], beats_per_bar) || !ossiaValueToDouble(l[1], beat_type)) {
+									std::cerr << "time signature values must be numeric, ignoring" << std::endl;
+									return;
+								}
+								int32_t beatsPerBar = 0, beatType = 0;
+								if (!validJTLTimeSig(beats_per_bar, beat_type, beatsPerBar, beatType)) {
+									std::cerr << "invalid time signature " << beats_per_bar << "/" << beat_type << ", ignoring" << std::endl;
+									return;
+								}
+								queueJTLTimeSig(beatsPerBar, beatType);
+							} catch (const std::exception& e) {
+								//never silently: swallowing this is exactly what hid the panel's Int32 args
+								//being read as floats, so a time signature change looked applied and went nowhere
+								std::cerr << "error handling time signature: " << e.what() << std::endl;
+							}
+						});
+					}
+
+					{
 						const std::string key("sync_transport");
 						//get from config
 						bool sync = jconfig_get<bool>(key).get_value_or(true);
@@ -1991,6 +2100,13 @@ void ProcessAudioJack::queueJTLCommand(std::string packet) {
 	mJTLPendingCommands.push_back(std::move(packet));
 }
 
+//caller is expected to have already validated beatsPerBar/beatType with validJTLTimeSig
+void ProcessAudioJack::queueJTLTimeSig(int32_t beatsPerBar, int32_t beatType) {
+	queueJTLCommand(jtlMessage(jtl_timesig_address, [beatsPerBar, beatType](oscpack::OutboundPacketStream& p) {
+		p << beatsPerBar << beatType;
+	}));
+}
+
 bool ProcessAudioJack::flushJTLCommands() {
 	std::vector<std::string> commands;
 	{
@@ -2112,6 +2228,33 @@ void ProcessAudioJack::handleLinkTransportOSC(const std::string& addr, const oss
 	//Runs on the thread that polls the network context, with the ossia context mutex held, so it
 	//must not touch the node tree -- reconcileLinkAudio*Slots create and remove nodes. Record the
 	//value and flag a sync; processEvents does the tree work on the main thread.
+	static const std::string timesig_addr("/jacklink/state/transport/timesig");
+	if (addr == timesig_addr) {
+		//jtl sends its two int args as a LIST, same shape as everything else with >1 arg
+		if (val.get_type() != ossia::val_type::LIST)
+			return;
+		auto l = val.get<std::vector<ossia::value>>();
+		if (l.size() != 2)
+			return;
+		auto asInt = [](const ossia::value& v, int32_t& out) {
+			switch (v.get_type()) {
+				case ossia::val_type::INT: out = v.get<int>(); return true;
+				case ossia::val_type::FLOAT: out = static_cast<int32_t>(v.get<float>()); return true;
+				default: return false;
+			}
+		};
+		int32_t beatsPerBar = 0, beatType = 0;
+		if (!asInt(l[0], beatsPerBar) || !asInt(l[1], beatType))
+			return;
+		{
+			std::lock_guard<std::mutex> guard(mTransportTimeSigMutex);
+			mTransportTimeSigState.beatsPerBar = beatsPerBar;
+			mTransportTimeSigState.beatType = beatType;
+		}
+		mTransportTimeSigNeedsSync.store(true);
+		return;
+	}
+
 	static const std::string prefix("/jacklink/state/audio/");
 	if (addr.size() <= prefix.size() || addr.compare(0, prefix.size(), prefix) != 0)
 		return;
@@ -3232,9 +3375,26 @@ void ProcessAudioJack::handleTransportBeatTime(double btime) {
 }
 
 void ProcessAudioJack::handleTransportTimeSig(double numerator, double denominator) {
-	reposition(mJackClient, [numerator, denominator](jack_position_t& pos) {
-			pos.beats_per_bar = static_cast<float>(numerator);
-			pos.beat_type = static_cast<float>(denominator);
+	int32_t beatsPerBar = 0, beatType = 0;
+	if (!validJTLTimeSig(numerator, denominator, beatsPerBar, beatType)) {
+		std::cerr << "invalid time signature " << numerator << "/" << denominator << " from patcher, ignoring" << std::endl;
+		return;
+	}
+
+	//jack_transport_link is the sole time-signature authority when it's present: route to it
+	//instead of repositioning JACK's transport directly. The direct reposition only worked by
+	//accident via a read-back jtl no longer does, and it forces a resync of Link and the MIDI clock
+	//on every call.
+	if (mJTLPort) {
+		queueJTLTimeSig(beatsPerBar, beatType);
+		return;
+	}
+
+	//no jtl endpoint known: fall back to the old direct-reposition behavior so time signature still
+	//works when jack_transport_link isn't running
+	reposition(mJackClient, [beatsPerBar, beatType](jack_position_t& pos) {
+			pos.beats_per_bar = static_cast<float>(beatsPerBar);
+			pos.beat_type = static_cast<float>(beatType);
 	});
 }
 
@@ -3845,7 +4005,11 @@ void InstanceAudioJack::process(jack_nframes_t nframes) {
 																																				 //beat and bar start a 1
 						double beatTime = static_cast<double>(jackPos.beat - 1) * 4.0 / jackPos.beat_type;
 						beatTime +=  static_cast<double>(jackPos.bar - 1)  * jackPos.beats_per_bar * 4.0 / jackPos.beat_type;
-						beatTime += static_cast<double>(jackPos.tick) / jackPos.ticks_per_beat;
+						//the tick fraction is a fraction of a beat_type note, so it needs the same
+						//4/beat_type factor as the beat and bar terms above to become quarter-note beat
+						//time. Without it, 6/8 advanced beat time at twice the right rate inside each
+						//beat and then jumped backwards at the beat boundary.
+						beatTime += static_cast<double>(jackPos.tick) / jackPos.ticks_per_beat * 4.0 / jackPos.beat_type;
 						mCore->scheduleEvent(RNBO::BeatTimeEvent(nowms, beatTime));
 					}
 				}

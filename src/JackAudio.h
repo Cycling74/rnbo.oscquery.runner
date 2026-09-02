@@ -94,6 +94,8 @@ class ProcessAudioJack : public ProcessAudio {
 		void updateJTLEndpoint(std::chrono::time_point<std::chrono::steady_clock> now);
 		//queue one encoded OSC command for jack_transport_link, from any thread
 		void queueJTLCommand(std::string packet);
+		//validate (via validJTLTimeSig) before calling; queues /jacklink/timesig
+		void queueJTLTimeSig(int32_t beatsPerBar, int32_t beatType);
 		//send the queued commands; returns true if anything went out. main thread only
 		bool flushJTLCommands();
 		//tell jack_transport_link to stop pushing state at us, and forget the endpoint
@@ -152,6 +154,27 @@ class ProcessAudioJack : public ProcessAudio {
 		ossia::net::parameter_base * mTransportRollingParam = nullptr;
 		std::atomic<bool> mTransportRollingLast = false;
 		std::atomic<bool> mTransportRollingUpdate = false; //from the process callback
+
+		ossia::net::parameter_base * mTransportBarBeatParam = nullptr;
+		int32_t mTransportBarLast = 0;
+		int32_t mTransportBeatLast = 0;
+
+		ossia::net::parameter_base * mTransportTimeSigParam = nullptr;
+		//last value pushed to mTransportTimeSigParam, main thread only
+		int32_t mTransportBeatsPerBarLast = 0;
+		int32_t mTransportBeatTypeLast = 0;
+
+		//time signature pushed by jack_transport_link (/jacklink/state/transport/timesig), which is
+		//the sole authority for it now. Written by handleLinkTransportOSC on the network-poll thread,
+		//reconciled onto mTransportTimeSigParam by processEvents on the main thread -- same split as
+		//mLinkAudioState below.
+		struct TransportTimeSig {
+			int32_t beatsPerBar = 4;
+			int32_t beatType = 4;
+		};
+		TransportTimeSig mTransportTimeSigState;
+		std::mutex mTransportTimeSigMutex;
+		std::atomic<bool> mTransportTimeSigNeedsSync = false;
 
 		//Link Audio bridge (proxies jack_transport_link's linkaudio/* metadata)
 		struct LinkAudioSourceSlot {
