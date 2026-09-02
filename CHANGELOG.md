@@ -11,6 +11,8 @@
       seen on a Move as `rnbo-record:in1`/`in2` coming up with a Link Audio send's slot key,
       which made the runner panel treat the record sink as a Link Audio device. Each port's
       properties are now cleared as it is registered, before we write our own.
+    * added support for getting/setting the transport time signature
+    * added indication of current transport bar and beat
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content
