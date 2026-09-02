@@ -147,6 +147,10 @@ namespace {
 	//recovery path for a lost register datagram), and how often to look for its port key when we
 	//have no endpoint at all
 	const auto jtl_register_period = std::chrono::seconds(5);
+	//How long a time-signature push keeps the capability alive. Three register periods: jtl
+	//republishes every ~2s and re-snapshots on every register, so several chances are missed
+	//before we call it gone.
+	const auto jtl_timesig_capability_timeout = std::chrono::milliseconds(15000);
 	const auto jtl_discover_period = std::chrono::seconds(1);
 
 	//How long we keep reasserting a set's Link Audio connections after loading it. Long enough to
@@ -1211,6 +1215,20 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 			}
 		}
 
+		//Publish the capability from the main thread, like every other node here. True while a
+		//jack_transport_link that implements the time signature is currently pushing it; see
+		//mTransportTimeSigSeenMs for why this is recency rather than a latch.
+		if (mTransportTimeSigAvailableParam) {
+			const int64_t seenMs = mTransportTimeSigSeenMs.load();
+			const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+					now.time_since_epoch()).count();
+			const bool avail = seenMs != 0 && (nowMs - seenMs) < jtl_timesig_capability_timeout.count();
+			if (avail != mTransportTimeSigAvailableLast) {
+				mTransportTimeSigAvailableLast = avail;
+				mTransportTimeSigAvailableParam->push_value(avail);
+			}
+		}
+
 		//jack_transport_link is the sole writer of time_sig; it pushes /jacklink/state/transport/timesig
 		//and handleLinkTransportOSC records it here for us to reconcile on the main thread
 		if (mTransportTimeSigParam && mTransportTimeSigNeedsSync.exchange(false)) {
@@ -1772,11 +1790,35 @@ bool ProcessAudioJack::createClient(bool startServer) {
 						auto p = mTransportBarBeatParam = n->create_parameter(ossia::val_type::LIST);
 						n->set(ossia::net::description_attribute{}, "position bar beat");
 						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+						//Reset the publish dedup cache alongside the node it guards. Deactivating removes
+						//this whole subtree and reactivating builds a fresh, valueless node, so a cache
+						//carried over from the previous session that happens to match the live position
+						//would suppress the first push and leave the new node empty for good. Zero is a
+						//safe sentinel: JACK's bar and beat are both 1-based.
+						mTransportBarLast = 0;
+						mTransportBeatLast = 0;
+					}
+
+					{
+						auto n = transport->create_child("time_sig_available");
+						n->set(ossia::net::description_attribute{},
+								"whether the running jack_transport_link supports setting the time signature");
+						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+						auto p = mTransportTimeSigAvailableParam = n->create_parameter(ossia::val_type::BOOL);
+						p->push_value(false);
+						//Match the dedup cache to the value just pushed, for the reason in the bar_beat
+						//block above: a stale `true` here would suppress the publication that the fresh
+						//false node needs, hiding a working control indefinitely.
+						mTransportTimeSigAvailableLast = false;
 					}
 
 					{
 						auto n = transport->create_child("time_sig");
 						auto p = mTransportTimeSigParam = n->create_parameter(ossia::val_type::LIST);
+						//Same reset as bar_beat above. Zero is a safe sentinel: a valid meter has a
+						//numerator of at least 1 and a power-of-two denominator.
+						mTransportBeatsPerBarLast = 0;
+						mTransportBeatTypeLast = 0;
 						n->set(ossia::net::description_attribute{}, "time signature");
 						n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 
@@ -2251,6 +2293,8 @@ void ProcessAudioJack::handleLinkTransportOSC(const std::string& addr, const oss
 			mTransportTimeSigState.beatsPerBar = beatsPerBar;
 			mTransportTimeSigState.beatType = beatType;
 		}
+		mTransportTimeSigSeenMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now().time_since_epoch()).count());
 		mTransportTimeSigNeedsSync.store(true);
 		return;
 	}

@@ -176,6 +176,29 @@ class ProcessAudioJack : public ProcessAudio {
 		std::mutex mTransportTimeSigMutex;
 		std::atomic<bool> mTransportTimeSigNeedsSync = false;
 
+		//Whether the jack_transport_link we are talking to understands the time signature at all.
+		//There is no capability handshake, but absence is a usable signal: only a jtl new enough to
+		//implement it ever sends /jacklink/state/transport/timesig, and we re-register as a listener
+		//every jtl_register_period with jtl snapshotting its whole state on each register -- so a
+		//capable jtl announces itself within seconds and an older one never does. Published as
+		//transport/time_sig_available so a client can hide the control instead of offering one that
+		//silently does nothing (mirrors jtl's own /jacklink/state/audio/available, which exists for
+		//exactly this "no key to be missing, nothing else to infer it from" reason).
+		ossia::net::parameter_base * mTransportTimeSigAvailableParam = nullptr;
+		//steady_clock ms at the last /jacklink/state/transport/timesig push, 0 for never. Written on
+		//the network-poll thread, read on the main thread.
+		//
+		//Liveness, deliberately not a latch. A latch cannot be made correct here: the push carries no
+		//process identity, so a final in-flight push from the outgoing jtl can always land after any
+		//reset we perform and be credited to its replacement -- which, if that replacement is older,
+		//leaves the capability stuck on and the panel offering a control whose writes the device
+		//silently drops. Keying the reset on the client uuid narrows that window but cannot close it.
+		//Recency needs no identity and self-corrects: a capable jtl republishes its state every ~2s
+		//and re-snapshots on every listeners/add (jtl_register_period), so it keeps this fresh, while
+		//an old one never sets it and a stale push only extends the window once before expiring.
+		std::atomic<int64_t> mTransportTimeSigSeenMs = 0;
+		bool mTransportTimeSigAvailableLast = false;
+
 		//Link Audio bridge (proxies jack_transport_link's linkaudio/* metadata)
 		struct LinkAudioSourceSlot {
 			std::string key;
