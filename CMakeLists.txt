@@ -264,7 +264,7 @@ conan_cmake_install(
 )
 
 conan_cmake_configure(
-	REQUIRES boost/1.80.0
+	REQUIRES boost/1.86.0
 	GENERATORS cmake_find_package
 	OPTIONS
 		boost:shared=False
@@ -285,7 +285,7 @@ conan_cmake_install(
 )
 
 find_package(
-	Boost 1.80.0
+	Boost 1.86.0
 	COMPONENTS filesystem system
 	REQUIRED
 )
