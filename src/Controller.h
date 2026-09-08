@@ -22,7 +22,7 @@
 namespace ossia {
 	namespace net {
 		class multiplex_protocol;
-		class network_context;
+		struct network_context;
 	}
 }
 
