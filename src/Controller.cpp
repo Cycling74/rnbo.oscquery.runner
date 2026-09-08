@@ -31,7 +31,7 @@
 #include <ossia/protocols/oscquery/oscquery_server_asio.hpp>
 #include <ossia/protocols/osc/osc_factory.hpp>
 
-#include <ossia/network/context.hpp>
+#include <ossia/network/context_functions.hpp>
 #include <ossia/network/local/local.hpp>
 #include <ossia/network/base/parameter_data.hpp>
 #include <ossia/network/generic/generic_device.hpp>
