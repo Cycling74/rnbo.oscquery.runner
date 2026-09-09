@@ -25,13 +25,16 @@ import subprocess
 import sys
 import tempfile
 
-# (build dir, toolchain, deb arch, SUPPORT_COMPILE)
+# (build dir, toolchain/profile name, deb arch, SUPPORT_COMPILE)
 # these mirror .github/workflows/build.yml and have to: package ids follow the
 # settings and options, so anything built with different ones produces an id the
 # CI build will not match, and it will rebuild from source anyway.
+# the toolchain file and the conan profile deliberately share a name.
+# dedicated build dirs, so this never inherits a stale CMakeCache.txt from a
+# build-rpi32/64 configured by hand.
 TARGETS = [
-    ("build-rpi32", "armv7-unknown-linux-gnueabihf-gcc12.cmake", "armhf", "On"),
-    ("build-rpi64", "aarch64-unknown-linux-gcc11_4.cmake", "arm64", "Off"),
+    ("build-deps-rpi32", "armv7-unknown-linux-gnueabihf-gcc12", "armhf", "On"),
+    ("build-deps-rpi64", "aarch64-unknown-linux-gcc11_4", "arm64", "Off"),
 ]
 TOOLCHAIN_DIR = "/home/build/cmake/toolchains"
 # the 32-bit profile declares armv7hf, not armv7. armv7 is here too because
@@ -48,7 +51,7 @@ def build(rnbo_version, rnbo_tag):
     """Configure both targets. Every conan install happens at cmake configure
     time, so the runner itself never needs to compile to fill the cache."""
     root = repo_root()
-    for directory, toolchain, arch, support_compile in TARGETS:
+    for directory, profile, arch, support_compile in TARGETS:
         path = os.path.join(root, directory)
         print("\n=== configuring %s (%s)\n" % (directory, arch), flush=True)
         os.makedirs(path, exist_ok=True)
@@ -58,7 +61,10 @@ def build(rnbo_version, rnbo_tag):
             "-DRNBO_CONAN_TAG=%s" % rnbo_tag,
             "-DCMAKE_BUILD_TYPE=Release",
             "-DSUPPORT_COMPILE=%s" % support_compile,
-            "-DCMAKE_TOOLCHAIN_FILE=%s/%s" % (TOOLCHAIN_DIR, toolchain),
+            "-DCMAKE_TOOLCHAIN_FILE=%s/%s.cmake" % (TOOLCHAIN_DIR, profile),
+            # passed explicitly rather than left to the toolchain, which sets it
+            # with set(... CACHE ...) and so cannot override a stale cache entry
+            "-DCONAN_PROFILE=%s" % profile,
             "-DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=%s" % arch,
             root,
         ]
