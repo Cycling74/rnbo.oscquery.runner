@@ -162,14 +162,15 @@ cmake \
 
 CI builds every conan dependency from source on each run, because most of them
 have no binaries on `cycling-public` for our arm configurations. Pushing those
-binaries once makes later builds download them instead. Three steps: build,
-identify, upload.
+binaries once makes later builds download them instead.
 
-### 1. Build
+`docker/rpi-deps.py` does the whole thing: it configures both rpi targets, lists
+the `Release` `armv7`/`armv8` packages that came out, and prints the upload
+command for each one the remote does not have. It uploads nothing itself.
 
 Start the container with the repo mounted and a *persistent* conan home, so the
-cache survives the container. `docker/conan` is already gitignored apart from
-`profiles/`:
+cache survives the container. `docker/conan` already holds the profiles and is
+gitignored apart from `profiles/`:
 
 ```shell
 docker run -it \
@@ -177,53 +178,50 @@ docker run -it \
     -v $(pwd):/build \
     -v $(pwd)/docker/conan:/home/build/.conan \
     xnor/rnbo-runner-xpile:0.3 \
-    /build/docker/build-rpi-deps.sh 1.4.5
+    /build/docker/rpi-deps.py 1.4.5
 ```
 
-That configures both rpi targets with the same flags CI uses and leaves the
-resulting packages in the cache. It only configures: every conan install happens
-at cmake configure time, so the runner itself never has to compile.
+Pass the rnbo version you are building against; add the conan tag as a second
+argument if it is not `c74/stable`. It only configures, because every conan
+install happens at cmake configure time, so the runner itself never has to
+compile for the cache to fill.
 
-The flags have to match CI exactly. Package ids are derived from settings and
-options, so a dependency built with different ones produces an id CI will not
-match, and it will rebuild from source anyway.
+The output ends with something like:
 
-### 2. Identify
+```
+=== packages for os=Linux arch=armv7|armv8 build_type=Release
 
-From a shell in the same container, with the same mounts:
+  boost/1.86.0        armv8  gcc/11.4   MISSING
+  zlib/1.3            armv8  gcc/11.4   on cycling-public
 
-```shell
-/build/docker/conan-upload-plan.py
+=== 1 to upload. authenticate, then run these:
+
+conan user <your-username> -r cycling-public -p
+
+conan upload 'boost/1.86.0@:8df48fb6...' -r cycling-public --check -c
 ```
 
-It lists every `Release` package in the cache for `armv7` and `armv8`, checks
-each against the remote, and prints the upload command for the ones missing.
-It uploads nothing. Useful flags: `--arch armv8` for one target, `--remote`,
-`--ref` to limit to a package, `--os`/`--build-type` for other configurations.
+Run those in the same container. `-p` with no value prompts for the password
+rather than leaving it in your shell history, and `--skip-upload` on any upload
+rehearses it: the checks and compression run, nothing is sent. Push a small
+package first to confirm you have write permission before the big ones.
 
-### 3. Upload
-
-Authenticate, then run the commands it printed:
-
-```shell
-conan user -r cycling-public -p "$C74_CONAN_PASSWORD" "$C74_CONAN_USER"
-conan upload 'boost/1.86.0@:8df48fb69d6cf4f688675634989c1f9b04d6bad7' -r cycling-public --check -c
-```
-
-Add `--skip-upload` to any of them to rehearse: it runs the checks and the
-compression but sends nothing.
+Afterwards re-run with `--no-build` to confirm the uploads landed; anything that
+worked flips from `MISSING` to `on cycling-public`. Other flags: `--arch armv8`
+for a single target, plus `--remote`, `--ref`, `--os` and `--build-type`.
 
 ### Things worth knowing
+
+The flags the script passes mirror `.github/workflows/build.yml`, and they have
+to. Package ids follow settings and options, so a dependency built with
+different ones produces an id CI will not match, and it rebuilds from source
+anyway. The same applies over time: a compiler bump in this image gives every
+package a new id, and they all need building and pushing again.
 
 Uploading a package uploads its recipe too if the remote does not have it, and
 that has a consequence. Conan 1.x binds a recipe to the remote it came from and
 then looks for binaries **only there**. Once `boost/1.86.0` exists on
 `cycling-public`, every build resolves the recipe from there rather than
-conancenter, so any configuration whose binary is *not* on `cycling-public`
-gets built from source instead of downloaded from conancenter. If you push the
-arm binaries, consider pushing the ones for the machines you develop on too.
-
-A package only helps if its id matches what the consumer asks for. Anything that
-changes a dependency's settings or options -- a compiler version bump in the
-image, a changed option in `CMakeLists.txt` -- produces a new id, and that
-package needs building and pushing again.
+conancenter, so any configuration whose binary is *not* on `cycling-public` gets
+built from source instead of downloaded from conancenter. If you push the arm
+binaries, consider pushing the ones for the machines you develop on too.
