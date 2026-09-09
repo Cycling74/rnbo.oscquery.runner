@@ -291,7 +291,7 @@ find_package(
 )
 
 conan_cmake_configure(
-	REQUIRES libossia/xnor_conan-2.0.0-rc2-osc_to_ws_433b3dc5e819d9c35d36@c74/testing
+	REQUIRES libossia/xnor_remove-websocketpp-with-conan_11e39af4e0cf80eb@c74/testing
 	GENERATORS cmake_find_package
 	OPTIONS libossia:shared=False
 )
@@ -443,6 +443,12 @@ if (LINUX)
 		-latomic
 		-lpthread
 		-ldl
+	)
+endif()
+if (APPLE)
+	#abseil's cctz (pulled in via libossia) calls CFTimeZone* for local_time_zone()
+	target_link_libraries(${PROJECT_APP}
+		"-framework CoreFoundation"
 	)
 endif()
 if (WITH_DBUS)
