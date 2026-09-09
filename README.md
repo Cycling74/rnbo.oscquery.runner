@@ -155,6 +155,76 @@ Here is an example of that file content:
 The saves file only supports 1 instance at the time of this writing but eventually might support more.
 If you edit this file you can change values for dataref mappings, presets and also identify which `so` to load on restart.
 
+## Releasing
+
+Pushing a tag to this repo builds the armhf and arm64 `.deb` packages and
+attaches them to a GitHub release. The tag is the only input, so its shape
+matters:
+
+```
+v<rnbo-version>-<runner-version>[-<prerelease>]
+```
+
+| part | example | what it drives |
+| --- | --- | --- |
+| `rnbo-version` | `1.4.5` | which RNBO C++ library to build against: `rnbo/<rnbo-version>@<channel>` |
+| `runner-version` | `11` | this repo's own release counter, independent of the RNBO version |
+| `prerelease` | `beta1` | optional. marks a **runner** beta. must start with a letter |
+
+Examples:
+
+| tag | builds against | published as |
+| --- | --- | --- |
+| `v1.4.5-11` | `rnbo/1.4.5@c74/stable` | release |
+| `v1.4.5-11-beta1` | `rnbo/1.4.5@c74/stable` | pre-release |
+| `v1.5.0-stb-resampling.2-3` | `rnbo/1.5.0-stb-resampling.2@c74/testing` | pre-release |
+
+There are two independent "beta" notions and the tag keeps them apart. A
+*runner* beta is the trailing `-<prerelease>` and means this repo's build is not
+final. An *RNBO* beta is an `rnbo-version` that is not a plain `x.y.z`; those
+live in the `c74/testing` channel on the private conan remote rather than
+`c74/stable` on cycling-public, and the workflow selects the channel from the
+version's shape. Either one makes the GitHub release a pre-release and lands the
+`.deb` in the beta apt repo.
+
+`RUNNER_VERSION` and `RUNNER_PRERELEASE` come from the tag, so releasing does not
+require editing `CMakeLists.txt`. The values there are only defaults for local
+builds.
+
+### Version spellings
+
+The tag and the `.deb` file name use `-` before the prerelease, but the version
+recorded *inside* the package uses `~`:
+
+| | value |
+| --- | --- |
+| tag | `v1.4.5-11-beta1` |
+| file | `rnbooscquery_1.4.5-11-beta1_armhf.deb` |
+| deb version | `1.4.5-11~beta1` |
+
+These differ on purpose. `dpkg` sorts `~` before everything, including the empty
+string, so `1.4.5-11~beta1` upgrades cleanly to `1.4.5-11` — with a plain `-` it
+would sort *above* the final release and beta testers would never move off it.
+Git refnames cannot contain `~`, so the tag cannot use that spelling.
+
+### Publishing
+
+The `rnbo-runner-publish` workflow in `rnbo-build-runner` takes the tag without
+its leading `v` as `release-version` (e.g. `1.4.5-11-beta1`), downloads the
+matching assets, and picks the apt repo: anything that is not exactly
+`x.y.z-<digits>` goes to the `-beta` repos.
+
+### Gotchas
+
+- The tag is validated before anything builds; a malformed one fails the `parse`
+  job with a message instead of dying minutes later inside cmake.
+- The `rnbo-version` part must name a package that actually exists. A typo such
+  as `v1.4.5-oops-10` parses as the RNBO prerelease `1.4.5-oops` and fails at
+  conan, since a typo and a real prerelease are indistinguishable by shape.
+- Building against an RNBO prerelease needs the private conan remote, which the
+  workflow configures from the `C74_CONAN_REMOTE_URL`, `C74_CONAN_USER` and
+  `C74_CONAN_PASSWORD` secrets.
+
 ## Running
 
 If you haven't run jack before you probably want to set it up with `qjackctl`, you can leave that running while running the runner.
