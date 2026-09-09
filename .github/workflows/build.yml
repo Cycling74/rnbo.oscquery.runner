@@ -6,8 +6,59 @@ on:
       - 'v*-[0-9]*'
 
 jobs:
+  parse:
+    runs-on: ubuntu-latest
+    outputs:
+      rnbo_version: ${{ steps.parse.outputs.rnbo_version }}
+      rnbo_conan_tag: ${{ steps.parse.outputs.rnbo_conan_tag }}
+      runner_version: ${{ steps.parse.outputs.runner_version }}
+      runner_prerelease: ${{ steps.parse.outputs.runner_prerelease }}
+      is_prerelease: ${{ steps.parse.outputs.is_prerelease }}
+    steps:
+      - name: Parse tag
+        id: parse
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          V="${TAG#v}"
+          # v<rnbo-version>-<runner-version>[-<prerelease>]
+          #   v1.4.5-11               release
+          #   v1.4.5-11-beta1         runner beta, built against released rnbo
+          #   v1.5.0-stb-foo.2-3      built against an rnbo prerelease
+          if [[ ! "$V" =~ ^(.+)-([0-9]+)(-([A-Za-z][A-Za-z0-9.]*))?$ ]]; then
+            echo "::error::tag '$TAG' must look like v<rnbo-version>-<runner-version>[-<prerelease>], for example v1.4.5-11 or v1.4.5-11-beta1"
+            exit 1
+          fi
+          RNBO_VERSION="${BASH_REMATCH[1]}"
+          RUNNER_VERSION="${BASH_REMATCH[2]}"
+          RUNNER_PRERELEASE="${BASH_REMATCH[4]:-}"
+          # a plain x.y.z rnbo version is released and lives in c74/stable on
+          # cycling-public. anything else is an rnbo prerelease in c74/testing,
+          # which lives on the private remote.
+          if [[ "$RNBO_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            RNBO_CONAN_TAG="c74/stable"
+          else
+            RNBO_CONAN_TAG="c74/testing"
+          fi
+          # either axis makes this a prerelease: a runner beta, or a beta rnbo
+          if [ -n "$RUNNER_PRERELEASE" ] || [ "$RNBO_CONAN_TAG" != "c74/stable" ]; then
+            IS_PRERELEASE=true
+          else
+            IS_PRERELEASE=false
+          fi
+          {
+            echo "rnbo_version=$RNBO_VERSION"
+            echo "rnbo_conan_tag=$RNBO_CONAN_TAG"
+            echo "runner_version=$RUNNER_VERSION"
+            echo "runner_prerelease=$RUNNER_PRERELEASE"
+            echo "is_prerelease=$IS_PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::rnbo ${RNBO_VERSION}@${RNBO_CONAN_TAG}, runner ${RUNNER_VERSION}${RUNNER_PRERELEASE:+-${RUNNER_PRERELEASE}}, prerelease=${IS_PRERELEASE}"
+
   build-rpi32:
     runs-on: ubuntu-latest
+    needs: parse
     container:
       image: xnor/rnbo-runner-xpile:0.2
       options: --user root
@@ -15,12 +66,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Parse tag
-        id: parse
+      - name: Add private conan remote
+        if: needs.parse.outputs.rnbo_conan_tag != 'c74/stable'
         run: |
-          TAG="${{ github.ref_name }}"
-          RNBO_VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-[0-9]*$//')
-          echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
+          su - build -s /bin/bash -c "
+            set -e
+            export CONAN_NON_INTERACTIVE=1
+            conan remote add -f cycling-private '${{ secrets.C74_CONAN_REMOTE_URL }}'
+            conan user -r cycling-private -p '${{ secrets.C74_CONAN_PASSWORD }}' '${{ secrets.C74_CONAN_USER }}'
+          "
       - name: Build rpi32
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
@@ -30,8 +84,10 @@ jobs:
             mkdir -p build-rpi32
             cd build-rpi32
             cmake \
-              -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' \
-              -DRNBO_CONAN_TAG=c74/stable \
+              -DRNBO_CONAN_VERSION='${{ needs.parse.outputs.rnbo_version }}' \
+              -DRNBO_CONAN_TAG='${{ needs.parse.outputs.rnbo_conan_tag }}' \
+              -DRUNNER_VERSION='${{ needs.parse.outputs.runner_version }}' \
+              -DRUNNER_PRERELEASE='${{ needs.parse.outputs.runner_prerelease }}' \
               -DCMAKE_BUILD_TYPE=Release \
               -DSUPPORT_COMPILE=On \
               -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc12.cmake \
@@ -48,6 +104,7 @@ jobs:
 
   build-rpi64:
     runs-on: ubuntu-latest
+    needs: parse
     container:
       image: xnor/rnbo-runner-xpile:0.2
       options: --user root
@@ -55,12 +112,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Parse tag
-        id: parse
+      - name: Add private conan remote
+        if: needs.parse.outputs.rnbo_conan_tag != 'c74/stable'
         run: |
-          TAG="${{ github.ref_name }}"
-          RNBO_VERSION=$(echo "$TAG" | sed 's/^v//' | sed 's/-[0-9]*$//')
-          echo "rnbo_version=$RNBO_VERSION" >> $GITHUB_OUTPUT
+          su - build -s /bin/bash -c "
+            set -e
+            export CONAN_NON_INTERACTIVE=1
+            conan remote add -f cycling-private '${{ secrets.C74_CONAN_REMOTE_URL }}'
+            conan user -r cycling-private -p '${{ secrets.C74_CONAN_PASSWORD }}' '${{ secrets.C74_CONAN_USER }}'
+          "
       - name: Build rpi64
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
@@ -70,8 +130,10 @@ jobs:
             mkdir -p build-rpi64
             cd build-rpi64
             cmake \
-              -DRNBO_CONAN_VERSION='${{ steps.parse.outputs.rnbo_version }}' \
-              -DRNBO_CONAN_TAG=c74/stable \
+              -DRNBO_CONAN_VERSION='${{ needs.parse.outputs.rnbo_version }}' \
+              -DRNBO_CONAN_TAG='${{ needs.parse.outputs.rnbo_conan_tag }}' \
+              -DRUNNER_VERSION='${{ needs.parse.outputs.runner_version }}' \
+              -DRUNNER_PRERELEASE='${{ needs.parse.outputs.runner_prerelease }}' \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
               -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
@@ -88,7 +150,7 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [build-rpi32, build-rpi64]
+    needs: [parse, build-rpi32, build-rpi64]
     permissions:
       contents: write
     steps:
@@ -102,3 +164,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: debs/*.deb
+          prerelease: ${{ needs.parse.outputs.is_prerelease == 'true' }}

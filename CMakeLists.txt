@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbooscquery LANGUAGES CXX C)
-set(RUNNER_VERSION 10) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
+set(RUNNER_VERSION 10 CACHE STRING "monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number")
+set(RUNNER_PRERELEASE "" CACHE STRING "pre-release marker for a runner beta, e.g. beta1. empty for a real release")
 
 set(PROJECT_APP "rnbooscquery")
 
@@ -98,6 +99,9 @@ endif()
 
 if (INCLUDE_RUNNER_VERSION)
 	set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_VERSION}")
+	if (RUNNER_PRERELEASE)
+		set(PROJECT_VERSION "${PROJECT_VERSION}-${RUNNER_PRERELEASE}")
+	endif()
 else()
 	set(PROJECT_VERSION "${RNBO_VERSION}")
 endif()
@@ -527,10 +531,18 @@ if (LINUX)
 		SET(CPACK_PACKAGE_VERSION_MINOR "${RNBO_VERSION_MINOR}")
 		SET(CPACK_PACKAGE_VERSION_PATCH "${RNBO_VERSION_PATCH}")
 
-		#rnbo version might have a 'prerelease' or 'channel' version in it
-		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
+		#rnbo version might have a 'prerelease' or 'channel' version in it.
+		#dpkg sorts '~' before everything including the empty string, so a prerelease
+		#has to spell as 1.5.0~beta-1 to stay below the 1.5.0 release. git refs cannot
+		#contain '~', so the tag and the .deb file name keep the '-' spelling instead
+		#(PROJECT_VERSION) and only the version recorded inside the package uses '~'.
+		string(REGEX REPLACE "^([0-9]+\\.[0-9]+\\.[0-9]+)-" "\\1~" CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
 		if (INCLUDE_RUNNER_VERSION)
-			SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
+			if (RUNNER_PRERELEASE)
+				SET(CPACK_DEBIAN_PACKAGE_RELEASE "${RUNNER_VERSION}~${RUNNER_PRERELEASE}")
+			else()
+				SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
+			endif()
 		endif()
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
@@ -546,12 +558,9 @@ if (LINUX)
 				)
 		endif()
 
-		if (INCLUDE_RUNNER_VERSION)
-			SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
-		else()
-			SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
-		endif()
-		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${CPACK_DEBIAN_PACKAGE_VERSION}")
+		#PROJECT_VERSION is the git-tag spelling: <rnbo>-<runner>[-<prerelease>]
+		SET(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${PROJECT_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+		SET(CPACK_SOURCE_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}_${RNBO_VERSION}")
 
 		SET(CPACK_DEBIAN_PACKAGE_DEPENDS "libjack-jackd2-0 (>= 1.9.10+20150825) | libjack-0.125, libc6 (>= 2.28), libavahi-compat-libdnssd1 (>= 0.7), libsystemd0, libavahi-client-dev, libsndfile1 (>= 1.2.0)")
 
