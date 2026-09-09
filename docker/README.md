@@ -5,13 +5,13 @@ Here we build for Linux aarch64 (64-bit rpi+) and armv7 gnueabihf (32-bit rpi+)
 ## Build docker image
 
 ```shell
-docker build --platform=linux/amd64 -t xnor/rnbo-runner-xpile:0.2 .
+docker build --platform=linux/amd64 -t xnor/rnbo-runner-xpile:0.3 .
 ```
 
 Share to docker hub
 
 ```shell
-docker push xnor/rnbo-runner-xpile:0.2
+docker push xnor/rnbo-runner-xpile:0.3
 ```
 
 ## Using docker image
@@ -19,7 +19,7 @@ docker push xnor/rnbo-runner-xpile:0.2
 If you haven't pulled or built locally
 
 ```shell
-docker pull xnor/rnbo-runner-xpile:0.2
+docker pull xnor/rnbo-runner-xpile:0.3
 ```
 
 ### RNBO Runner
@@ -35,7 +35,7 @@ docker run -it \
     -v $(pwd):/build \
     -v ~/dev/rnbo.core/src/cpp/:/rnbo \
     -v $(pwd)/docker/conan:/home/build/.conan \
-    xnor/rnbo-runner-xpile:0.2 bash
+    xnor/rnbo-runner-xpile:0.3 bash
 ```
 
 64-bit rpi
@@ -116,7 +116,7 @@ jack transport link
 docker run -it \
     --platform linux/amd64 \
     -v $(pwd):/build \
-    xnor/rnbo-runner-xpile:0.2 bash
+    xnor/rnbo-runner-xpile:0.3 bash
 ```
 
 64-bit rpi

@@ -23,7 +23,7 @@ RUN apt-get update && \
     gcc-12-aarch64-linux-gnu g++-12-aarch64-linux-gnu \
     gcc-11-arm-linux-gnueabihf g++-11-arm-linux-gnueabihf binutils-arm-linux-gnueabihf \
     gcc-12-arm-linux-gnueabihf g++-12-arm-linux-gnueabihf \
-    build-essential cmake \
+    build-essential \
     python3 python3-pip python3-setuptools \
     libdbus-1-dev:arm64 libdbus-1-dev:armhf \
     libsystemd-dev:arm64 libsystemd-dev:armhf \
@@ -41,6 +41,22 @@ RUN apt-get update && \
     libstdc++-12-dev:arm64 libstdc++-12-dev:armhf \
     libgcc-12-dev-arm64-cross libgcc-12-dev-armhf-cross \
     && rm -rf /var/lib/apt/lists/*
+
+# ubuntu jammy ships cmake 3.22, but libossia requires >= 3.25
+# (cmake_minimum_required(VERSION 3.25...3.31) in its CMakeLists.txt) and CI
+# builds libossia from source, so apt's cmake is too old. 3.28.1 is what the
+# Move builder image carries and is known to configure this libossia.
+# Deliberately staying on 3.x: cmake 4 drops support for
+# cmake_minimum_required(VERSION <3.5), which older conan recipes still declare.
+# This image is only ever built --platform=linux/amd64, hence the x86_64 tarball.
+ARG CMAKE_VERSION=3.28.1
+ARG CMAKE_SHA256=f76398c24362ad87bad1a3d6f1e8f4377632b5b1c360c4ba1fd7cd205fd9d8d4
+RUN curl -fsSL -o /tmp/cmake.tar.gz \
+      "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz" && \
+    echo "${CMAKE_SHA256}  /tmp/cmake.tar.gz" | sha256sum -c - && \
+    tar -xzf /tmp/cmake.tar.gz -C /usr/local --strip-components=1 && \
+    rm /tmp/cmake.tar.gz && \
+    cmake --version
 
 # Install rust system-wide
 ENV RUSTUP_HOME=/usr/local/rustup
