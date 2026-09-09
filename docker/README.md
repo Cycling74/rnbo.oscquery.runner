@@ -165,8 +165,13 @@ have no binaries on `cycling-public` for our arm configurations. Pushing those
 binaries once makes later builds download them instead.
 
 `docker/rpi-deps.py` does the whole thing: it configures both rpi targets, lists
-the `Release` `armv7`/`armv8` packages that came out, and prints the upload
-command for each one the remote does not have. It uploads nothing itself.
+the `Release` arm packages that came out, and prints the upload command for each
+one the remote does not have. It uploads nothing itself.
+
+Both targets are covered in one pass. Note the 32-bit profile declares
+`arch=armv7hf` while some packages already on `cycling-public` were built with
+an older profile that used `armv7`, so the default filter accepts `armv7`,
+`armv7hf` and `armv8`.
 
 Start the container with the repo mounted and a *persistent* conan home, so the
 cache survives the container. `docker/conan` already holds the profiles and is
@@ -205,6 +210,10 @@ Run those in the same container. `-p` with no value prompts for the password
 rather than leaving it in your shell history, and `--skip-upload` on any upload
 rehearses it: the checks and compression run, nothing is sent. Push a small
 package first to confirm you have write permission before the big ones.
+
+Each command uploads the recipe as well as the binary, so a package the remote
+has never seen arrives complete. Two commands for the same package (one per
+arch) re-check the recipe on the second run, which is harmless.
 
 Afterwards re-run with `--no-build` to confirm the uploads landed; anything that
 worked flips from `MISSING` to `on cycling-public`. Other flags: `--arch armv8`

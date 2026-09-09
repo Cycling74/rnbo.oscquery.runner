@@ -34,7 +34,10 @@ TARGETS = [
     ("build-rpi64", "aarch64-unknown-linux-gcc11_4.cmake", "arm64", "Off"),
 ]
 TOOLCHAIN_DIR = "/home/build/cmake/toolchains"
-DEFAULT_ARCHS = ["armv7", "armv8"]
+# the 32-bit profile declares armv7hf, not armv7. armv7 is here too because
+# older packages already on cycling-public were built with a profile that used
+# it, so both spellings show up in a populated cache.
+DEFAULT_ARCHS = ["armv7", "armv7hf", "armv8"]
 
 
 def repo_root():
