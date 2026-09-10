@@ -37,6 +37,10 @@ TARGETS = [
     ("build-deps-rpi64", "aarch64-unknown-linux-gcc11_4", "arm64", "Off"),
 ]
 TOOLCHAIN_DIR = "/home/build/cmake/toolchains"
+# half the cores, matching the convention used elsewhere. conan otherwise hands
+# every dependency build every core it can see, and libossia alone is enough to
+# wedge the machine. override with RPI_DEPS_JOBS.
+DEFAULT_JOBS = max(1, (os.cpu_count() or 2) // 2)
 # the 32-bit profile declares armv7hf, not armv7. armv7 is here too because
 # older packages already on cycling-public were built with a profile that used
 # it, so both spellings show up in a populated cache.
@@ -47,9 +51,30 @@ def repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def build(rnbo_version, rnbo_tag):
+def cap_parallelism(jobs):
+    """Conan 1 style recipes (libossia) read tools.cpu_count(), which honours
+    CONAN_CPU_COUNT. Conan 2 style recipes (boost) read
+    conan.tools.build.build_jobs(), which ignores it and falls back to every
+    core on the machine, so that one needs the conf entry. Set both."""
+    os.environ["CONAN_CPU_COUNT"] = str(jobs)
+    home = os.path.join(os.environ.get("CONAN_USER_HOME", os.path.expanduser("~")),
+                        ".conan")
+    conf = os.path.join(home, "global.conf")
+    try:
+        existing = open(conf).read() if os.path.exists(conf) else ""
+        if "tools.build:jobs" not in existing:
+            with open(conf, "a") as handle:
+                handle.write("tools.build:jobs=%d\n" % jobs)
+            print("capped dependency builds at %d jobs (%s)" % (jobs, conf))
+    except OSError as err:
+        print("warning: could not write %s (%s); conan 2 style recipes such as "
+              "boost may still build with every core" % (conf, err), file=sys.stderr)
+
+
+def build(rnbo_version, rnbo_tag, jobs):
     """Configure both targets. Every conan install happens at cmake configure
     time, so the runner itself never needs to compile to fill the cache."""
+    cap_parallelism(jobs)
     root = repo_root()
     for directory, profile, arch, support_compile in TARGETS:
         path = os.path.join(root, directory)
@@ -159,6 +184,10 @@ def main():
     parser.add_argument("rnbo_version", nargs="?",
                         help="rnbo version to build against, eg 1.4.5")
     parser.add_argument("rnbo_tag", nargs="?", default="c74/stable")
+    parser.add_argument("-j", "--jobs", type=int,
+                        default=int(os.environ.get("RPI_DEPS_JOBS") or DEFAULT_JOBS),
+                        help="parallel jobs for dependency builds (default: %d)"
+                             % DEFAULT_JOBS)
     parser.add_argument("--no-build", action="store_true",
                         help="skip the build, just list and print commands")
     parser.add_argument("--remote", default="cycling-public")
@@ -173,7 +202,7 @@ def main():
     if not args.no_build:
         if not args.rnbo_version:
             parser.error("rnbo_version is required unless --no-build is given")
-        if not build(args.rnbo_version, args.rnbo_tag):
+        if not build(args.rnbo_version, args.rnbo_tag, args.jobs):
             return 1
     return plan(args)
 
