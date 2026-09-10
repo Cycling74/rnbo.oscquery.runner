@@ -135,6 +135,59 @@ def cache_refs():
             and not line.startswith(("There are", "Existing"))]
 
 
+def auth_state(remote):
+    """(user_name, authenticated) for a remote, (None, False) when unknown."""
+    fd, path = tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    try:
+        subprocess.run(["conan", "user", "-r", remote, "--json", path],
+                       capture_output=True, text=True)
+        with open(path) as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None, False
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+    for entry in data.get("remotes") or []:
+        if entry.get("name") == remote:
+            return entry.get("user_name"), bool(entry.get("authenticated"))
+    return None, False
+
+
+def run_uploads(missing, remote, dry_run):
+    user, authed = auth_state(remote)
+    if not user:
+        print("\nno user set for %s. authenticate first:\n"
+              "  conan user <your-username> -r %s -p" % (remote, remote),
+              file=sys.stderr)
+        return 1
+    if not authed:
+        print("\nnote: %s has user '%s' but no verified token; continuing anyway"
+              % (remote, user))
+
+    print("\n=== uploading %d package(s) to %s as '%s'%s\n"
+          % (len(missing), remote, user, " (dry run)" if dry_run else ""))
+    for index, (query, pid) in enumerate(missing, 1):
+        cmd = ["conan", "upload", "%s:%s" % (query, pid),
+               "-r", remote, "--check", "-c"]
+        if dry_run:
+            cmd.append("--skip-upload")
+        print("[%d/%d] %s" % (index, len(missing), " ".join(cmd)), flush=True)
+        if subprocess.run(cmd).returncode != 0:
+            print("\nupload failed, stopping with %d of %d done. if this is an "
+                  "authentication or permission problem:\n"
+                  "  conan user <your-username> -r %s -p"
+                  % (index - 1, len(missing), remote), file=sys.stderr)
+            return 1
+    if dry_run:
+        print("\n=== dry run finished, nothing was sent")
+    else:
+        print("\n=== uploaded %d package(s). re-run with --no-build to confirm."
+              % len(missing))
+    return 0
+
+
 def plan(args):
     refs = args.ref or cache_refs()
     if not refs:
@@ -169,12 +222,15 @@ def plan(args):
         print("\n=== nothing to upload, %s has everything" % args.remote)
         return 0
 
+    if args.upload or args.dry_run:
+        return run_uploads(missing, args.remote, args.dry_run)
+
     print("\n=== %d to upload. authenticate, then run these:\n" % len(missing))
     print("conan user <your-username> -r %s -p\n" % args.remote)
     for query, pid in missing:
         print("conan upload '%s:%s' -r %s --check -c" % (query, pid, args.remote))
-    print("\n# add --skip-upload to any of them to rehearse: checks and")
-    print("# compression run, nothing is sent.")
+    print("\n# or let this script do it: rerun with --upload once you have")
+    print("# authenticated. --dry-run rehearses without sending anything.")
     return 0
 
 
@@ -188,6 +244,13 @@ def main():
                         default=int(os.environ.get("RPI_DEPS_JOBS") or DEFAULT_JOBS),
                         help="parallel jobs for dependency builds (default: %d)"
                              % DEFAULT_JOBS)
+    parser.add_argument("--upload", action="store_true",
+                        help="actually upload the missing packages, rather than "
+                             "printing the commands. authenticate first with "
+                             "conan user")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="like --upload but passes --skip-upload, so the "
+                             "checks and compression run and nothing is sent")
     parser.add_argument("--no-build", action="store_true",
                         help="skip the build, just list and print commands")
     parser.add_argument("--remote", default="cycling-public")
@@ -198,6 +261,11 @@ def main():
     parser.add_argument("--ref", action="append",
                         help="limit to these refs (default: everything in the cache)")
     args = parser.parse_args()
+
+    # never sit at a prompt. without this conan asks for credentials when a
+    # remote needs them, which hangs a non-tty run and quietly waits for input
+    # in an interactive one. we would rather it failed immediately and said so.
+    os.environ["CONAN_NON_INTERACTIVE"] = "1"
 
     if not args.no_build:
         if not args.rnbo_version:

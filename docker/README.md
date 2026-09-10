@@ -220,6 +220,20 @@ rather than leaving it in your shell history, and `--skip-upload` on any upload
 rehearses it: the checks and compression run, nothing is sent. Push a small
 package first to confirm you have write permission before the big ones.
 
+Or let the script do all of them. Authenticate once, then re-run with
+`--upload`:
+
+```shell
+conan user <your-username> -r cycling-public -p
+/build/docker/rpi-deps.py --no-build --upload
+```
+
+`--dry-run` in place of `--upload` rehearses the whole set without sending
+anything. Either way it refuses to start when no user is set for the remote,
+and stops at the first failure rather than grinding through the rest, saying
+how many got through. Conan runs non-interactively throughout, so a missing or
+rejected login fails immediately instead of waiting at a prompt.
+
 Each command uploads the recipe as well as the binary, so a package the remote
 has never seen arrives complete. Two commands for the same package (one per
 arch) re-check the recipe on the second run, which is harmless.
