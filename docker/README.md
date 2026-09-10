@@ -191,6 +191,15 @@ argument if it is not `c74/stable`. It only configures, because every conan
 install happens at cmake configure time, so the runner itself never has to
 compile for the cache to fill.
 
+Dependency builds are capped at half the cores. Left alone conan uses every core
+it can see, and Docker Desktop reports every host CPU to the container while
+giving the VM far less memory than that implies: 12 CPUs against 8.8 GiB here.
+ossia's `osc_factory.cpp` wants multiple GB by itself, so twelve concurrent
+compilers exhaust memory and one gets killed. That surfaces as a truncated
+diagnostic followed by `Error 2` with no `error:` line anywhere, which reads
+like a source problem but is not one. Use `--jobs` or `RPI_DEPS_JOBS` to change
+the cap.
+
 The output ends with something like:
 
 ```
