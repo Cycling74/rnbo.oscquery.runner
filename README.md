@@ -232,6 +232,185 @@ If you haven't run jack before you probably want to set it up with `qjackctl`, y
 Simply run the runner from the build directory `./bin/rnbooscquery`
 Then start up Max. The RNBO sidebar should list your host as a `OSCQuery Runner Export`.
 
+## Connecting over a direct Ethernet cable
+
+You can plug a computer straight into the runner's Ethernet port, with no router, switch or
+DHCP server in between. With nothing to hand out addresses, both ends assign themselves an
+IPv4 *link-local* address from `169.254.0.0/16`
+([RFC 3927](https://datatracker.ietf.org/doc/html/rfc3927)) and find each other by name over
+mDNS, so the usual URLs work:
+
+```
+http://<hostname>.local:5678       OSCQuery / websocket
+osc.udp://<hostname>.local:1234    OSC
+http://<hostname>.local:3000       runner panel web interface, if installed
+```
+
+What to expect:
+
+* it takes a few seconds (macOS, Linux) to about a minute (Windows) after plugging in before
+  an address is self-assigned — DHCP has to time out first
+* both ends need an address in `169.254.0.0/16`. If either side has IPv4 turned off, or set
+  manually with no address, nothing on the link is reachable over IPv4
+* the link also has IPv6 link-local (`fe80::`) addresses and the runner listens on those too,
+  but they can only be used with an interface zone suffix (`fe80::1%eth0`), and a URL cannot
+  carry one at all. Prefer the `.local` name or the `169.254.x.x` address.
+
+### Runner configuration
+
+Images built with the `stage2/05-net-linklocal` step have this configured already. Otherwise,
+on a NetworkManager system:
+
+```shell
+sudo nmcli con mod 'Wired connection 1' ipv4.link-local fallback ipv4.dhcp-timeout 2147483647
+sudo nmcli device reapply eth0
+```
+
+* `ipv4.link-local fallback` assigns a `169.254.x.x` address when DHCP produces nothing. It
+  needs NetworkManager 1.52 or newer (Debian 13 "trixie"); older versions ignore the value.
+* `ipv4.dhcp-timeout 2147483647` is "infinity", and it is the setting that actually keeps the
+  link usable. Without it the connection fails about 45 seconds in with
+  `ip-config-unavailable`, NetworkManager flushes the interface — taking its addresses and its
+  published mDNS records with it — and immediately retries, forever. A cable-connected runner
+  then appears and disappears every minute or so.
+
+**NOTE** use `nmcli device reapply` rather than `nmcli con up` when you are connected over the
+very cable you are reconfiguring. `con up` deactivates the connection first and will drop your
+own session.
+
+Check the result with:
+
+```shell
+nmcli -f GENERAL.STATE,IP4.ADDRESS,IP6.ADDRESS dev show eth0
+```
+
+You should see a `169.254.x.x` address. The state stays at `connecting (getting IP
+configuration)` because the DHCP request never completes; that is expected. One consequence is
+that `NetworkManager-wait-online` waits out its full timeout at boot when no DHCP server is
+present.
+
+On NetworkManager older than 1.52 there is no `fallback` mode. The `dhcp-timeout` setting still
+keeps the link stable, so IPv6 link-local and mDNS keep working, but no IPv4 link-local address
+is assigned. A dedicated profile with `ipv4.method link-local` is the alternative, though such a
+profile never uses DHCP and so suits only a machine that is always directly connected.
+
+The runner also needs `avahi-daemon` installed and running to be reachable by name.
+
+### Client configuration
+
+**macOS** — System Settings > Network > your Ethernet service > Details > TCP/IP, then set
+**Configure IPv4** to **Using DHCP**. If it is set to **Off**, or to **Manually** with no
+address, macOS will not self-assign a link-local address and the connection cannot work. See
+[Change TCP/IP settings on Mac](https://support.apple.com/guide/mac-help/mh14129/mac).
+
+```shell
+ifconfig en6 | grep "inet "        # expect 169.254.x.x
+```
+
+**Windows** — Settings > Network & internet > Ethernet > **IP assignment** > Edit >
+**Automatic (DHCP)**. Windows then self-assigns a `169.254.x.x` address (APIPA) when no DHCP
+server answers, which can take up to about a minute. See
+[Essential Network Settings and Tasks in Windows](https://support.microsoft.com/en-us/windows/change-tcp-ip-settings-bd0a07af-15f5-cd6a-363f-ca2b6f391ace).
+
+```shell
+ipconfig                           # expect "Autoconfiguration IPv4 Address"
+```
+
+`.local` names resolve natively on Windows 10 and later. On older versions either install
+Apple's Bonjour or connect by `169.254.x.x` address.
+
+**Linux** — with NetworkManager, the same settings as the runner:
+
+```shell
+sudo nmcli con mod <profile> ipv4.link-local fallback ipv4.dhcp-timeout 2147483647
+sudo nmcli device reapply <iface>
+ip -4 addr show <iface>            # expect 169.254.x.x
+```
+
+Install `avahi-daemon` (and `libnss-mdns`) if `.local` names do not resolve.
+
+### Making the connection come up faster
+
+There are two separate waits here and they have different causes.
+
+**Name resolution is usually not the slow part.** Once both ends have an IPv4 address, resolving
+`<hostname>.local` takes single digit milliseconds. But if the *client* has no IPv4 address on
+the link, every lookup costs a fixed five seconds — even a lookup that only wants the IPv6
+record — because the A query has no interface to go out on and must run to its timeout before
+the resolver answers. On macOS that is the whole difference between `Configure IPv4: Off` and
+`Using DHCP`; nothing else needs changing.
+
+**The wait you actually notice is address acquisition.** Both ends have to give up on DHCP
+before assigning themselves a link-local address: a few seconds on macOS and Linux, up to about
+a minute on Windows. Giving the client's adapter a static link-local address skips it entirely.
+
+* **macOS** — Configure IPv4 > Manually, address `169.254.1.10`, subnet mask `255.255.0.0`, no
+  router. `networksetup -listallnetworkservices` lists the service names:
+
+    ```shell
+    networksetup -setmanual "<service name>" 169.254.1.10 255.255.0.0 ""
+    networksetup -setdhcp "<service name>"                 # to put it back
+    ```
+
+* **Windows** — Settings > Network & internet > Ethernet > IP assignment > Edit > **Manual**,
+  turn IPv4 on, address `169.254.1.10`, mask `255.255.0.0`, no gateway.
+
+* **Linux** —
+
+    ```shell
+    sudo nmcli con mod <profile> ipv4.method manual ipv4.addresses 169.254.1.10/16
+    sudo nmcli con mod <profile> ipv4.method auto          # to put it back
+    ```
+
+Three things worth knowing before you do that: the adapter will not work on an ordinary DHCP
+network until you set it back; a manual address skips the duplicate address detection described
+in RFC 3927, so pick a host part unlikely to collide; and the runner's own link-local address is
+stable in practice — NetworkManager derives it deterministically and it survives reboots — so
+once you have seen it, `http://169.254.x.x:3000` is a bookmark that skips name resolution
+altogether.
+
+**Linux clients — check mDNS is wired into the resolver.** Install `libnss-mdns` and confirm
+that `/etc/nsswitch.conf` lists `mdns4_minimal` ahead of `dns`:
+
+```
+hosts:          files mdns4_minimal [NOTFOUND=return] dns
+```
+
+Without it, `.local` lookups fall through to your unicast DNS server and wait for that to fail
+before anything else is tried.
+
+**Windows clients — check nothing is suppressing mDNS.** Windows 10 and later resolve `.local`
+names natively. If they do not, check that the adapter's network profile is **Private** rather
+than **Public**, since the public profile blocks inbound traffic including mDNS responses, and
+that the "Turn off multicast name resolution" group policy is not enabled.
+
+### Troubleshooting a direct connection
+
+If the name does not resolve, browse for the service and connect by address instead:
+
+```shell
+dns-sd -B _oscjson._tcp            # macOS, or Windows with Bonjour
+avahi-browse -tr _oscjson._tcp     # Linux
+```
+
+If the runner drops off the link periodically, look for physical link problems — on the runner,
+`dmesg | grep -i "link is"` lists Ethernet link up/down events. Some USB Ethernet adapters and
+marginal cables renegotiate repeatedly at gigabit; pinning the link to 100 Mb full duplex often
+settles it:
+
+```shell
+sudo nmcli con mod 'Wired connection 1' 802-3-ethernet.auto-negotiate yes \
+    802-3-ethernet.speed 100 802-3-ethernet.duplex full
+```
+
+### Further reading
+
+* [RFC 3927 — Dynamic Configuration of IPv4 Link-Local Addresses](https://datatracker.ietf.org/doc/html/rfc3927)
+* [NetworkManager `ipv4` settings reference](https://networkmanager.dev/docs/api/latest/settings-ipv4.html) — `link-local`, `dhcp-timeout`
+* [Change TCP/IP settings on Mac](https://support.apple.com/guide/mac-help/mh14129/mac)
+* [Essential Network Settings and Tasks in Windows](https://support.microsoft.com/en-us/windows/change-tcp-ip-settings-bd0a07af-15f5-cd6a-363f-ca2b6f391ace)
+* [Avahi](https://avahi.org/) — the mDNS/DNS-SD implementation used on Linux
+
 ## Communicating with the runner
 
 You can communicate with the runner via [Open Sound Control (OSC)](http://opensoundcontrol.stanford.edu/) over either websockets or UDP.
