@@ -11,12 +11,15 @@ home so the cache survives the container:
         xnor/rnbo-runner-xpile:0.3 \
         /build/docker/rpi-deps.py 1.4.5
 
-This uploads nothing. Authenticate and run the printed commands yourself:
+By default it uploads nothing, it just prints the commands. Authenticate and
+run them yourself, or re-run with --upload and let it do all of them:
 
     conan user <your-username> -r cycling-public -p
+    rpi-deps.py --no-build --upload
 
 -p with no value prompts for the password instead of putting it in your shell
-history. Re-run with --no-build afterwards to confirm the uploads landed.
+history. --dry-run rehearses the uploads without sending anything. Re-run with
+--no-build afterwards to confirm they landed.
 """
 import argparse
 import json
