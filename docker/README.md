@@ -229,7 +229,18 @@ conan user <your-username> -r cycling-public -p
 ```
 
 `--dry-run` in place of `--upload` rehearses the whole set without sending
-anything. Either way it refuses to start when no user is set for the remote,
+anything. `--all` switches to conan's `--all`, one command per reference rather
+than one per package; that uploads every package the cache holds for a
+reference, not only the missing ones, which is equivalent here because the cache
+was built by this script and holds nothing else.
+
+If a package reads `on cycling-public (not indexed)`, it is there and will be
+used, but `conan search` cannot see it. Artifactory keeps a per-recipe search
+index and does not always refresh it when packages are added to a recipe it
+already knows -- which is exactly what happens when conan reports `Recipe is up
+to date, upload skipped`. The script confirms by asking for the package's
+conaninfo, which goes by path rather than through the index, so it will not
+tell you to re-upload something that is already published. Either way it refuses to start when no user is set for the remote,
 and stops at the first failure rather than grinding through the rest, saying
 how many got through. Conan runs non-interactively throughout, so a missing or
 rejected login fails immediately instead of waiting at a prompt.

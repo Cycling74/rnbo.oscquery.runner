@@ -138,6 +138,21 @@ def cache_refs():
             and not line.startswith(("There are", "Existing"))]
 
 
+def on_remote(query, pid, remote):
+    """Whether the remote really has this package.
+
+    conan search can under-report. Artifactory keeps a per-recipe search index
+    and does not always refresh it when packages are added to a recipe it
+    already knows, which is what happens when the recipe upload is skipped as
+    up to date. Asking for the package's conaninfo goes by path instead of
+    through that index, so it sees packages search does not.
+    """
+    result = subprocess.run(
+        ["conan", "get", "%s:%s" % (query, pid), "conaninfo.txt", "-r", remote],
+        capture_output=True, text=True)
+    return result.returncode == 0
+
+
 def auth_state(remote):
     """(user_name, authenticated) for a remote, (None, False) when unknown."""
     fd, path = tempfile.mkstemp(suffix=".json")
@@ -158,7 +173,27 @@ def auth_state(remote):
     return None, False
 
 
-def run_uploads(missing, remote, dry_run):
+def upload_commands(missing, remote, use_all):
+    """conan upload argv for each missing package.
+
+    --all uploads every package the cache holds for a reference, not just the
+    missing ones, which is one command per reference instead of one per
+    package. Fine when the cache only holds the configurations you mean to
+    publish, which is the case for a cache built by this script. Without it
+    each package is named explicitly, so nothing else can ride along.
+    """
+    if use_all:
+        refs = []
+        for query, _ in missing:
+            if query not in refs:
+                refs.append(query)
+        return [["conan", "upload", ref, "--all", "-r", remote, "--check", "-c"]
+                for ref in refs]
+    return [["conan", "upload", "%s:%s" % (query, pid),
+             "-r", remote, "--check", "-c"] for query, pid in missing]
+
+
+def run_uploads(missing, remote, dry_run, use_all):
     user, authed = auth_state(remote)
     if not user:
         print("\nno user set for %s. authenticate first:\n"
@@ -169,19 +204,18 @@ def run_uploads(missing, remote, dry_run):
         print("\nnote: %s has user '%s' but no verified token; continuing anyway"
               % (remote, user))
 
+    cmds = upload_commands(missing, remote, use_all)
     print("\n=== uploading %d package(s) to %s as '%s'%s\n"
           % (len(missing), remote, user, " (dry run)" if dry_run else ""))
-    for index, (query, pid) in enumerate(missing, 1):
-        cmd = ["conan", "upload", "%s:%s" % (query, pid),
-               "-r", remote, "--check", "-c"]
+    for index, cmd in enumerate(cmds, 1):
         if dry_run:
-            cmd.append("--skip-upload")
-        print("[%d/%d] %s" % (index, len(missing), " ".join(cmd)), flush=True)
+            cmd = cmd + ["--skip-upload"]
+        print("[%d/%d] %s" % (index, len(cmds), " ".join(cmd)), flush=True)
         if subprocess.run(cmd).returncode != 0:
             print("\nupload failed, stopping with %d of %d done. if this is an "
                   "authentication or permission problem:\n"
                   "  conan user <your-username> -r %s -p"
-                  % (index - 1, len(missing), remote), file=sys.stderr)
+                  % (index - 1, len(cmds), remote), file=sys.stderr)
             return 1
     if dry_run:
         print("\n=== dry run finished, nothing was sent")
@@ -201,7 +235,7 @@ def plan(args):
     print("\n=== packages for os=%s arch=%s build_type=%s\n"
           % (args.os_, "|".join(archs), args.build_type))
 
-    missing = []
+    missing, rows = [], []
     for ref in sorted(refs):
         query = ref if "@" in ref else ref + "@"
         mine = [p for p in packages(search_json(query))
@@ -213,25 +247,34 @@ def plan(args):
         theirs = {p["id"] for p in packages(search_json(query, remote=args.remote))}
         for pkg in mine:
             settings = pkg.get("settings", {})
-            where = "on %s" % args.remote if pkg["id"] in theirs else "MISSING"
-            print("  %-58s %-6s %-10s %s"
-                  % (ref, settings.get("arch"),
-                     "%s/%s" % (settings.get("compiler"), settings.get("compiler.version")),
-                     where))
-            if pkg["id"] not in theirs:
+            if pkg["id"] in theirs:
+                where = "on %s" % args.remote
+            elif on_remote(query, pkg["id"], args.remote):
+                where = "on %s (not indexed)" % args.remote
+            else:
+                where = "MISSING"
                 missing.append((query, pkg["id"]))
+            rows.append((ref, settings.get("arch"),
+                         "%s/%s" % (settings.get("compiler"),
+                                    settings.get("compiler.version")),
+                         where))
+
+    width = max([len(r[0]) for r in rows] or [0])
+    for ref, arch, compiler, where in rows:
+        print("  %-*s  %-8s %-9s %s" % (width, ref, arch, compiler, where))
 
     if not missing:
         print("\n=== nothing to upload, %s has everything" % args.remote)
         return 0
 
     if args.upload or args.dry_run:
-        return run_uploads(missing, args.remote, args.dry_run)
+        return run_uploads(missing, args.remote, args.dry_run, args.all)
 
     print("\n=== %d to upload. authenticate, then run these:\n" % len(missing))
     print("conan user <your-username> -r %s -p\n" % args.remote)
-    for query, pid in missing:
-        print("conan upload '%s:%s' -r %s --check -c" % (query, pid, args.remote))
+    for cmd in upload_commands(missing, args.remote, args.all):
+        print(" ".join("'%s'" % part if ":" in part or "@" in part else part
+                       for part in cmd))
     print("\n# or let this script do it: rerun with --upload once you have")
     print("# authenticated. --dry-run rehearses without sending anything.")
     return 0
@@ -247,6 +290,10 @@ def main():
                         default=int(os.environ.get("RPI_DEPS_JOBS") or DEFAULT_JOBS),
                         help="parallel jobs for dependency builds (default: %d)"
                              % DEFAULT_JOBS)
+    parser.add_argument("--all", action="store_true",
+                        help="upload with conan's --all, one command per "
+                             "reference. uploads every package the cache holds "
+                             "for that reference, not only the missing ones")
     parser.add_argument("--upload", action="store_true",
                         help="actually upload the missing packages, rather than "
                              "printing the commands. authenticate first with "
