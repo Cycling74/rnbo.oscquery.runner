@@ -262,12 +262,16 @@ Images built with the `stage2/05-net-linklocal` step have this configured alread
 on a NetworkManager system:
 
 ```shell
+nmcli device status                    # find your ethernet device: eth0, end0, enp1s0 ...
 sudo nmcli con mod 'Wired connection 1' ipv4.link-local fallback ipv4.dhcp-timeout 2147483647
-sudo nmcli device reapply eth0
+sudo nmcli device reapply <device>
 ```
 
-* `ipv4.link-local fallback` assigns a `169.254.x.x` address when DHCP produces nothing. It
-  needs NetworkManager 1.52 or newer (Debian 13 "trixie"); older versions ignore the value.
+Both settings are needed; neither works alone.
+
+* `ipv4.link-local fallback` assigns a `169.254.x.x` address when DHCP produces nothing, which
+  is what gives avahi an A record to publish. It needs NetworkManager 1.52 or newer (Debian 13
+  "trixie"). On older NetworkManager use `ipv4.link-local enabled` instead — see below.
 * `ipv4.dhcp-timeout 2147483647` is "infinity", and it is the setting that actually keeps the
   link usable. Without it the connection fails about 45 seconds in with
   `ip-config-unavailable`, NetworkManager flushes the interface — taking its addresses and its
@@ -281,7 +285,7 @@ own session.
 Check the result with:
 
 ```shell
-nmcli -f GENERAL.STATE,IP4.ADDRESS,IP6.ADDRESS dev show eth0
+nmcli -f GENERAL.STATE,IP4.ADDRESS,IP6.ADDRESS dev show <device>
 ```
 
 You should see a `169.254.x.x` address. The state stays at `connecting (getting IP
@@ -289,10 +293,17 @@ configuration)` because the DHCP request never completes; that is expected. One 
 that `NetworkManager-wait-online` waits out its full timeout at boot when no DHCP server is
 present.
 
-On NetworkManager older than 1.52 there is no `fallback` mode. The `dhcp-timeout` setting still
-keeps the link stable, so IPv6 link-local and mDNS keep working, but no IPv4 link-local address
-is assigned. A dedicated profile with `ipv4.method link-local` is the alternative, though such a
-profile never uses DHCP and so suits only a machine that is always directly connected.
+On NetworkManager older than 1.52 (Debian 12 "bookworm" ships 1.42) there is no `fallback`
+mode, but `enabled` does the same job on that version:
+
+```shell
+sudo nmcli con mod 'Wired connection 1' ipv4.link-local enabled ipv4.dhcp-timeout 2147483647
+```
+
+Verified on 1.42.4: `enabled` does not add a link-local address alongside a *working* DHCP
+lease, so on an ordinary network the interface simply takes its lease — but on a link where
+DHCP never succeeds the `169.254.x.x` address does appear, which is the case that matters
+here.
 
 The runner also needs `avahi-daemon` installed and running to be reachable by name.
 
@@ -391,6 +402,19 @@ If the name does not resolve, browse for the service and connect by address inst
 ```shell
 dns-sd -B _oscjson._tcp            # macOS, or Windows with Bonjour
 avahi-browse -tr _oscjson._tcp     # Linux
+```
+
+An IPv4 link-local address carries no interface identifier, so the client picks an interface by
+route — and if more than one of its interfaces has a `169.254.0.0/16` route, it can pick the
+wrong one. This bites when the runner has recently been on another network: the client
+remembers its MAC on that interface and pins a host route to it, and connections then fail with
+`EHOSTDOWN` or a timeout even though both ends have addresses. On macOS, `route -n get
+169.254.x.x` shows which interface is being used, and an `R` (reject) flag means it is stuck.
+The cheapest fix is to send one packet the other way, from the runner to the client's
+link-local address, which corrects the client's route and ARP entry:
+
+```shell
+ping -c 3 169.254.x.x               # from the runner, to the client
 ```
 
 If the runner drops off the link periodically, look for physical link problems — on the runner,
