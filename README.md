@@ -327,8 +327,10 @@ server answers, which can take up to about a minute. See
 ipconfig                           # expect "Autoconfiguration IPv4 Address"
 ```
 
-`.local` names resolve natively on Windows 10 and later. On older versions either install
-Apple's Bonjour or connect by `169.254.x.x` address.
+`.local` names resolve natively on Windows 10 and later — no Bonjour install needed. Note that
+name resolution generally prefers IPv6, so `ping <hostname>.local` will usually answer from the
+`fe80::` address even though the `169.254.x.x` one is present and working. On older Windows
+versions either install Apple's Bonjour or connect by address.
 
 **Linux** — with NetworkManager, the same settings as the runner:
 
@@ -390,10 +392,12 @@ hosts:          files mdns4_minimal [NOTFOUND=return] dns
 Without it, `.local` lookups fall through to your unicast DNS server and wait for that to fail
 before anything else is tried.
 
-**Windows clients — check nothing is suppressing mDNS.** Windows 10 and later resolve `.local`
-names natively. If they do not, check that the adapter's network profile is **Private** rather
-than **Public**, since the public profile blocks inbound traffic including mDNS responses, and
-that the "Turn off multicast name resolution" group policy is not enabled.
+**Windows clients — mDNS normally needs nothing.** Windows 10 and later resolve `.local` names
+natively, and on a stock machine no firewall prompt appears and no firewall change is needed:
+the panel in a browser, and the runner appearing in Max, both worked untouched. If a name does
+not resolve, *then* check that the adapter's network profile is **Private** rather than
+**Public**, since the public profile blocks unsolicited inbound traffic including mDNS
+responses, and that the "Turn off multicast name resolution" group policy is not enabled.
 
 ### Troubleshooting a direct connection
 
@@ -416,6 +420,20 @@ link-local address, which corrects the client's route and ARP entry:
 ```shell
 ping -c 3 169.254.x.x               # from the runner, to the client
 ```
+
+A USB ethernet adapter can show carrier and self-assign an address while passing no traffic at
+all. From the client side that looks identical to a runner that isn't there: the client has its
+`169.254.x.x` address, routing is correct, and nothing answers. Before suspecting the runner,
+check whether any frames are arriving. On Windows:
+
+```shell
+arp -a
+netsh interface ipv6 show neighbors "<adapter>"
+```
+
+If both list only your own multicast and broadcast entries — `33-33-…`, `01-00-5e-…`,
+`ff-ff-…` — then nothing on that cable has answered ARP or neighbour discovery, which is below
+any firewall and cannot be a configuration problem. Try a different port or adapter.
 
 If the runner drops off the link periodically, look for physical link problems — on the runner,
 `dmesg | grep -i "link is"` lists Ethernet link up/down events. Some USB Ethernet adapters and
