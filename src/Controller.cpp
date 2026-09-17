@@ -1253,7 +1253,7 @@ Controller::Controller(std::string server_name) {
 			{
 				auto n = sets->create_child("initial");
 				auto p = mSetInitialNameParam = n->create_parameter(ossia::val_type::STRING);
-				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::GET);
+				n->set(ossia::net::access_mode_attribute{}, ossia::access_mode::BI);
 				n->set(ossia::net::description_attribute{}, "Give the name of the set (or none) that should load when the runner first starts");
 
 				p->add_callback([this, cmdBuilder](const ossia::value& v) {

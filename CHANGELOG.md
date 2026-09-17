@@ -1,6 +1,6 @@
 # RNBO Runner Changes
 
-* *1.4.5-10*
+* *current*
     * jack_transport_link updates
         * thread thru link audio config, sets save their Link Audio arrangement
         * communicate to/from jack_transport_link with OSC
@@ -13,6 +13,7 @@
       properties are now cleared as it is registered, before we write our own.
     * added support for getting/setting the transport time signature
     * added indication of current transport bar and beat
+    * fixed `ACCESS` flag for initial graph OSCQuery - thanks @j3threejay
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content
