@@ -53,6 +53,7 @@ class ProcessAudioJack : public ProcessAudio {
 
 		// disconnect non rnbo
 		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) override;
+		void forgetConnectionsForClient(const std::string& name) override;
 
 		virtual void handleLinkTransportOSC(const std::string& addr, const ossia::value& val) override;
 

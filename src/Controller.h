@@ -17,6 +17,7 @@
 #include "ProcessAudio.h"
 #include "Queue.h"
 #include "DB.h"
+#include "SetDirtyState.h"
 
 //forward declarations
 namespace ossia {
@@ -108,6 +109,19 @@ class Controller {
 		std::unordered_map<std::string, std::function<void(const std::string& method, const std::string& id, const RNBO::Json& params)>> mCommandHandlers;
 
 		SetInfo setInfo();
+		void resetSetDirtyBaseline(const SetInfo* saved = nullptr);
+		void updateSetDirty();
+		void watchSetInstance(const std::shared_ptr<Instance>& instance);
+		RNBO::Json setDeviceState(const std::shared_ptr<Instance>& instance, const boost::filesystem::path& library);
+		SetDirtyState mSetDirtyState;
+		std::atomic<bool> mSetMetaChanged { false };
+		bool mSetInstancesChanged = false;
+		bool mSetConnectionsChanged = false;
+		bool mSetLinkChanged = false;
+		bool mSetDirtyPublished = false;
+		bool mSetLinkBaselineKnown = false;
+		std::set<unsigned int> mSetDeviceChecks;
+		std::set<unsigned int> mSetTrackedDevices;
 
 		void patcherStore(
 				const std::string& name,

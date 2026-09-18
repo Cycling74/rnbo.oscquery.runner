@@ -1101,7 +1101,7 @@ Controller::Controller(std::string server_name) {
 
 				mSetMetaParam->add_callback([this](const ossia::value&) {
 					queueSave();
-					mSetDirtyParam->push_value(true);
+					mSetMetaChanged.store(true);
 				});
 			}
 
@@ -1881,6 +1881,7 @@ Controller::Controller(std::string server_name) {
 	}
 
 	registerCommands();
+	resetSetDirtyBaseline();
 }
 
 Controller::~Controller() {
@@ -2006,14 +2007,11 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 			});
 			instance->activate();
 			instance->processEvents();
-			instance->markConfigChanged(false); //use a hammer to disable change reporting
 
 			//queue a save whenenever the configuration changes
-			instance->registerConfigChangeCallback([this] {
-					mSetDirtyParam->push_value(true);
-					queueSave();
-			});
+			watchSetInstance(instance);
 			mInstances.emplace_back(std::make_tuple(instance, path, config_path));
+			mSetInstancesChanged = true;
 		}
 		if (cmdId.size()) {
 			reportCommandResult(cmdId, {
@@ -2102,7 +2100,7 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 					config["preset_initial"] = instConfig["preset_last"];
 				}
 				//overrides
-				for (const auto& key: { "namealias", "setpreset", "insetpreset", "midi_input_channel", "metaoverride", "datarefs" }) {
+				for (const auto& key: { "namealias", "setpreset", "insetpreset", "midi_input_channel", "preset_midi_channel", "metaoverride", "datarefs" }) {
 					if (instConfig.contains(key)) {
 						config[key] = instConfig[key];
 					}
@@ -2183,7 +2181,13 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 			mSetMetaParam->push_value_quiet(setInfo.meta);
 		}
 
-		mSetDirtyParam->push_value(false);
+		if (!preset) {
+			resetSetDirtyBaseline();
+		} else {
+			// Reloading a patcher is not saving the set: retain any pre-existing edits.
+			mSetInstancesChanged = mSetConnectionsChanged = mSetLinkChanged = true;
+			mSetMetaChanged.store(true);
+		}
 		mSetCurrentNameParam->push_value(setInfo.name);
 		config::set(setInfo.name, config::key::SetLastName);
 		updateSetPresetNames();
@@ -2233,9 +2237,10 @@ bool Controller::loadBuiltIn() {
 			auto instance = std::make_shared<Instance>(mDB, factory, name, builder, config, mProcessAudio, 0);
 			{
 				std::lock_guard<std::mutex> guard(mBuildMutex);
-				instance->registerConfigChangeCallback([this] { queueSave(); });
+				watchSetInstance(instance);
 				instance->activate();
 				mInstances.emplace_back(std::make_tuple(instance, fs::path(), fs::path()));
+				mSetInstancesChanged = true;
 			}
 
 			instance->connect();
@@ -2255,6 +2260,126 @@ bool Controller::loadBuiltIn() {
 	return false;
 }
 #endif
+
+namespace {
+RNBO::Json dirtyLinkAudio(const std::shared_ptr<ProcessAudio>& audio) {
+	auto setup = audio->linkAudioSetup();
+	return setup ? setup->toJson() : RNBO::Json();
+}
+std::string dirtyDeviceKey(unsigned int index) { return "device/" + std::to_string(index); }
+}
+
+void Controller::watchSetInstance(const std::shared_ptr<Instance>& instance) {
+	instance->registerConfigChangeCallback([this, weak = std::weak_ptr<Instance>(instance)] {
+		auto changed = weak.lock();
+		// Fading-out instances can deliver events after their index has been reused.
+		for (auto& entry : mInstances) {
+			if (std::get<0>(entry) == changed) {
+				mSetDeviceChecks.insert(changed->index());
+				queueSave();
+				break;
+			}
+		}
+	});
+}
+
+RNBO::Json Controller::setDeviceState(const std::shared_ptr<Instance>& instance, const fs::path& library) {
+	return {{"patcher", instance->name()}, {"library", library.string()}, {"config", SetDirtyState::device(instance->currentConfig(false))}};
+}
+
+void Controller::resetSetDirtyBaseline(const SetInfo* saved) {
+	// Called on the event thread after applying a load or successfully saving. Instance
+	// defaults and metadata overrides have already been applied synchronously here.
+	mSetMetaChanged.exchange(false);
+	SetDirtyState::Components baseline;
+	baseline["meta"] = SetDirtyState::metadata(saved ? saved->meta : mSetMetaParam->value().get<std::string>());
+	baseline["connections"] = SetDirtyState::connections(saved ? saved->connections : mProcessAudio->connections());
+	auto link = saved ? saved->link_audio : mProcessAudio->linkAudioSetup();
+	baseline["link"] = link ? link->toJson() : RNBO::Json();
+	mSetLinkBaselineKnown = !baseline["link"].is_null();
+	mSetTrackedDevices.clear();
+	for (auto& entry : mInstances) {
+		auto& instance = std::get<0>(entry);
+		mSetTrackedDevices.insert(instance->index());
+		auto device = setDeviceState(instance, std::get<1>(entry));
+		if (saved) {
+			for (auto& stored : saved->instances) {
+				if (stored.instance_index == instance->index()) {
+					device["config"] = SetDirtyState::device(RNBO::Json::parse(stored.config));
+					break;
+				}
+			}
+		}
+		baseline[dirtyDeviceKey(instance->index())] = std::move(device);
+	}
+	mSetDirtyState.reset(std::move(baseline));
+	mSetDeviceChecks.clear();
+	mSetInstancesChanged = mSetConnectionsChanged = mSetLinkChanged = false;
+	if (mSetDirtyPublished) {
+		mSetDirtyPublished = false;
+		mSetDirtyParam->push_value(false);
+	}
+}
+
+void Controller::updateSetDirty() {
+	// Stopping audio tears down the runtime graph; it is not a device edit.
+	if (!mProcessAudio->isActive()) {
+		return;
+	}
+	// Do not compare the outgoing graph during its fade-out. doLoadSet establishes the
+	// incoming baseline. Callbacks only request a fresh snapshot, never carry old state.
+	{
+		std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
+		if (mSetLoadPending) {
+			return;
+		}
+	}
+	if (mSetMetaChanged.exchange(false)) {
+		mSetDirtyState.update("meta", SetDirtyState::metadata(mSetMetaParam->value().get<std::string>()));
+	}
+	if (mSetInstancesChanged || !mSetDeviceChecks.empty()) {
+		std::set<unsigned int> present;
+		for (auto& entry : mInstances) {
+			auto& instance = std::get<0>(entry);
+			present.insert(instance->index());
+			if (mSetInstancesChanged || mSetDeviceChecks.count(instance->index())) {
+				mSetDirtyState.update(dirtyDeviceKey(instance->index()), setDeviceState(instance, std::get<1>(entry)));
+			}
+		}
+		for (auto index : mSetTrackedDevices) {
+			if (!present.count(index)) {
+				mSetDirtyState.remove(dirtyDeviceKey(index));
+			}
+		}
+		mSetTrackedDevices = std::move(present);
+		mSetDeviceChecks.clear();
+		if (mSetInstancesChanged) {
+			mSetConnectionsChanged = true;
+		}
+		mSetInstancesChanged = false;
+	}
+	if (mSetConnectionsChanged) {
+		mSetDirtyState.update("connections", SetDirtyState::connections(mProcessAudio->connections()));
+		mSetConnectionsChanged = false;
+	}
+	if (mSetLinkChanged) {
+		auto live = dirtyLinkAudio(mProcessAudio);
+		if (!mSetLinkBaselineKnown && !live.is_null()) {
+			// A legacy set did not specify an arrangement. First discovery establishes
+			// what was already there; later slot edits compare against it.
+			mSetDirtyState.adopt("link", live);
+			mSetLinkBaselineKnown = true;
+		} else {
+			mSetDirtyState.update("link", live);
+		}
+		mSetLinkChanged = false;
+	}
+	const bool dirty = mSetDirtyState.dirty();
+	if (dirty != mSetDirtyPublished) {
+		mSetDirtyPublished = dirty;
+		mSetDirtyParam->push_value(dirty);
+	}
+}
 
 SetInfo Controller::setInfo() {
 	SetInfo info;
@@ -2866,27 +2991,11 @@ bool Controller::processEvents() {
 
 		processCommands();
 
-		std::string loadedset = getCurrentSetName();
-		auto handleConnectionChange = [this, &loadedset](ConnectionChange change) {
-			//figure out if connections are inconsistent with those in the DB
-			if (change.issource) {
-				if (!mDB->setMatchesConnections(loadedset, change.port, change.connections)) {
-					mSetDirtyParam->push_value(true);
-				}
-			}
+		auto handleConnectionChange = [this](ConnectionChange) {
+			mSetConnectionsChanged = true;
 		};
-
-		//A Link Audio send or receive is a graph node now, so adding, removing or reordering one is
-		//an edit to the set. Compared against what the set stores rather than tracked as a delta,
-		//and only marked dirty -- the same way connection changes are handled just above. Notably
-		//not saved: an autosave here would write whatever jack_transport_link happens to be doing
-		//into the untitled set, including the arrangement it restores from its own config at boot,
-		//as though the user had built it.
 		if (mProcessAudio && mProcessAudio->takeLinkAudioSetupChanged()) {
-			auto live = mProcessAudio->linkAudioSetup();
-			if (live && !mDB->setMatchesLinkAudio(loadedset, *live)) {
-				mSetDirtyParam->push_value(true);
-			}
+			mSetLinkChanged = true;
 		}
 
 		bool stoppingInstances = false;
@@ -2945,6 +3054,8 @@ bool Controller::processEvents() {
 				doLoadSet(pending.get(), preset);
 			}
 		}
+
+		updateSetDirty();
 
 		if (mDiskSpacePollNext <= now) {
 			//XXX shouldn't need this mutex but removing listeners is causing this to throw an exception so
@@ -3190,9 +3301,11 @@ void Controller::clearInstances(std::lock_guard<std::mutex>&, float fadeTime) {
 	for (auto it = mInstances.begin(); it < mInstances.end(); ) {
 		auto inst = std::get<0>(*it);
 		auto index = inst->index();
+		mProcessAudio->forgetConnectionsForClient(inst->name() + "-" + std::to_string(index));
 		inst->stop(fadeTime);
 		mStoppingInstances.push_back(inst);
 		it = mInstances.erase(it);
+		mSetInstancesChanged = true;
 		if (!mInstancesNode->remove_child(std::to_string(index))) {
 			std::cerr << "failed to remove instance node with index " << index << std::endl;
 		}
@@ -3215,6 +3328,8 @@ void Controller::unloadInstance(std::lock_guard<std::mutex>&, unsigned int index
 		auto inst = std::get<0>(*it);
 		if (inst->index() == index) {
 			mInstances.erase(it);
+			mSetInstancesChanged = true;
+			mProcessAudio->forgetConnectionsForClient(inst->name() + "-" + std::to_string(index));
 			inst->stop(mInstFadeOutMs);
 			mStoppingInstances.push_back(inst);
 			if (!mInstancesNode->remove_child(std::to_string(index))) {
@@ -3321,7 +3436,6 @@ void Controller::registerCommands() {
 						{"message", "loaded"},
 						{"progress", 100}
 					});
-					mSetDirtyParam->push_value(true);
 				} else {
 					reportCommandError(id, 1, "failed");
 				}
@@ -3361,7 +3475,6 @@ void Controller::registerCommands() {
 				}
 				mProcessAudio->updatePorts();
 				queueSave();
-				mSetDirtyParam->push_value(true);
 				reportCommandResult(id, {
 					{"code", 0},
 					{"message", "unloaded"},
@@ -3375,11 +3488,13 @@ void Controller::registerCommands() {
 				std::string name = params["name"].get<std::string>();
 				std::string meta = params["meta"].get<std::string>();
 				auto info = setInfo();
+				info.meta = meta;
 				if (name != UNTITLED_SET_NAME) {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
-					mSetDirtyParam->push_value(false);
+					mSetMetaParam->push_value_quiet(meta);
+					resetSetDirtyBaseline(&info);
 
 					const std::string presetName = "initial";
 					saveSetPreset(name, presetName, 0);
@@ -3476,7 +3591,7 @@ void Controller::registerCommands() {
 					std::string empty;
 					config::set(empty, config::key::SetLastName);
 					mSetCurrentNameParam->push_value(UNTITLED_SET_NAME);
-					mSetDirtyParam->push_value(false);
+					resetSetDirtyBaseline();
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						mSetViewsListNode->clear_children();

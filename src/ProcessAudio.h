@@ -12,6 +12,11 @@ struct ConnectionChange {
 	std::vector<std::vector<std::string>> connections;
 
 	ConnectionChange(std::vector<std::string> p, bool s, std::vector<std::vector<std::string>> v) : port(p), issource(s), connections(v) { }
+
+	// Request a fresh graph snapshot without identifying a particular changed port.
+	static ConnectionChange invalidate() {
+		return ConnectionChange({}, true, {});
+	}
 };
 
 //A controller that handles audio for the entire appliction.
@@ -31,6 +36,9 @@ class ProcessAudio {
 		virtual std::vector<SetConnectionInfo> connections() { return {}; }
 
 		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) { }
+
+		// A removed/replaced device must not leave deferred restoration behind.
+		virtual void forgetConnectionsForClient(const std::string& name) { }
 
 		virtual void updatePorts() {}
 		virtual void sendReset() {}

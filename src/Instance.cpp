@@ -1449,26 +1449,34 @@ RNBO::Json Instance::getJSONPresetSync() {
 	return presetToJSON(*shared);
 }
 
-RNBO::Json Instance::currentConfig() {
+RNBO::Json Instance::currentConfig(bool includePresetState) {
 	RNBO::Json config = RNBO::Json::object();
 	RNBO::Json datarefs = RNBO::Json::object();
 	RNBO::Json meta = RNBO::Json::object();
 
-	//store last preset
-	{
+	//Preset bookkeeping and buffer contents are not structural set edits.
+	if (includePresetState) {
 		std::lock_guard<std::mutex> pguard(mPresetMutex);
 		if (!mPresetNameLatest.empty() && mDB->preset(mName, mPresetNameLatest)) {
 			config[last_preset_key] = mPresetNameLatest;
 		}
 	}
 	//copy datarefs
-	if (mDataHandler) {
+	if (includePresetState && mDataHandler) {
 		datarefs = mDataHandler->fileMappingJson();
 	}
-	config["datarefs"] = datarefs;
+	if (includePresetState) {
+		config["datarefs"] = datarefs;
+	}
 	config["setpreset"] = mSetPresetPatcherNamed ? "patchernamed" : "values";
 	config["insetpreset"] = mInSetPreset;
 	config["midi_input_channel"] = (int)mAudio->midiInputChannel();
+	for (const auto& channel : config_midi_channel_values) {
+		if (channel.second == mPresetProgramChangeChannel) {
+			config[preset_midi_channel_key] = channel.first;
+			break;
+		}
+	}
 
 	//mAudio->addConfig(config);
 
@@ -1864,7 +1872,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						if (setDefault) {
 							update.param->push_value(it->second);
 						} else {
-							isCustom = update.meta != it->second;
+							isCustom = meta != RNBO::Json::parse(it->second);
 						}
 					}
 					if (isCustom) {
@@ -1891,7 +1899,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						if (setDefault) {
 							update.param->push_value(it->second);
 						} else {
-							isCustom = update.meta != it->second;
+							isCustom = meta != RNBO::Json::parse(it->second);
 						}
 					}
 					if (isCustom) {
@@ -1915,7 +1923,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						if (setDefault) {
 							update.param->push_value(it->second);
 						} else {
-							isCustom = update.meta != it->second;
+							isCustom = meta != RNBO::Json::parse(it->second);
 						}
 					}
 					if (isCustom) {
@@ -1937,7 +1945,7 @@ void Instance::handleMetadataUpdate(MetaUpdateCommand update) {
 						if (setDefault) {
 							update.param->push_value(it->second);
 						} else {
-							isCustom = update.meta != it->second;
+							isCustom = meta != RNBO::Json::parse(it->second);
 						}
 					}
 					if (isCustom) {

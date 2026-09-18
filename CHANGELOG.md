@@ -14,6 +14,9 @@
     * added support for getting/setting the transport time signature
     * added indication of current transport bar and beat
     * fixed `ACCESS` flag for initial graph OSCQuery - thanks @j3threejay
+    * improved set `dirty` detection
+    * fixed MIDI port aliases missing 2nd alias
+    * sets now save and restore each device's preset program-change MIDI channel
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content

@@ -766,13 +766,15 @@ void ProcessAudioJack::process(jack_nframes_t nframes) {
  */
 
 bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) {
+	// Each load replaces the previous restoration generation, including legacy sets.
+	clearLinkAudioPendingConnections();
 	if (mJackClient) {
 		auto replace_raw = [this](std::string& portname) {
 			std::array<std::vector<char>, 2> aliasStrings = {
 				std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0'),
 				std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0')
 			};
-			std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[0].data() };
+			std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[1].data() };
 
 			//work around moving raw_midi aliases
 			std::smatch match;
@@ -949,6 +951,8 @@ void ProcessAudioJack::linkAudioUserTookOver() {
 	//(The set is marked dirty by the usual comparison against what it stores.)
 	mLinkAudioDesired = boost::none;
 	mLinkAudioDesiredConverged = false;
+	// Slot edits supersede restoration, including edges to slots the user removes.
+	clearLinkAudioPendingConnections();
 }
 
 bool ProcessAudioJack::takeLinkAudioSetupChanged() {
@@ -1017,17 +1021,23 @@ void ProcessAudioJack::applyLinkAudioDesired() {
 
 std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 	std::vector<SetConnectionInfo> conn;
+	if (!mJackClient) {
+		return conn;
+	}
 
 	const char ** sources = nullptr;
 	std::array<std::vector<char>, 2> aliasStrings = {
 		std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0'),
 		std::vector<char>(static_cast<size_t>(jack_port_name_size()), '\0')
 	};
-	std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[0].data() };
+	std::array<char *, 2> aliases = { aliasStrings[0].data(), aliasStrings[1].data() };
 
 	//use a port alias for physical midi ports instead of the system name
 	auto use_midi_port_alias = [this, &aliases](std::string name) -> std::string {
 		const jack_port_t * port = jack_port_by_name(mJackClient, name.c_str());
+		if (!port) {
+			return name;
+		}
 		const auto port_type = jack_port_type(port);
 		const auto flags = jack_port_flags(port);
 		if (strcmp(port_type, JACK_DEFAULT_MIDI_TYPE) == 0 && flags & JackPortIsPhysical) {
@@ -1047,6 +1057,9 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 		for (size_t i = 0; sources[i] != nullptr; i++) {
 			std::string name(sources[i]);
 		 	jack_port_t * src = jack_port_by_name(mJackClient, name.c_str());
+			if (!src) {
+				continue;
+			}
 
 			//ignore hidden
 			{
@@ -1062,6 +1075,9 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 			std::vector<std::string> src_info = cleanupPortNameInfo(name);
 			iterate_connections(src, [&conn, &src_info, &use_midi_port_alias, this](std::string sinkname) {
 					jack_port_t * dst = jack_port_by_name(mJackClient, sinkname.c_str());
+					if (!dst) {
+						return;
+					}
 					auto pg = get_port_portgroup(dst);
 					if (RNBO_HIDDEN_PORTGROUP != pg) {
 						sinkname = use_midi_port_alias(sinkname);
@@ -1076,7 +1092,38 @@ std::vector<SetConnectionInfo> ProcessAudioJack::connections() {
 		jack_free(sources);
 	}
 
+	// A deferred Link edge is still part of the set while its ports are unavailable or
+	// being restored. Save and dirty comparison must see the same intended graph.
+	{
+		std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+		for (auto& edge : mLinkAudioSetConnections) {
+			auto source = edge.source_name + ":" + edge.source_port_name;
+			auto sink = edge.sink_name + ":" + edge.sink_port_name;
+			auto same = [&edge](const SetConnectionInfo& other) {
+				return edge.source_name == other.source_name && edge.source_port_name == other.source_port_name &&
+					edge.sink_name == other.sink_name && edge.sink_port_name == other.sink_port_name;
+			};
+			bool pending = std::any_of(mLinkAudioPendingConnections.begin(), mLinkAudioPendingConnections.end(),
+				[&same](const PendingLinkConnection& p) { return same(p.info); });
+			if ((pending || !jack_port_by_name(mJackClient, source.c_str()) || !jack_port_by_name(mJackClient, sink.c_str())) &&
+				std::none_of(conn.begin(), conn.end(), same)) {
+				conn.push_back(edge);
+			}
+		}
+	}
+
 	return conn;
+}
+
+void ProcessAudioJack::forgetConnectionsForClient(const std::string& name) {
+	std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+	auto matches = [&name](const SetConnectionInfo& edge) {
+		return edge.source_name == name || edge.sink_name == name;
+	};
+	std::erase_if(mLinkAudioSetConnections, matches);
+	std::erase_if(mLinkAudioPendingConnections, [&matches](const PendingLinkConnection& pending) {
+		return matches(pending.info);
+	});
 }
 
 void ProcessAudioJack::disconnect(const std::vector<SetConnectionInfo>& connections) {
@@ -1181,6 +1228,14 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 		std::lock_guard<std::mutex> guard(mMutex);
 		if (mJackClient == nullptr)
 			return;
+		{
+			std::lock_guard<std::mutex> pendingGuard(mPendingConnectionsMutex);
+			auto count = mLinkAudioPendingConnections.size();
+			std::erase_if(mLinkAudioPendingConnections, [&now](const PendingLinkConnection& p) { return p.until <= now; });
+			if (count != mLinkAudioPendingConnections.size() && connectionChangeCallback) {
+				connectionChangeCallback(ConnectionChange::invalidate());
+			}
+		}
 
 		//update stats
 		{
@@ -1254,6 +1309,9 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 			std::pair<jack_port_id_t, JackPortChange> entry;
 			bool linkAudioPortRegistered = false;
 			while (mPortQueue->try_dequeue(entry)) {
+				if (connectionChangeCallback) {
+					connectionChangeCallback(ConnectionChange::invalidate());
+				}
 				if (entry.second == JackPortChange::Register) {
 					auto port = jack_port_by_id(mJackClient, entry.first);
 					connectToMidiIf(port);
@@ -1288,7 +1346,10 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 		}
 
 		//manage port connections/disconnections to and from oscquery
-		auto doConnectDisconnectFromParam = [this](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
+		auto doConnectDisconnectFromParam = [this, &connectionChangeCallback](const std::string& portname, jack_port_t * port, bool isSource, ossia::net::parameter_base * param) {
+			if (connectionChangeCallback) {
+				connectionChangeCallback(ConnectionChange::invalidate());
+			}
 			std::vector<ossia::value> values; //accumulate "good" values in case we need to update the param
 			std::set<std::string> toConnect;
 			auto val = param->value();
@@ -1303,6 +1364,18 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 				}
 			} else {
 				updateParam = true;
+			}
+
+			// A user edit must override pending restoration, including edits made before a
+			// destination port appears. Backend observations use quiet pushes below.
+			if (isSource) {
+				std::lock_guard<std::mutex> guard(mPendingConnectionsMutex);
+				auto removed = [&portname, &toConnect](const SetConnectionInfo& edge) {
+					return edge.source_name + ":" + edge.source_port_name == portname &&
+						!toConnect.count(edge.sink_name + ":" + edge.sink_port_name);
+				};
+				std::erase_if(mLinkAudioSetConnections, removed);
+				std::erase_if(mLinkAudioPendingConnections, [&removed](const PendingLinkConnection& p) { return removed(p.info); });
 			}
 
 			//check existing connections, disconnect anything that is connected but not in the list
@@ -1335,7 +1408,7 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 				}
 			}
 			if (updateParam) {
-				param->push_value(values);
+				param->push_value_quiet(values);
 			}
 		};
 
@@ -1394,7 +1467,7 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 				//or there are any params that jack sees but aren't in the param list
 				//push an update
 				if (update || !notInJack.empty() || inJackNotParam) {
-					param->push_value(values);
+					param->push_value_quiet(values);
 					//notify changes
 					if (connectionChangeCallback) {
 						connectionChangeCallback(ConnectionChange(cleanupPortNameInfo(portname), isSource, connections));
@@ -1407,6 +1480,9 @@ void ProcessAudioJack::processEvents(std::function<void(ConnectionChange)> conne
 				updatePorts();
 				//jack-transport-link ports may have just (re)appeared; retry any deferred routing
 				retryLinkAudioPendingConnections();
+				if (connectionChangeCallback) {
+					connectionChangeCallback(ConnectionChange::invalidate());
+				}
 			}
 			if (mPortConnectionPoll && mPortConnectionPoll.get() < now) {
 				std::set<std::string> names;
@@ -2915,6 +2991,9 @@ void ProcessAudioJack::syncLinkAudioFromState() {
 		//Confirm the loaded set's arrangement, and notice when the user takes it over.
 		std::lock_guard<std::mutex> guard(mLinkAudioDesiredMutex);
 
+		if (!mLinkAudioEverAvailable) {
+			mLinkAudioSetupChanged.store(true);
+		}
 		mLinkAudioEverAvailable = true;
 		//What a set records, kept here rather than re-derived from the slot mirrors at save time:
 		//those go empty when jack_transport_link does, and a save in that window would write the

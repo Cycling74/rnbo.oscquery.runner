@@ -427,6 +427,12 @@ FILE(COPY ${RNBO_CPP_FILES} DESTINATION src/rnbo)
 
 add_executable(${PROJECT_APP} ${PROJECT_SRC})
 
+option(RUNNER_BUILD_TESTS "Build runner state regression tests" OFF)
+if (RUNNER_BUILD_TESTS)
+	enable_testing()
+	add_subdirectory(tests)
+endif()
+
 target_link_libraries(${PROJECT_APP}
 	${Boost_LIBRARIES}
 	${libossia_LIBRARIES}

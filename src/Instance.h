@@ -78,7 +78,8 @@ class Instance {
 		// get the current configuration for this instance:
 		//  last loaded preset
 		//  sample mapping
-		RNBO::Json currentConfig();
+		// Pass false for structural comparisons without preset state or database queries.
+		RNBO::Json currentConfig(bool includePresetState = true);
 
 		//register a function to be called when configuration values change
 		//this will be called in the same thread as `processEvents`
@@ -96,9 +97,6 @@ class Instance {
 		void presetsUpdateMarkClean() {
 			mPresetsDirty = false;
 			updatePresetEntries();
-		}
-		void markConfigChanged(bool v) {
-			mConfigChanged = v;
 		}
 
 		//should we store/load a preset for this instance when storing/loading set presets?
