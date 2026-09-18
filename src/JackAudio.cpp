@@ -3910,7 +3910,6 @@ void InstanceAudioJack::processEvents() {
 	if (state == AudioState::Stopped) {
 		mActivated = false;
 		jack_deactivate(mJackClient);
-		std::this_thread::sleep_for(std::chrono::milliseconds(20));
 		return;
 	}
 
