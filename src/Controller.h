@@ -48,7 +48,7 @@ class Controller {
 		void replaceDB(boost::filesystem::path& path);
 
 		//return null on failure
-		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path());
+		std::shared_ptr<Instance> loadLibrary(const std::string& path, std::string cmdId = std::string(), RNBO::Json conf = nullptr, bool saveConfig = true, unsigned int instanceIndex = 0, const boost::filesystem::path& config_path = boost::filesystem::path(), bool refreshPorts = true);
 		//load set marked as initial, or.. if that doesn't exist, load lastSetName
 		void loadInitialSet();
 		void loadSet(std::string name);

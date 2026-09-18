@@ -1942,7 +1942,7 @@ void Controller::replaceDB(fs::path& path) {
 	updatePatchersInfo();
 }
 
-std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path) {
+std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path, bool refreshPorts) {
 	//clear out our last instance presets, loadSet should already have it if there is one
 	mInstanceLastPreset.clear();
 
@@ -2023,7 +2023,8 @@ std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::
 		if (saveConfig)
 			queueSave();
 		reportActive();
-		mProcessAudio->updatePorts();
+		if (refreshPorts)
+			mProcessAudio->updatePorts();
 		return instance;
 	} catch (const std::exception& e) {
 		std::cerr << "failed to load library: " << fname << " exception: " << e.what() << std::endl;
@@ -2107,8 +2108,8 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 				}
 			}
 
-			//load library but don't save config
-			auto inst = loadLibrary(libPath.string(), std::string(), config, false, index, confPath);
+			// Refresh ports once below, after all instances and Link Audio slots exist.
+			auto inst = loadLibrary(libPath.string(), std::string(), config, false, index, confPath, false);
 			if (!inst) {
 				cerr << "failed to load library " << libPath << endl;
 				continue;
