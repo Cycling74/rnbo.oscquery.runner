@@ -182,9 +182,9 @@ What to expect:
   an address is self-assigned — DHCP has to time out first
 * both ends need an address in `169.254.0.0/16`. If either side has IPv4 turned off, or set
   manually with no address, nothing on the link is reachable over IPv4
-* the link also has IPv6 link-local (`fe80::`) addresses and the runner listens on those too,
-  but they can only be used with an interface zone suffix (`fe80::1%eth0`), and a URL cannot
-  carry one at all. Prefer the `.local` name or the `169.254.x.x` address.
+* the host may also have an IPv6 link-local (`fe80::`) address, but the runner currently
+  requires IPv4. Use the `.local` name or the `169.254.x.x` address; an IPv6 address alone
+  is not enough to connect to the runner.
 
 ### Runner configuration
 
@@ -259,8 +259,10 @@ ipconfig                           # expect "Autoconfiguration IPv4 Address"
 
 `.local` names resolve natively on Windows 10 and later — no Bonjour install needed. Note that
 name resolution generally prefers IPv6, so `ping <hostname>.local` will usually answer from the
-`fe80::` address even though the `169.254.x.x` one is present and working. On older Windows
-versions either install Apple's Bonjour or connect by address.
+`fe80::` address even though the `169.254.x.x` one is present and working. An IPv6 ping reply
+only confirms that the host is reachable over IPv6; it does not confirm connectivity to the
+runner. Use `ping -4 <hostname>.local` to check IPv4 connectivity. On older Windows versions
+either install Apple's Bonjour or connect by address.
 
 **Linux** — with NetworkManager, the same settings as the runner:
 
