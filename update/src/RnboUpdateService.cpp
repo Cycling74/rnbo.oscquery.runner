@@ -68,7 +68,7 @@ void RnboUpdateService::computeOutdated() {
 	}
 }
 
-void RnboUpdateService::findLatestRunner() {
+bool RnboUpdateService::findLatestRunner() {
 	int newest = 0;
 	bool exact = false; //if there is an exact match
 
@@ -110,11 +110,20 @@ void RnboUpdateService::findLatestRunner() {
 			}
 	});
 
-	std::string latest = mLibVersion; //fall back to exact match
+	std::string latest;
+	bool found = true;
 	if (newest != 0) {
 		latest = mLibVersion + "-" + std::to_string(newest);
 		std::cout << "found rnbooscquery=" << latest << std::endl;
-	} else if (!exact) {
+	} else if (exact) {
+		//the repo has a package with exactly our library version and no application revision
+		latest = mLibVersion;
+	} else {
+		//Report an empty version rather than falling back to mLibVersion. Reporting the library
+		//version here is indistinguishable from actually finding a package with that exact version,
+		//so clients offer an update to a package that doesn't exist, and that answer sticks around
+		//for the next client to read, whatever library version it asked about.
+		found = false;
 		std::cerr << "failed to find runner version with version prefix " << mLibVersion << std::endl;
 	}
 
@@ -122,6 +131,7 @@ void RnboUpdateService::findLatestRunner() {
 		mLatestRunnerVersion = latest;
 		emitPropertiesChangedSignal(rnbo_adaptor::INTERFACE_NAME, {"LatestRunnerVersion"});
 	}
+	return found;
 }
 
 //TODO make sure that the package doesn't conflict with our library version
@@ -185,8 +195,8 @@ void RnboUpdateService::evaluateCommands() {
 		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to search anyway");
 		}
-		findLatestRunner();
-		updateState(RunnerUpdateState::Idle, "runner search complete");
+		bool found = findLatestRunner();
+		updateState(RunnerUpdateState::Idle, found ? "runner search complete" : "no runner package found for librnbo=" + mLibVersion);
 
 		searchlatestdeps = true;
 	}

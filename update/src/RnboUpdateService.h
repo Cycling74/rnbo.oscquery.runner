@@ -23,7 +23,8 @@ class RnboUpdateService : public sdbus::AdaptorInterfaces<com::cycling74::rnbo_a
 		//return true on success
 		bool updatePackages();
 		void computeOutdated();
-		void findLatestRunner();
+		//return true if a runner package matching the current library version was found
+		bool findLatestRunner();
 		std::string findLatest(std::string package);
 
 		//methods
