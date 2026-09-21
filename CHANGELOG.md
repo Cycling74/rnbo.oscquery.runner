@@ -1,6 +1,11 @@
 # RNBO Runner Changes
 
 * *current*
+    * update service 0.4.2: no longer reports its own library version as the latest available
+      runner when it can't find a runner package for that version. That answer was
+      indistinguishable from really having found a package with exactly that version, so Max
+      offered an update to a package that doesn't exist, and the stale answer was then read by
+      the next Max to connect, whatever library version it asked about.
     * jack_transport_link updates
         * thread thru link audio config, sets save their Link Audio arrangement
         * communicate to/from jack_transport_link with OSC
