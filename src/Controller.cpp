@@ -634,7 +634,7 @@ void RunnerLog(RNBO::LogLevel level, const char* message) {
 
 Controller::Controller(std::string server_name) {
 
-	RNBO::console->setLoggerOutputCallback(RunnerLog);
+	RNBO::Logger::getInstance().setLoggerOutputCallback(RunnerLog);
 
 	mDB = std::make_shared<DB>();
 
