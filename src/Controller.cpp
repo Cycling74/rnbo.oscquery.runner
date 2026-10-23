@@ -626,7 +626,7 @@ private:
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
-void RunnerLog(RNBO::LogLevel level, const char* message) {
+void RunnerLog(RNBO::LogLevel level, RNBO::ErrorCode, const char* message, void*) {
 	const static std::array<const std::string, 4> levelStr = { "[DEBUG]", "[INFO]", "[WARNING]", "[ERROR]" };
 	const size_t index = std::min((size_t)level, levelStr.size() - 1);
 	std::cout << levelStr[index] << "\t" << message << std::endl;
@@ -634,7 +634,7 @@ void RunnerLog(RNBO::LogLevel level, const char* message) {
 
 Controller::Controller(std::string server_name) {
 
-	RNBO::Logger::getInstance().setLoggerOutputCallback(RunnerLog);
+	RNBO::setFallbackLogCallback(RunnerLog);
 
 	mDB = std::make_shared<DB>();
 
