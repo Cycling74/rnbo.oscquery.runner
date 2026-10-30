@@ -17,7 +17,7 @@
 #include "Util.h"
 #include "PatcherFactory.h"
 #include "RNBO_Version.h"
-#include "RNBO_LoggerImpl.h"
+#include "RNBO_Logger.h"
 
 #include <boost/process.hpp>
 #include <boost/process/child.hpp>
