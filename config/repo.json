@@ -1,6 +1,32 @@
 {
   "os_list": [
     {
+      "name": "RNBO 1.4.6 (Trixie, 64-bit)",
+      "description": "RNBO customized trixie installation",
+      "icon": "https://assets.cycling74.com/rnbo/pi-images/rnbo.png",
+      "url": "https://assets.cycling74.com/rnbo/pi-images/raspios-trixie-lite-64bit-rnbooscquery-1.4.6-9.img.zip",
+      "extract_size": 3170893824,
+      "extract_sha256": "f0f7a96801544fa7a91e6a5049e91fbd6c380ce0909c941cc85df7b826ae08b3",
+      "image_download_size": 877182683,
+      "release_date": "2026-11-04",
+      "init_format": "systemd",
+      "capabilities": [],
+      "devices": ["pi5-64bit", "pi4-64bit", "pi3-64bit"]
+    },
+    {
+      "name": "RNBO 1.4.6 (Bookworm, 32-bit)",
+      "description": "RNBO customized bookworm installation",
+      "icon": "https://assets.cycling74.com/rnbo/pi-images/rnbo.png",
+      "url": "https://assets.cycling74.com/rnbo/pi-images/raspios-bookworm-lite-32bit-rnbooscquery-1.4.6-9.img.zip",
+      "extract_size": 2692743168,
+      "extract_sha256": "f62305ebcf24bb678b23f9d0a7716a3eaf52a3bdbc7a87429b57f79450260d60",
+      "image_download_size": 795933565,
+      "release_date": "2026-11-04",
+      "init_format": "systemd",
+      "capabilities": [],
+      "devices": ["pi5-32bit", "pi4-32bit", "pi3-32bit"]
+    },
+    {
       "name": "RNBO 1.4.5 (Trixie, 64-bit)",
       "description": "RNBO customized trixie installation",
       "icon": "https://assets.cycling74.com/rnbo/pi-images/rnbo.png",
