@@ -12,6 +12,7 @@
 
 #include "Controller.h"
 #include "Config.h"
+#include "FileUtil.h"
 #include "Defines.h"
 #include "JackAudio.h"
 #include "Util.h"
@@ -1894,33 +1895,45 @@ Controller::~Controller() {
 	mServer.reset();
 }
 
-void Controller::replaceDB(fs::path& path) {
+bool Controller::replaceDB(fs::path& path) {
 	if (!fs::exists(path)) {
 		throw std::runtime_error("trying to replace db with file that does not exist");
 	}
 
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
-		clearInstances(guard, 0.0f);
-
-		mDB.reset();
 
 		std::string timeTag = std::to_string(std::chrono::seconds(std::time(NULL)).count());
-		std::string backupname = sanitizeName("dbbackup-" + timeTag + "-prerestore-" + rnbo_version + ".sqlite");
+		std::string backupname = sanitizeName("dbbackup-" + timeTag + "-prerestore-" + rnbo_version);
 
-		auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / backupname;
+		auto backuppath = config::get<fs::path>(config::key::BackupDir).get() / (backupname + ".sqlite");
 		auto dbpath = config::get<fs::path>(config::key::DBPath).get();
 
+		// Back up the live database before tearing anything down. SQLite's backup
+		// API also works when BackupDir is on another filesystem.
+		try {
+			fs::create_directories(backuppath.parent_path());
+			if (mDB->backup(backupname).empty())
+				return false;
+		} catch (const std::exception& e) {
+			std::cerr << "failed to back up database to " << backuppath.string()
+					<< " with error " << e.what() << std::endl;
+			return false;
+		}
+
+		// Stopping instances retain their DB connection until processEvents
+		// releases them. Publish a fresh inode so their old handles never refer
+		// to the restored database. Finish all filesystem work before teardown.
 		boost::system::error_code ec;
-		fs::rename(dbpath, backuppath.string(), ec);
+		runner::copy_file_atomic(path, dbpath, ec);
 		if (ec) {
-			std::cerr << "failed to move db file to " << backuppath.string() << std::endl;
+			std::cerr << "failed to restore db file from " << path.string() << " to " << dbpath.string()
+					<< " with error " << ec.message() << std::endl;
+			return false;
 		}
 
-		if (!fs::copy_file(path, dbpath, fs::copy_option::overwrite_if_exists)) {
-			std::cerr << "failed to copy db file from " << backuppath.string() << " to " << dbpath.string() << std::endl;
-		}
-
+		clearInstances(guard, 0.0f);
+		mDB.reset();
 		mDB = std::make_shared<DB>();
 
 		//if the old set exists, rename it
@@ -1940,6 +1953,7 @@ void Controller::replaceDB(fs::path& path) {
 
 	updateSetNames();
 	updatePatchersInfo();
+	return true;
 }
 
 std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path, bool refreshPorts) {
@@ -4420,7 +4434,11 @@ void Controller::registerCommands() {
 						reportCommandError(id, static_cast<unsigned int>(DBCommandStatus::NotFound), "cannot find file at given path " + path.string());
 						return;
 				}
-				replaceDB(path);
+				if (!replaceDB(path)) {
+					reportCommandError(id, static_cast<unsigned int>(DBCommandStatus::Unknown),
+							"failed to back up or replace current database; restore cancelled");
+					return;
+				}
 				reportCommandResult(id, {
 						{"code", static_cast<unsigned int>(DBCommandStatus::Completed)},
 						{"message", "completed"},

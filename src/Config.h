@@ -20,7 +20,7 @@ namespace config {
 		const static std::string BackupDir = "backup_dir"; //where do we save backup (like db) data
 		const static std::string DBPath = "db_path"; //where is the database file?
 		const static std::string PackageDir = "package_dir"; //where do we store import/exported package data (sets, patchers)
-		const static std::string TempDir = "temp_dir"; //where to place temp files
+		const static std::string TempDir = "temp_dir"; //scratch storage, defaults to ~/.cache/rnbooscquery/tmp
 																																																			//
 		const static std::string HostNameOverride = "host_name_override"; //indicate a value to override the host name to report via OSCQuery
 
@@ -51,6 +51,9 @@ namespace config {
 
 	//initialize the configuration system
 	void init();
+
+	// The runner-owned default, also used to limit startup cleanup to this path.
+	boost::filesystem::path default_temp_dir();
 
 	void set_file_path(boost::filesystem::path p);
 	boost::filesystem::path file_path();

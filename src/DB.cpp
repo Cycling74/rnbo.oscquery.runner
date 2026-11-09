@@ -22,6 +22,7 @@
 #include <boost/uuid/uuid_io.hpp>
 
 #include <SQLiteCpp/Backup.h>
+#include <sqlite3.h>
 
 // https://srombauts.github.io/SQLiteCpp/
 
@@ -849,7 +850,11 @@ std::string DB::backup(std::string backupname) {
                               SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE);
     SQLite::Backup backup(backupDB, mDB);
     try {
-      backup.executeStep();
+      if (backup.executeStep() != SQLITE_DONE) {
+        std::cerr << "database backup did not complete: " << backuppath.string()
+                  << std::endl;
+        return "";
+      }
     } catch (...) {
       std::cerr << "failed to backup db to: " << backuppath.string()
                 << std::endl;
