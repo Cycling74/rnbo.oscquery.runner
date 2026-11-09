@@ -1,5 +1,10 @@
 # RNBO Runner Changes
 
+* *Unreleased*
+    * bugfix: recordings and dataref saves now fall back to copy-and-delete when temporary storage and the destination are on different filesystems. Audio saves use unique temporary names and check writes and close the file before moving it.
+    * changed the default `temp_dir` to `~/.cache/rnbooscquery/tmp`, replacing the `/tmp`/`TMPDIR` default. Explicit `temp_dir` overrides remain supported. The default directory is cleaned on server startup when no other runner is using it; custom directories are left untouched.
+    * bugfix: database restore backs up the live database before teardown and atomically replaces the database file with a fresh inode. Backup or file replacement failure cancels the restore while leaving the current database and instances running.
+
 * *1.4.4-6*
     * bugfix: restore clearing out dataref mapping thru sending an empty string
     * bugfix: rounding error with enumerated params [ticket](https://github.com/Cycling74/rnbo.move.control/issues/16)

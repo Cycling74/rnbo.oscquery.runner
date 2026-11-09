@@ -130,6 +130,7 @@ set(PROJECT_SRC
 	src/PatcherFactory.cpp
 	src/MIDIMap.cpp
 	src/Util.cpp
+	src/FileUtil.cpp
 	common/RunnerUpdateState.cpp
 	${RNBO_DIR}/RNBO.cpp
 )

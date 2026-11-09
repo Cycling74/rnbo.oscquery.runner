@@ -17,6 +17,7 @@
 
 #include "Defines.h"
 #include "Config.h"
+#include "FileUtil.h"
 #include "Instance.h"
 #include "JackAudio.h"
 #include "PatcherFactory.h"
@@ -1630,7 +1631,7 @@ void Instance::saveDataref(std::string id, fs::path dir, std::string filenameTem
 
 			auto t = std::thread([d = std::move(data), dstfile, format, bitdepth, channels, samplerate, frames]() {
 
-					fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / dstfile.filename();
+					fs::path tmpfile = config::get<fs::path>(config::key::TempDir).get() / fs::unique_path("rnbo-dataref-%%%%-%%%%-%%%%-%%%%.wav");
 					fs::create_directories(tmpfile.parent_path());
 
 					SndfileHandle sndfile(tmpfile.string(), SFM_WRITE, format, channels, samplerate);
@@ -1638,19 +1639,26 @@ void Instance::saveDataref(std::string id, fs::path dir, std::string filenameTem
 						std::cerr << "cannot open sound file to write buffer data to: " << tmpfile.string() << std::endl;
 						return;
 					}
+					sf_count_t written;
 					if (bitdepth == 32) {
 						const float * ptr = reinterpret_cast<const float *>(d.data());
-						sndfile.writef(ptr, frames);
+						written = sndfile.writef(ptr, frames);
 					} else {
 						const double * ptr = reinterpret_cast<const double *>(d.data());
-						sndfile.writef(ptr, frames);
+						written = sndfile.writef(ptr, frames);
+					}
+					// Finalize the header before a possible cross-filesystem copy.
+					int closeError = sf_close(sndfile.takeOwnership());
+					if (written != static_cast<sf_count_t>(frames) || closeError != 0) {
+						std::cerr << "failed to finish buffer sound file: " << tmpfile.string() << std::endl;
+						return;
 					}
 
 					boost::system::error_code ec;
 					fs::create_directories(dstfile.parent_path());
-					fs::rename(tmpfile, dstfile, ec);
+					runner::move_file(tmpfile, dstfile, ec);
 					if (ec) {
-						std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << std::endl;
+						std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << " with error " << ec.message() << std::endl;
 					}
 			});
 			t.detach();
