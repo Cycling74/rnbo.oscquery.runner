@@ -627,8 +627,8 @@ private:
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
 void RunnerLog(RNBO::LogLevel level, const char* message) {
-	const static std::array<const std::string, 3> levelStr = { "[INFO]", "[WARNING]", "[ERROR]" };
-	const size_t index = std::min((size_t)level, levelStr.size());
+	const static std::array<const std::string, 4> levelStr = { "[DEBUG]", "[INFO]", "[WARNING]", "[ERROR]" };
+	const size_t index = std::min((size_t)level, levelStr.size() - 1);
 	std::cout << levelStr[index] << "\t" << message << std::endl;
 }
 
