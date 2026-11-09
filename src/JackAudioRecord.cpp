@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "FileUtil.h"
 #include "JackAudioRecord.h"
 #include "Util.h"
 
@@ -410,12 +411,11 @@ void JackAudioRecord::write() {
 		dstfile = dstdir / fs::path(filename + "." + ext);
 	}
 
-	fs::path tmpfile = tmpdir / fs::path(std::string("rnborunner-recording.") + ext);
+	fs::path tmpfile = tmpdir / fs::unique_path("rnbo-recording-%%%%-%%%%-%%%%-%%%%.wav");
 	fs::create_directories(tmpfile.parent_path());
 	fs::create_directories(dstfile.parent_path());
 
 	boost::system::error_code ec;
-	fs::remove(tmpfile, ec);
 
 	//compute timeout
 	size_t timeoutframes = 0;
@@ -428,13 +428,14 @@ void JackAudioRecord::write() {
 
 	double secondslast = 0.0;
 	mSecondsCapturedParam->push_value(0.0);
+	bool writeFailed = false;
 
 	{
 		const size_t channels = mRingBuffers.size();
 		const double sampleratef = static_cast<double>(mSampleRate);
 		size_t frameswritten = 0;
 		double secondswritten = 0.0;
-		auto readwrite = [this, channels, sampleratef, &frameswritten, &secondswritten, &timeoutframes](SndfileHandle& sndfile, std::vector<jack_default_audio_sample_t>& readBuffer, std::vector<jack_default_audio_sample_t>& interlaceBuffer) -> bool {
+		auto readwrite = [this, channels, sampleratef, &frameswritten, &secondswritten, &timeoutframes, &writeFailed](SndfileHandle& sndfile, std::vector<jack_default_audio_sample_t>& readBuffer, std::vector<jack_default_audio_sample_t>& interlaceBuffer) -> bool {
 			//figure out how many bytes we should read
 			size_t bytes = jack_ringbuffer_read_space(mRingBuffers[0]);
 			for (size_t i = 1; i < channels; i++) {
@@ -480,9 +481,11 @@ void JackAudioRecord::write() {
 				frames = std::min(frames, timeoutframes - frameswritten);
 			}
 
-			//TODO assert frames
-			sndfile.writef(interlaceBuffer.data(), frames);
-			frameswritten += frames;
+			auto written = sndfile.writef(interlaceBuffer.data(), frames);
+			if (written != static_cast<sf_count_t>(frames))
+				writeFailed = true;
+			if (written > 0)
+				frameswritten += static_cast<size_t>(written);
 			secondswritten = static_cast<double>(frameswritten) / sampleratef;
 			return true;
 		};
@@ -497,7 +500,7 @@ void JackAudioRecord::write() {
 		int fullreported = 0;
 
 		mDoRecord.store(true); //indicate that we should record
-		while (mWrite.load() && sndfile && (timeoutframes == 0 || frameswritten < timeoutframes)) {
+		while (mWrite.load() && sndfile && !writeFailed && (timeoutframes == 0 || frameswritten < timeoutframes)) {
 			if (readwrite(sndfile, readBuffer, interlaceBuffer)) {
 				if (std::abs(secondslast - secondswritten) >= seconds_report_period_s) {
 					mSecondsCapturedParam->push_value(static_cast<float>(secondswritten));
@@ -526,14 +529,21 @@ void JackAudioRecord::write() {
 		mDoRecord.store(false); //incase of time out, also set from user callback
 
 		//read any remaining data in the buffers
-		readwrite(sndfile, readBuffer, interlaceBuffer);
+		if (!writeFailed)
+			readwrite(sndfile, readBuffer, interlaceBuffer);
 		mSecondsCapturedParam->push_value(static_cast<float>(secondswritten));
+		if (sf_close(sndfile.takeOwnership()) != 0)
+			writeFailed = true;
 	}
 	if (mActiveParam->value().get<bool>()) {
 		mActiveParam->push_value_quiet(false);
 	}
 
-	fs::rename(tmpfile, dstfile, ec);
+	if (writeFailed) {
+		std::cerr << "failed to finish recording sound file: " << tmpfile.string() << std::endl;
+		return;
+	}
+	runner::move_file(tmpfile, dstfile, ec);
 	if (ec) {
 		std::cerr << "failed to move file " << tmpfile.string() << " to " << dstfile.string() << " with error " << ec.message() << std::endl;
 	}

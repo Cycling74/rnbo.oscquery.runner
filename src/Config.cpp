@@ -168,12 +168,7 @@ namespace config {
 				}
 			}
 			if (k == key::TempDir) {
-				std::string tmpdir = "/tmp";
-				auto e = std::getenv("TMPDIR");
-				if (e) {
-					tmpdir = std::string(e); //TODO windows
-				}
-				return fs::absolute(fs::path(tmpdir));
+				return default_temp_dir();
 			}
 
 			return boost::none;
@@ -231,6 +226,10 @@ namespace config {
 
 	std::string get_system_id() {
 		return boost::lexical_cast<std::string>(system_id);
+	}
+
+	fs::path default_temp_dir() {
+		return make_path("~/.cache/rnbooscquery/tmp");
 	}
 
 	void init() {

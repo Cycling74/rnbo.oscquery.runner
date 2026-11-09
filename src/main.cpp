@@ -1,11 +1,13 @@
 #include <chrono>
 #include <thread>
 #include <csignal>
+#include <memory>
 #include <OptionParser.h>
 #include <boost/filesystem.hpp>
 
 #include "Controller.h"
 #include "Config.h"
+#include "FileUtil.h"
 #include "Util.h"
 
 //for gethostname
@@ -97,6 +99,17 @@ int main(int argc, const char * argv[]) {
 		return 0;
 	}
 
+
+	// Prepare scratch storage only for a running server, not --version/--write-config.
+	// Keep the guard alive until after the controller has shut down.
+	std::unique_ptr<runner::TempDirectory> tempDirectory;
+	try {
+		tempDirectory = std::make_unique<runner::TempDirectory>(
+				config::get<fs::path>(config::key::TempDir).get(), config::default_temp_dir());
+	} catch (const std::exception& e) {
+		cerr << "failed to prepare temporary directory: " << e.what() << endl;
+		return 1;
+	}
 
 	//get the host name (or override)
 	auto host = config::get<std::string>(config::key::HostNameOverride);

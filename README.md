@@ -108,6 +108,8 @@ Here is an example of the contents:
 * `compile_cache_dir`: a path to the directory where compiled shared objects are stored
 * `save_dir`: a path to the directory where save data is stored
 * `source_cache_dir`: a path to the directory where source files are stored before compiling
+* `temp_dir`: scratch storage for recordings, dataref saves, and package operations. Defaults to `~/.cache/rnbooscquery/tmp`; `TMPDIR` no longer selects this location. Set `temp_dir` explicitly to use another directory. Keeping it on the destination filesystem allows completed files to be renamed without copying. Across filesystems, audio saves fall back to copy-and-delete; the destination is visible while copying, and a failed copy can leave partial destination data while retaining the source.
+  * On server startup, the default directory is cleared if no other runner is using it. Failed recordings retained there are therefore available only until that cleanup. Custom temporary directories are never cleaned automatically. A shared lock file is kept in the default directory to protect running instances; do not remove it while a runner is active.
 * `datafile_dir`: a path to the directory where datafiles are stored, to be loaded as data refs
   * you can put files directly into this directory and load them via the OSCQuery data ref commands
 * `instance_auto_start_last`: a boolean that indicates if when the runner starts, if it should attempt to load the last patcher it loaded before restart
