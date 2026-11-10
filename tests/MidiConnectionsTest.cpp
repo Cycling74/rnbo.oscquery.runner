@@ -325,12 +325,23 @@ int main() {
 			state.remapConnectionIdentities(updates);
 			state.update("connections", save ? SetDirtyState::connections(rows({controlCable})) : live);
 			require(!state.dirty(), "a restored carried control cable does not leave the set dirty");
-			// Losing it again is a difference like any other, and it returns clean.
+			// When its device goes away again it leaves the baseline with it: only
+			// the set's own cable is then missing.
 			g.removed(1);
-			require(!g.pending().empty() && std::none_of(g.pending().begin(), g.pending().end(),
-				[](const Edge& e) { return e.carried; }), "a cable that was live is no longer carried");
+			require(std::count_if(g.pending().begin(), g.pending().end(), [](const Edge& e) { return e.carried; }) == 1,
+				"the control cable is carried again once its device is gone");
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
 			state.update("connections", SetDirtyState::connections(rows({})));
-			require(state.dirty(), "unplugging the controller again is a difference");
+			require(state.dirty() == !save, "only the set's own missing cable is a difference");
+			state.update("connections", save ? SetDirtyState::connections(rows({})) : SetDirtyState::connections(rows({cable})));
+			require(!state.dirty(), "the carried control cable has left the baseline");
+			// And it joins again when the device is back.
+			g.registered(1);
+			g.observe({keyboard, ctl, synth}, {});
+			retry(g);
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", save ? SetDirtyState::connections(rows({controlCable})) : live);
+			require(!state.dirty(), "a carried control cable can come and go without marking the set");
 		}
 		{
 			// A set that asks for the same control cable supersedes the carried copy.
@@ -376,7 +387,8 @@ int main() {
 		}
 		{
 			// Audio restart: the caller snapshots and reloads the graph it had; only
-			// a carried cable, which is in no snapshot, keeps waiting here.
+			// carried cables, which are in no snapshot, keep waiting here. The set
+			// switch carried both control cables: the absent device's and the live one.
 			const Port away{5, {"system:midi_capture_5", "usb:other:source"}, true};
 			MidiConnections g;
 			SetDirtyState state;
@@ -386,16 +398,17 @@ int main() {
 			g.observe({keyboard, ctl, synth}, {{1, 40}, {1, 2}});
 			state.reset({{"connections", live}});
 			g.restart();
-			require(g.pending().size() == 1 && g.pending()[0].carried && g.pending()[0].source == away.endpoint,
+			require(g.pending().size() == 2 && g.pending()[0].carried && g.pending()[1].carried,
 				"an audio restart keeps only carried cables waiting");
 			require(g.ports().empty() && g.occupied().empty(), "an audio restart forgets every port and live cable");
 			// New client, new port ids; the snapshot is loaded with its control cables.
 			const Port keys2{11, keyboard.endpoint, true}, ctl2{12, ctl.endpoint, false}, synth2{13, synth.endpoint, false};
 			g.observe({keys2, ctl2, synth2}, {});
 			g.clear(false, false);
-			require(g.pending().size() == 1 && g.pending()[0].carried, "restoring the snapshot keeps the carried cable");
-			g.connected({11, 12}, false);
-			g.connected({11, 13}, false);
+			require(g.pending().size() == 2, "restoring the snapshot keeps the carried cables");
+			g.connected({11, 13}, false); // the snapshot's instance cable
+			retry(g); // the present device's control cable comes back by itself
+			require(g.pending().size() == 1 && g.pending()[0].source == away.endpoint, "only the absent device's cable still waits");
 			state.remapConnectionIdentities(g.takeIdentityUpdates());
 			state.update("connections", live);
 			require(!state.dirty(), "the restored graph compares clean against the kept baseline");
@@ -483,6 +496,138 @@ int main() {
 			g.observe({back, ctl}, {{7, 40}});
 			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
 				"a saved cable never takes the absent twin's request");
+		}
+		{
+			// Switching the MIDI backend and back: the other backend's devices have
+			// other identities. Their carried control cables join the baseline while
+			// that backend runs and leave it again with the restart.
+			const Port seqKeys{21, {"system:midi_capture_4", "name:Keys:midi/playback_1:source"}, true};
+			const Edge seqControl{seqKeys.endpoint, ctl.endpoint};
+			MidiConnections g;
+			SetDirtyState state;
+			g.observe({keyboard, ctl, synth}, {{1, 40}, {1, 2}});
+			g.remember(seqControl); // left over from an earlier run with the other backend
+			g.saved({cable, controlCable});
+			require(g.pending().size() == 1 && g.pending()[0].carried, "the other backend's control cable is carried");
+			state.reset({{"connections", live}});
+			g.restart(); // into the other backend
+			g.observe({seqKeys, ctl, synth}, {});
+			retry(g);
+			require(g.pending().empty() && g.carriedCables().count({seqKeys.endpoint.name, ctl.endpoint.name}) == 1,
+				"the carried cable is live with the other backend and known as carried");
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			g.restart(); // and back
+			require(g.pending().size() == 1 && g.pending()[0].carried, "it waits again after switching back");
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", live);
+			require(!state.dirty(), "switching the MIDI backend and back leaves a saved set clean");
+		}
+		{
+			// An explicit load that asks for a live carried cable makes it the set's.
+			const Port out{41, {"rnbo-control:graphreset", {}}, true};
+			const Port keysIn{3, {"system:midi_playback_1", "usb:keys:sink"}, false};
+			const Edge resetCable{out.endpoint, keysIn.endpoint};
+			MidiConnections g;
+			g.observe({out, keysIn}, {{41, 3}});
+			g.removed(3);
+			g.clear(true);
+			g.registered(3);
+			g.observe({out, keysIn}, {});
+			retry(g);
+			require(g.carriedCables().size() == 1, "the restored control cable is carried");
+			g.clear(true); // explicit load of a set that contains it
+			g.connected({41, 3}, false, &resetCable);
+			g.adopt({41, 3});
+			g.takeIdentityUpdates();
+			g.removed(3);
+			require(g.takeIdentityUpdates().empty() && !g.pending()[0].carried,
+				"a cable the loaded set contains does not leave the baseline when unplugged");
+		}
+		{
+			// A reload that keeps its baseline asks for a carried cable whose device
+			// vanished meanwhile: it stays carried and rejoins the baseline.
+			MidiConnections g;
+			g.observe({keyboard, ctl}, {{1, 40}});
+			g.removed(1);
+			g.clear(true);
+			g.registered(1);
+			g.observe({keyboard, ctl}, {});
+			retry(g);
+			g.takeIdentityUpdates(); // joined
+			g.removed(1);
+			require(g.takeIdentityUpdates().size() == 1, "it leaves the baseline with its device");
+			g.clear(false, false);
+			g.defer(controlCable, controlCable, true);
+			require(g.pending().size() == 1 && g.pending()[0].carried, "the reload keeps it carried");
+			g.registered(1);
+			g.observe({keyboard, ctl}, {});
+			retry(g);
+			const auto joined = g.takeIdentityUpdates();
+			require(joined.size() == 1 && joined[0].before == MidiConnectionUpdate::Key{}, "and it rejoins the baseline");
+		}
+		{
+			// Unplugged while a save is being written: the saved set contains the
+			// cable, so the queued removal must not reach the new baseline.
+			MidiConnections g;
+			g.observe({keyboard, ctl}, {{1, 40}});
+			g.removed(1);
+			g.clear(true);
+			g.registered(1);
+			g.observe({keyboard, ctl}, {});
+			retry(g);
+			g.takeIdentityUpdates();
+			g.removed(1);
+			g.resolved({{"old", "legacy:keys"}, ctl.endpoint}, controlCable); // an identity refinement
+			g.saved({controlCable});
+			const auto kept = g.takeIdentityUpdates();
+			require(kept.size() == 1 && kept[0].after == MidiConnections::key(controlCable) &&
+				g.pending().size() == 1 && !g.pending()[0].carried,
+				"a save that stores the cable cancels its queued removal but keeps identity refinements");
+		}
+		{
+			// A set loaded while the other MIDI backend runs: that backend's live
+			// control cables are kept, are in the new baseline while they are live,
+			// and leave it when the backend is switched back.
+			const Port seqKeys{21, {"system:midi_capture_4", "name:Keys:midi/playback_1:source"}, true};
+			const Edge seqControl{seqKeys.endpoint, ctl.endpoint};
+			MidiConnections g;
+			SetDirtyState state;
+			g.observe({seqKeys, ctl, synth}, {{21, 40}});
+			g.clear(true); // set load, no control connections
+			g.defer(cable, cable);
+			g.defer(controlCable, controlCable); // not loaded by a real set switch, but waiting all the same
+			require(g.carriedCables().size() == 1, "a live control cable kept across a set switch is carried");
+			auto edges = rows({seqControl, cable, controlCable});
+			state.reset({{"connections", SetDirtyState::connections(edges)}});
+			g.restart(); // back to the set's own backend
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", live);
+			require(!state.dirty(), "the other backend's control cable leaves the baseline with it");
+			// A load that asks for a live control cable makes it the set's.
+			MidiConnections h;
+			h.observe({keyboard, ctl}, {{1, 40}});
+			h.clear(true);
+			h.connected({1, 40}, false, &controlCable);
+			h.adopt({1, 40});
+			require(h.carriedCables().empty(), "a live control cable the loaded set asks for is the set's");
+		}
+		{
+			// A waiting cable's saved JACK name can be the name of another device's
+			// live port (the sequencer backend numbers ports differently). A
+			// baseline row for it carries no such hint, so both cables count.
+			SetConnectionInfo liveRow("rnbo-control", "graphreset", "Scarlett-2i4-USB", "midi/capture_1");
+			liveRow.sink_midi_identity = "name:Scarlett-2i4-USB:midi/capture_1:sink";
+			liveRow.sink_midi_port = "system:midi_playback_2";
+			SetConnectionInfo waiting("rnbo-control", "graphreset", "out-hw-4-0-0-Faderfox-DJ3-MIDI-1", "");
+			waiting.sink_midi_identity = "usb:2256:1005:path:3-1:midi:0:0:sink";
+			waiting.sink_midi_port = "waiting:0:system:midi_playback_2"; // as the load baseline writes it
+			require(SetDirtyState::connections(std::vector{liveRow, waiting}).size() == 2,
+				"a waiting cable is not folded into a live cable of another device");
+			// Two waiting cables of identical devices stay two.
+			auto twin = waiting;
+			twin.sink_midi_port = "waiting:1:system:midi_playback_3";
+			const auto both = SetDirtyState::connections(std::vector{waiting, twin});
+			require(both.size() == 1 && both.begin()->get<unsigned>() == 2, "waiting cables of identical devices are counted separately");
 		}
 		{
 			// A control cable the save stored stays part of the saved set.

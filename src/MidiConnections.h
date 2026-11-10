@@ -41,8 +41,10 @@ public:
 		std::string sourceRequested, sinkRequested;
 		// A waiting end whose port id was taken from the one exact device present.
 		bool sourceAdopted = false, sinkAdopted = false;
-		// Runtime-only: a waiting control cable kept across a set switch or a save
-		// that the current set does not contain. Restoring it is not an edit.
+		// Runtime-only: a control cable kept across a set switch or a save that
+		// the current set does not contain. It is in the baseline exactly while it
+		// is live: it joins when restored and leaves when its device goes away,
+		// so it never reads as an edit.
 		bool carried = false;
 		// Runtime-only: a live cable that came from a request (load, recovery, a
 		// satisfied waiting cable) or was committed by a save, as opposed to one
@@ -90,22 +92,33 @@ public:
 		return !requested.empty() ? requested : canonical(source ? edge.source : edge.sink, source).identity;
 	}
 	// A load request that could not be connected yet: keep what was asked for.
-	void defer(Edge edge, const Edge& requested) {
+	// `retained`: the caller rebuilds a graph it had and keeps its baseline, so a
+	// carried cable it asks for again stays carried.
+	void defer(Edge edge, const Edge& requested, bool retained = false) {
 		edge.sourceRequested = canonical(requested.source, true).identity;
 		edge.sinkRequested = canonical(requested.sink, false).identity;
-		supersede(edge);
+		if (supersede(edge) && retained) edge.carried = true;
 		remember(edge, true);
+	}
+	// An explicit set load connected this cable: the set contains it.
+	void adopt(Pair ids) {
+		auto live = mLive.find(ids);
+		if (live != mLive.end()) live->second.carried = false;
 	}
 	// A set load asks for this cable itself: a carried copy of it is superseded,
 	// or one cable would be restored, and counted, twice. JACK names are only
 	// hints (a saved one can be stale), so the copy is found by identity.
-	void supersede(const Edge& edge) {
+	std::optional<Edge> supersede(const Edge& edge) {
 		for (const bool named : {true, false}) {
 			auto copy = std::find_if(mPending.begin(), mPending.end(), [&](const Edge& e) {
 				return e.carried && (named ? exact(e, edge) : same(e, edge));
 			});
-			if (copy != mPending.end()) { mPending.erase(copy); return; }
+			if (copy == mPending.end()) continue;
+			auto result = *copy;
+			mPending.erase(copy);
+			return result;
 		}
+		return {};
 	}
 	void remember(const Edge& edge, bool distinct = false) {
 		// Different JACK names with the same identity are different cables.
@@ -117,11 +130,14 @@ public:
 		if (a == mPorts.end() || b == mPorts.end() || mForgotten.count(ids.first) || mForgotten.count(ids.second)) return;
 		Edge edge{a->second.endpoint, b->second.endpoint, ids.first, ids.second};
 		// Observation re-runs for every live cable; it must keep what it was requested under.
+		const auto live = mLive.find(ids);
+		if (live != mLive.end()) edge.carried = live->second.carried;
 		if (request) {
 			edge.sourceRequested = requestedIdentity(*request, true);
 			edge.sinkRequested = requestedIdentity(*request, false);
 			edge.owned = true;
-		} else if (auto live = mLive.find(ids); live != mLive.end()) {
+			edge.carried = edge.carried || request->carried;
+		} else if (live != mLive.end()) {
 			edge.sourceRequested = live->second.sourceRequested;
 			edge.sinkRequested = live->second.sinkRequested;
 			edge.owned = live->second.owned;
@@ -142,6 +158,7 @@ public:
 					mLive[ids].sourceRequested = requestedIdentity(request, true);
 					mLive[ids].sinkRequested = requestedIdentity(request, false);
 					mLive[ids].owned = true;
+					mLive[ids].carried = request.carried;
 					resolved(request, edge, ids);
 					break;
 				}
@@ -190,6 +207,8 @@ public:
 			if (it->first.first == id || it->first.second == id) {
 				auto deadline = mDisconnectDeadlines.find(it->first);
 				if (deadline == mDisconnectDeadlines.end() || when < deadline->second) {
+					// A carried cable leaves the baseline with its device.
+					if (it->second.carried) mIdentityUpdates.push_back({key(it->second), {}});
 					lost(it->second);
 					it->second.sourceRequested.clear();
 					it->second.sinkRequested.clear();
@@ -380,18 +399,24 @@ public:
 			remaining.erase(it);
 			return true;
 		};
-		auto omitted = [&](const Edge& edge) {
-			const bool kept = stored(edge);
-			return !kept && !(preserveControl && control(edge));
-		};
+		// The saved snapshot becomes the caller's baseline: carried cables are
+		// accounted for anew below. Identity refinements stay; one the snapshot
+		// already reflects finds nothing to change.
+		std::erase_if(mIdentityUpdates, [](const MidiConnectionUpdate& update) {
+			return update.before == MidiConnectionUpdate::Key{} || update.after == MidiConnectionUpdate::Key{};
+		});
 		// Match live cables first so a surviving twin cannot preserve an absent
 		// twin's cable when the saved snapshot contained only one of them.
 		std::erase_if(mLive, [&](auto& p) {
-			if (omitted(p.second)) return true;
+			const bool inSnapshot = stored(p.second);
+			if (!inSnapshot && !(preserveControl && control(p.second))) return true;
 			// The save stored the current identities; older requests are obsolete.
 			p.second.sourceRequested = p.second.source.identity;
 			p.second.sinkRequested = p.second.sink.identity;
 			p.second.owned = true;
+			if (inSnapshot) p.second.carried = false; // the saved set contains it now
+			// Restored after the snapshot was taken: still outside the saved set.
+			else if (p.second.carried && mActual.count(p.first)) mIdentityUpdates.push_back({{}, key(p.second)});
 			return false;
 		});
 		std::erase_if(mPending, [&](Edge& edge) {
@@ -411,6 +436,9 @@ public:
 		std::erase_if(mPending, discard);
 		if (carry) for (auto& edge : mPending) edge.carried = true;
 		std::erase_if(mLive, [&](const auto& p) { return discard(p.second); });
+		// A live control cable kept across the set switch is not the new set's
+		// either, unless the load then asks for it (see adopt()).
+		if (carry) for (auto& entry : mLive) entry.second.carried = true;
 		std::erase_if(mDisconnectDeadlines, [&](const auto& p) { return !mLive.count(p.first); });
 		if (carry) mIdentityUpdates.clear(); // a retained baseline still needs them
 	}
@@ -418,11 +446,11 @@ public:
 	// the graph it knows from its own snapshot; carried cables are in no snapshot
 	// and keep waiting here.
 	void restart() {
+		mIdentityUpdates.clear();
 		auto ids = mRegistered;
 		for (const auto& entry : mPorts) ids.insert(entry.first);
-		for (const auto id : ids) removed(id);
+		for (const auto id : ids) removed(id); // live carried cables leave the baseline
 		std::erase_if(mPending, [](const Edge& edge) { return !edge.carried; });
-		mIdentityUpdates.clear();
 		mDisconnectDeadlines.clear();
 		releaseClaims();
 	}
@@ -471,6 +499,14 @@ public:
 		return updates;
 	}
 	const std::vector<Edge>& pending() const { return mPending; }
+	bool isConnected(Pair ids) const { return mActual.count(ids) != 0; }
+	// JACK port names of the live cables that are carried.
+	std::set<std::pair<std::string, std::string>> carriedCables() const {
+		std::set<std::pair<std::string, std::string>> result;
+		for (const auto& entry : mLive) if (entry.second.carried && mActual.count(entry.first))
+			result.emplace(entry.second.source.name, entry.second.sink.name);
+		return result;
+	}
 	const std::map<uint32_t, Port>& ports() const { return mPorts; }
 	std::string savedIdentity(const Port& port) const { return port.endpoint.identity; }
 private:

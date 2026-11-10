@@ -39,7 +39,8 @@ class ProcessAudio {
 
 		// During load only, include requested MIDI cables whose devices are still absent.
 		virtual std::vector<MidiConnectionUpdate> takeMidiIdentityUpdates() { return {}; }
-		virtual std::vector<SetConnectionInfo> loadConnectionBaseline() { return connections(); }
+		// restart: the graph to rebuild after an audio restart, without carried cables
+		virtual std::vector<SetConnectionInfo> loadConnectionBaseline(bool restart = false) { return connections(); }
 
 		// Called only after a successful explicit save, with the exact saved snapshot.
 		virtual void connectionsSaved(const std::vector<SetConnectionInfo>& connections) { }

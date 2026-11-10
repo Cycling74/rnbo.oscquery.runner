@@ -82,9 +82,13 @@ The exception is control MIDI: an explicit offline save always preserves pending
 `rnbo-control` cables. Control recovery also survives a set switch that does not
 load control connections; that load leaves the preserved cables out of its
 baseline, since the loaded set never contained them. Such a carried cable joins
-the baseline when its device returns and the cable is restored, so the return
-does not read as an edit; the same holds for a control cable kept by an offline
-save. An intentional control
+the baseline when its device returns and the cable is restored, and leaves it
+again when the device goes away, so it never reads as an edit; the same holds
+for a control cable kept by an offline save. This also covers switching the
+MIDI backend (raw or sequencer) and back: the other backend's devices have other
+identities, and their control cables come and go with it. A live control cable that is kept across a set
+switch is carried in the same way, unless the loaded set asks for it. A save
+that includes a carried cable makes it part of the saved set. An intentional control
 disconnect still stays disconnected; neither saving nor auto-connect recreates a
 forgotten cable. A control cable made by hand or loaded from a set is restored
 like any other, whatever `ControlAutoConnectMIDI` says: the option only controls

@@ -2462,7 +2462,7 @@ SetInfo Controller::setInfo(bool withPending) {
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 
 	//withPending: also the MIDI cables that are waiting for a device to return
-	info.connections = withPending ? mProcessAudio->loadConnectionBaseline() : mProcessAudio->connections();
+	info.connections = withPending ? mProcessAudio->loadConnectionBaseline(true) : mProcessAudio->connections();
 	info.link_audio = mProcessAudio->linkAudioSetup();
 
 	for (auto& i: mInstances) {

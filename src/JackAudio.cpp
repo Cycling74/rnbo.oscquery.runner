@@ -795,12 +795,13 @@ std::vector<MidiConnectionUpdate> ProcessAudioJack::takeMidiIdentityUpdates() {
 	return mMidiConnections.takeIdentityUpdates();
 }
 
-std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline() {
+std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline(bool restart) {
 	auto result = connections();
 	std::lock_guard<std::mutex> guard(mMidiMutex);
-	// Mark every MIDI end with its JACK name as the hint, so a reload of this
-	// graph knows that an application port which is slow to return is MIDI.
-	{
+	// For a restart, mark every MIDI end with its JACK name as the hint, so the
+	// reload of this graph knows that an application port which is slow to
+	// return is MIDI.
+	if (restart) {
 		std::set<std::string> midi;
 		for (const auto& entry : mMidiConnections.ports()) midi.insert(entry.second.endpoint.name);
 		auto hint = [&midi](const std::string& name, const std::string& port, std::string& out) {
@@ -811,6 +812,18 @@ std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline() {
 			hint(c.source_name, c.source_port_name, c.source_midi_port);
 			hint(c.sink_name, c.sink_port_name, c.sink_midi_port);
 		}
+	}
+	// Carried cables are not the set's: across a restart the MIDI graph keeps them
+	// waiting itself, and they rejoin the baseline when they come back.
+	if (restart) {
+		const auto carried = mMidiConnections.carriedCables();
+		auto jackName = [](const std::string& name, const std::string& port, const std::string& hint) {
+			return !hint.empty() ? hint : name + (port.empty() ? "" : ":" + port);
+		};
+		std::erase_if(result, [&](const SetConnectionInfo& c) {
+			return carried.count({jackName(c.source_name, c.source_port_name, c.source_midi_port),
+				jackName(c.sink_name, c.sink_port_name, c.sink_midi_port)}) != 0;
+		});
 	}
 	for (const auto& edge : mMidiConnections.pending()) {
 		// A load without control connections keeps old control cables pending, but the
@@ -824,9 +837,18 @@ std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline() {
 		SetConnectionInfo c(source[0], source[1], sink[0], sink[1]);
 		c.source_midi_identity = edge.source.identity;
 		c.sink_midi_identity = edge.sink.identity;
-		// The hint also marks an identity-less end as a MIDI port that was waiting.
-		c.source_midi_port = edge.source.name;
-		c.sink_midi_port = edge.sink.name;
+		// A waiting cable's JACK name is stale by nature. For a restart it marks a
+		// MIDI port that was waiting. In a baseline it must neither be mistaken
+		// for the live port that has that name now, nor may two waiting cables
+		// of identical devices fold into one: each gets an address of its own.
+		if (restart) {
+			c.source_midi_port = edge.source.name;
+			c.sink_midi_port = edge.sink.name;
+		} else {
+			const auto waiting = "waiting:" + std::to_string(&edge - mMidiConnections.pending().data()) + ":";
+			c.source_midi_port = waiting + edge.source.name;
+			c.sink_midi_port = waiting + edge.sink.name;
+		}
 		result.push_back(std::move(c));
 	}
 	return result;

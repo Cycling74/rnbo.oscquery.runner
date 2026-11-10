@@ -60,7 +60,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections, bool retainBaseline = false) override;
 		virtual std::vector<SetConnectionInfo> connections() override;
 		std::vector<MidiConnectionUpdate> takeMidiIdentityUpdates() override;
-		std::vector<SetConnectionInfo> loadConnectionBaseline() override;
+		std::vector<SetConnectionInfo> loadConnectionBaseline(bool restart = false) override;
 		void connectionsSaved(const std::vector<SetConnectionInfo>& connections) override;
 
 		// disconnect non rnbo

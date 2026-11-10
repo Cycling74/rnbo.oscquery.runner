@@ -160,8 +160,20 @@ inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, Midi
 				graph.resolved({MidiConnections::canonical(requested.source, true), MidiConnections::canonical(requested.sink, false)},
 					{source.port->endpoint, sink.port->endpoint}, ids);
 			}
-			graph.supersede({source.port->endpoint, sink.port->endpoint});
-			graph.connected({source.port->id, sink.port->id}, false, &requested);
+			const MidiConnections::Pair pair{source.port->id, sink.port->id};
+			const MidiConnections::Edge found{source.port->endpoint, sink.port->endpoint};
+			// A cable that is already there is only being reasserted: a carried
+			// request with the same identity then belongs to an absent twin.
+			const auto copy = graph.isConnected(pair) ? std::optional<MidiConnections::Edge>{} : graph.supersede(found);
+			if (retained && copy) {
+				// The rebuilt graph asks for a carried cable again: it is that cable
+				// coming back, and stays carried.
+				graph.resolved(*copy, found, pair);
+				graph.connected(pair, false, &*copy);
+			} else {
+				graph.connected(pair, false, &requested);
+				if (!retained) graph.adopt(pair);
+			}
 		}
 		return;
 	}
@@ -177,7 +189,7 @@ inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, Midi
 		// One end may already have been found elsewhere; the kept baseline follows it now.
 		if (retained) graph.resolved({MidiConnections::canonical(requested.source, true),
 			MidiConnections::canonical(requested.sink, false)}, edge);
-		graph.defer(edge, requested);
+		graph.defer(edge, requested, retained);
 		if (source.port) taken.insert(source.port->id);
 		if (sink.port) taken.insert(sink.port->id);
 	}
