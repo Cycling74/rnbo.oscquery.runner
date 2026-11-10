@@ -800,8 +800,8 @@ std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline() {
 	std::lock_guard<std::mutex> guard(mMidiMutex);
 	for (const auto& edge : mMidiConnections.pending()) {
 		// A load without control connections keeps old control cables pending, but the
-		// loaded set never contained them.
-		if (!mLoadedControlConnections && MidiConnections::control(edge)) continue;
+		// loaded set never contained them. They join the baseline when restored.
+		if (edge.carried) continue;
 		auto source = cleanupPortNameInfo(edge.source.name), sink = cleanupPortNameInfo(edge.sink.name);
 		SetConnectionInfo c(source[0], source[1], sink[0], sink[1]);
 		c.source_midi_identity = edge.source.identity;
@@ -810,6 +810,8 @@ std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline() {
 		c.sink_midi_port = edge.sink.identity.empty() ? "" : edge.sink.name;
 		result.push_back(std::move(c));
 	}
+	// Everything resolved so far is already in this result.
+	mMidiConnections.takeIdentityUpdates();
 	return result;
 }
 
@@ -833,15 +835,14 @@ void ProcessAudioJack::editMidiConnections(const std::string& port, bool source,
 	mMidiConnections.edit(port, source, peers);
 }
 
-bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) {
+bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections, bool retainBaseline) {
 	// Each load replaces the previous restoration generation, including legacy sets.
 	clearLinkAudioPendingConnections();
 	if (mJackClient) {
 		refreshMidiConnections();
 		{
 			std::lock_guard<std::mutex> guard(mMidiMutex);
-			mMidiConnections.clear(!withControlConnections);
-			mLoadedControlConnections = withControlConnections;
+			mMidiConnections.clear(!withControlConnections, !retainBaseline);
 		}
 
 		// A serial-less device in another saved cable's socket is not available to

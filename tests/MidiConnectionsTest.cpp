@@ -265,6 +265,111 @@ int main() {
 		require(control.pending().empty(), "saving must not recreate an explicitly disconnected control cable");
 	}
 	{
+		// A control cable carried across a set switch is left out of the loaded
+		// set's baseline; when its device returns it joins the baseline instead of
+		// reading as an edit.
+		struct Row { std::string source_name, source_port_name, sink_name, sink_port_name; };
+		auto rows = [](const std::vector<Edge>& edges) {
+			std::vector<Row> result;
+			for (const auto& edge : edges) {
+				const auto k = MidiConnections::key(edge);
+				result.push_back({k[0], k[1], k[2], k[3]});
+			}
+			return result;
+		};
+		auto baseline = [&](const MidiConnections& g) {
+			std::vector<Edge> edges;
+			for (const auto& edge : g.pending()) if (!edge.carried) edges.push_back(edge);
+			return SetDirtyState::connections(rows(edges));
+		};
+		auto retry = [](MidiConnections& g) {
+			for (size_t i = 0; i < g.pending().size();) {
+				const auto edge = g.pending()[i];
+				const auto [source, sink] = g.resolveRecovery(edge);
+				if (!source || !sink) { ++i; continue; }
+				g.forget(edge);
+				g.resolved(edge, {source->endpoint, sink->endpoint}, MidiConnections::Pair{source->id, sink->id});
+				g.connected({source->id, sink->id}, false, &edge);
+			}
+		};
+		const Port ctl{40, {"rnbo-control:midiin", {}}, false};
+		const Edge controlCable{keyboard.endpoint, ctl.endpoint};
+		const auto live = SetDirtyState::connections(rows({cable, controlCable}));
+		for (const bool save : {false, true}) {
+			MidiConnections g;
+			SetDirtyState state;
+			g.observe({keyboard, ctl, synth}, {{1, 40}, {1, 2}});
+			g.removed(1);
+			g.observe({ctl, synth}, {});
+			if (save) {
+				// Saved while the controller is away: the snapshot has neither cable.
+				g.saved({});
+				require(g.pending().size() == 1 && g.pending()[0].carried, "a control cable kept by an offline save is carried");
+				state.reset({{"connections", SetDirtyState::connections(rows({}))}});
+			} else {
+				g.clear(true); // set switch without control connections
+				g.defer(cable, cable);
+				require(g.pending().size() == 2 && g.pending()[0].carried && !g.pending()[1].carried,
+					"only the control cable kept across the set switch is carried");
+				state.reset({{"connections", baseline(g)}});
+				state.update("connections", SetDirtyState::connections(rows({})));
+				require(state.dirty(), "a set loaded without its device is dirty");
+			}
+			g.registered(1);
+			g.observe({keyboard, ctl, synth}, {});
+			retry(g);
+			require(g.pending().empty(), "the returning controller restores every waiting cable");
+			const auto updates = g.takeIdentityUpdates();
+			require(updates.size() == 1 && updates[0].before == MidiConnectionUpdate::Key{} &&
+				updates[0].after == MidiConnections::key(controlCable), "the carried control cable is reported as joining the baseline");
+			state.remapConnectionIdentities(updates);
+			state.update("connections", save ? SetDirtyState::connections(rows({controlCable})) : live);
+			require(!state.dirty(), "a restored carried control cable does not leave the set dirty");
+			// Losing it again is a difference like any other, and it returns clean.
+			g.removed(1);
+			require(!g.pending().empty() && std::none_of(g.pending().begin(), g.pending().end(),
+				[](const Edge& e) { return e.carried; }), "a cable that was live is no longer carried");
+			state.update("connections", SetDirtyState::connections(rows({})));
+			require(state.dirty(), "unplugging the controller again is a difference");
+		}
+		{
+			// A set that asks for the same control cable supersedes the carried copy.
+			const Port out{41, {"rnbo-control:midiout", {}}, true};
+			const Port keysIn{3, {"system:midi_playback_1", "usb:keys:sink"}, false};
+			MidiConnections g;
+			g.observe({out, keysIn}, {{41, 3}});
+			g.removed(3);
+			g.clear(true);
+			g.defer({out.endpoint, keysIn.endpoint}, {out.endpoint, keysIn.endpoint});
+			require(g.pending().size() == 1 && !g.pending()[0].carried, "a requested control cable replaces its carried copy");
+		}
+		{
+			// A patcher reload keeps its baseline: a waiting control cable that is in
+			// it must not be added a second time when its device returns.
+			MidiConnections g;
+			SetDirtyState state;
+			g.observe({keyboard, ctl}, {{1, 40}});
+			state.reset({{"connections", SetDirtyState::connections(rows({controlCable}))}});
+			g.removed(1);
+			g.clear(true, false);
+			require(g.pending().size() == 1 && !g.pending()[0].carried, "a reload that keeps its baseline carries nothing");
+			g.registered(1);
+			g.observe({keyboard, ctl}, {});
+			retry(g);
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", SetDirtyState::connections(rows({controlCable})));
+			require(!state.dirty(), "a baseline cable restored after a patcher reload is counted once");
+		}
+		{
+			// A control cable the save stored stays part of the saved set.
+			MidiConnections g;
+			g.observe({keyboard, ctl}, {{1, 40}});
+			g.removed(1);
+			g.saved({controlCable});
+			require(g.pending().size() == 1 && !g.pending()[0].carried, "a control cable in the saved snapshot is not carried");
+		}
+	}
+	{
 		MidiConnections editing;
 		Port aliased = keyboard; aliased.aliases = {"keys:midi/capture_1"};
 		editing.observe({aliased, synth}, {{1, 2}});

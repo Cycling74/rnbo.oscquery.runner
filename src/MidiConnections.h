@@ -41,6 +41,9 @@ public:
 		std::string sourceRequested, sinkRequested;
 		// A waiting end whose port id was taken from the one exact device present.
 		bool sourceAdopted = false, sinkAdopted = false;
+		// Runtime-only: a waiting control cable kept across a set switch or a save
+		// that the current set does not contain. Restoring it is not an edit.
+		bool carried = false;
 		bool operator==(const Edge&) const = default;
 	};
 	using Pair = std::pair<uint32_t, uint32_t>;
@@ -86,6 +89,9 @@ public:
 	void defer(Edge edge, const Edge& requested) {
 		edge.sourceRequested = canonical(requested.source, true).identity;
 		edge.sinkRequested = canonical(requested.sink, false).identity;
+		// The set asks for this cable itself: a carried copy of it is superseded.
+		auto copy = std::find_if(mPending.begin(), mPending.end(), [&](const Edge& e) { return e.carried && exact(e, edge); });
+		if (copy != mPending.end()) mPending.erase(copy);
 		remember(edge, true);
 	}
 	void remember(const Edge& edge, bool distinct = false) {
@@ -337,12 +343,15 @@ public:
 	}
 	void saved(const std::vector<Edge>& snapshot, bool preserveControl = true) {
 		auto remaining = snapshot;
-		auto omitted = [&](const Edge& edge) {
-			if (preserveControl && control(edge)) return false;
+		auto stored = [&](const Edge& edge) {
 			auto it = std::find_if(remaining.begin(), remaining.end(), [&](const Edge& saved) { return same(edge, saved); });
-			if (it == remaining.end()) return true;
+			if (it == remaining.end()) return false;
 			remaining.erase(it);
-			return false;
+			return true;
+		};
+		auto omitted = [&](const Edge& edge) {
+			const bool kept = stored(edge);
+			return !kept && !(preserveControl && control(edge));
 		};
 		// Match live cables first so a surviving twin cannot preserve an absent
 		// twin's cable when the saved snapshot contained only one of them.
@@ -353,14 +362,21 @@ public:
 			p.second.sinkRequested = p.second.sink.identity;
 			return false;
 		});
-		std::erase_if(mPending, omitted);
+		std::erase_if(mPending, [&](Edge& edge) {
+			if (!(preserveControl && control(edge))) return !stored(edge);
+			// Kept either way; one the snapshot lacks is not part of the saved set.
+			edge.carried = !stored(edge);
+			return false;
+		});
 	}
-	void clear(bool preserveControl = false) {
+	// `carry`: the caller replaces the baseline, so kept cables are not part of it.
+	void clear(bool preserveControl = false, bool carry = true) {
 		auto discard = [&](const Edge& edge) { return !preserveControl || !control(edge); };
 		std::erase_if(mPending, discard);
+		if (carry) for (auto& edge : mPending) edge.carried = true;
 		std::erase_if(mLive, [&](const auto& p) { return discard(p.second); });
 		std::erase_if(mDisconnectDeadlines, [&](const auto& p) { return !mLive.count(p.first); });
-		mIdentityUpdates.clear();
+		if (carry) mIdentityUpdates.clear(); // a retained baseline still needs them
 	}
 	static MidiConnectionUpdate::Key key(const Edge& edge) {
 		MidiConnectionUpdate::Key result;
@@ -377,7 +393,9 @@ public:
 	// Call after `old` has left the pending list. `ports` are the ports it resolved to.
 	void resolved(const Edge& old, const Edge& current, std::optional<Pair> ports = {}) {
 		auto before = key(old), after = key(current);
-		if (before != after) mIdentityUpdates.push_back({before, after});
+		// A carried cable is not in the baseline: an empty `before` adds it.
+		if (old.carried) mIdentityUpdates.push_back({{}, after});
+		else if (before != after) mIdentityUpdates.push_back({before, after});
 		// A serial-less device found in another socket takes all of its cables
 		// along: the ones still waiting now look for it where it is.
 		for (const bool source : {true, false}) {

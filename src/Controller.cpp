@@ -2160,7 +2160,8 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 		}
 
 		mProcessAudio->updatePorts();
-		mProcessAudio->connect(setInfo.connections, mFirstSetLoad); //only do control connections when loading first set
+		//only do control connections when loading first set; a patcher reload keeps its baseline
+		mProcessAudio->connect(setInfo.connections, mFirstSetLoad, preset.has_value());
 		mFirstSetLoad = false;
 
 		const bool loadInitial = setInfo.name.size() && setInfo.name != UNTITLED_SET_NAME;
@@ -2309,6 +2310,9 @@ void Controller::resetSetDirtyBaseline(const SetInfo* saved, bool loading) {
 	SetDirtyState::Components baseline;
 	baseline["meta"] = SetDirtyState::metadata(saved ? saved->meta : mSetMetaParam->value().get<std::string>());
 	baseline["connections"] = SetDirtyState::connections(saved ? saved->connections : loading ? mProcessAudio->loadConnectionBaseline() : mProcessAudio->connections());
+	// A live snapshot already reflects every restoration reported so far. A save
+	// drops them itself, when it takes its snapshot.
+	if (!saved) mProcessAudio->takeMidiIdentityUpdates();
 	auto link = saved ? saved->link_audio : mProcessAudio->linkAudioSetup();
 	baseline["link"] = link ? link->toJson() : RNBO::Json();
 	mSetLinkBaselineKnown = !baseline["link"].is_null();
@@ -3513,6 +3517,8 @@ void Controller::registerCommands() {
 				if (name != UNTITLED_SET_NAME) {
 					std::string loaded = getCurrentSetName();
 
+					//the snapshot becomes the baseline and already reflects these
+					mProcessAudio->takeMidiIdentityUpdates();
 					mDB->setSave(name, info);
 					mProcessAudio->connectionsSaved(info.connections);
 					//from here the saved connections are the source of truth, like a loaded set

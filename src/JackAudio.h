@@ -57,7 +57,7 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void processEvents(std::function<void(ConnectionChange)> connectionChangeCallback = nullptr) override;
 		void process(jack_nframes_t frames);
 
-		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) override;
+		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections, bool retainBaseline = false) override;
 		virtual std::vector<SetConnectionInfo> connections() override;
 		std::vector<MidiConnectionUpdate> takeMidiIdentityUpdates() override;
 		std::vector<SetConnectionInfo> loadConnectionBaseline() override;
@@ -98,7 +98,6 @@ class ProcessAudioJack : public ProcessAudio {
 		void editMidiConnections(const std::string& port, bool source, const std::set<std::string>& peers);
 		std::mutex mMidiMutex;
 		MidiConnections mMidiConnections;
-		bool mLoadedControlConnections = true; // whether the last load included control cables
 		std::unique_ptr<moodycamel::ReaderWriterQueue<MidiJackEvent, 32>> mMidiQueue;
 		std::atomic<bool> mMidiEventsPending = false;
 		std::chrono::steady_clock::time_point mMidiPollNext{};

@@ -42,10 +42,13 @@ class SetDirtyState {
 		if (it == mBaseline.end()) return;
 		for (const auto& update : updates) {
 			const auto before = Json(update.before).dump(), after = Json(update.after).dump();
-			auto count = it->second.find(before);
-			if (before == after || count == it->second.end()) continue;
-			const auto remaining = count->get<unsigned>() - 1;
-			if (remaining) *count = remaining; else it->second.erase(count);
+			// An empty `before` is a restored cable the baseline left out at load.
+			if (update.before != MidiConnectionUpdate::Key{}) {
+				auto count = it->second.find(before);
+				if (before == after || count == it->second.end()) continue;
+				const auto remaining = count->get<unsigned>() - 1;
+				if (remaining) *count = remaining; else it->second.erase(count);
+			}
 			it->second[after] = it->second.value(after, 0u) + 1;
 		}
 	}
