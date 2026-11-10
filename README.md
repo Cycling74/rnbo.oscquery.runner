@@ -67,6 +67,22 @@ cmake .. -DRNBO_DIR=~/Documents/Max\ 8/Packages/RNBO/source/rnbo/
 cmake --build .
 ```
 
+#### Getting RNBO from Conan
+
+If you don't have a local copy of the RNBO source, you can have CMake fetch a released version from
+Cycling '74's public Conan remote (`https://conan-public.cycling74.com`, added automatically at configure time).
+Set `RNBO_CONAN_VERSION` to the RNBO release you want and `RNBO_CONAN_TAG` to `c74/stable`, and leave out `RNBO_DIR`:
+
+```
+mkdir build/
+cd build/
+cmake .. -DRNBO_CONAN_VERSION=1.4.6 -DRNBO_CONAN_TAG=c74/stable
+cmake --build .
+```
+
+`RNBO_CONAN_TAG` defaults to `c74/testing`, which is not on the public remote, so you need to set it explicitly.
+When `RNBO_CONAN_VERSION` is set it takes the place of `RNBO_DIR`.
+
 If you're on a debian based system, you can also build a `.deb`
 
 ```
