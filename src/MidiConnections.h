@@ -254,6 +254,7 @@ public:
 			const auto ids = entry.first;
 			if (!mLive.count(ids)) return true;
 			if (now >= entry.second && mPorts.count(ids.first) && mPorts.count(ids.second)) {
+				leftBaseline(mLive.at(ids));
 				mLive.erase(ids);
 				return true;
 			}
@@ -360,7 +361,7 @@ public:
 			const auto [a, b] = resolveRecovery(edge);
 			return a && b && match({a->endpoint, b->endpoint});
 		});
-		std::erase_if(mLive, [&](const auto& p) { return match(p.second); });
+		std::erase_if(mLive, [&](const auto& p) { return match(p.second) && leftBaseline(p.second); });
 	}
 	void edit(const std::string& port, bool source, const std::set<std::string>& peers) {
 		auto omitted = [&](const Edge& edge, bool pending) {
@@ -373,7 +374,7 @@ public:
 				std::none_of(peers.begin(), peers.end(), [&](const auto& name) { return matchesName(peer, name, !source); });
 		};
 		std::erase_if(mPending, [&](const Edge& edge) { return omitted(edge, true); });
-		std::erase_if(mLive, [&](const auto& entry) { return omitted(entry.second, false); });
+		std::erase_if(mLive, [&](const auto& entry) { return omitted(entry.second, false) && leftBaseline(entry.second); });
 	}
 	void forgetClient(const std::string& name) {
 		for (const auto& [id, port] : mPorts) if (port.endpoint.name.starts_with(name + ":")) mForgotten.insert(id);
@@ -420,17 +421,23 @@ public:
 	// A caller that keeps its baseline reloads the graph it had; carried cables
 	// were never in that graph and always stay.
 	void clear(bool preserveControl = false, bool carry = true) {
-		auto discard = [&](const Edge& edge) {
-			return !(preserveControl && control(edge)) && !(!carry && edge.carried);
-		};
-		std::erase_if(mPending, discard);
-		if (carry) for (auto& edge : mPending) edge.carried = true;
-		std::erase_if(mLive, [&](const auto& p) { return discard(p.second); });
-		// A live control cable kept across the set switch is not the new set's
-		// either, unless the load then asks for it (see adopt()).
-		if (carry) for (auto& entry : mLive) entry.second.carried = true;
+		if (carry) {
+			auto discard = [&](const Edge& edge) { return !(preserveControl && control(edge)); };
+			std::erase_if(mPending, discard);
+			std::erase_if(mLive, [&](const auto& p) { return discard(p.second); });
+			// What is kept is not the new set's, unless the load then asks for it
+			// (see supersede() and adopt()).
+			for (auto& edge : mPending) edge.carried = true;
+			for (auto& entry : mLive) entry.second.carried = true;
+			mIdentityUpdates.clear();
+		} else {
+			// The caller's snapshot brings back every waiting cable except the
+			// carried ones, and reasserts the live cables; live control cables stay
+			// known here so the carried ones among them keep their standing.
+			std::erase_if(mPending, [](const Edge& edge) { return !edge.carried; });
+			std::erase_if(mLive, [](const auto& p) { return !control(p.second); });
+		}
 		std::erase_if(mDisconnectDeadlines, [&](const auto& p) { return !mLive.count(p.first); });
-		if (carry) mIdentityUpdates.clear(); // a retained baseline still needs them
 	}
 	// The JACK client is going away and every port with it. The caller restores
 	// the graph it knows from its own snapshot; carried cables are in no snapshot
@@ -520,6 +527,12 @@ private:
 			if (!requested.empty() && requested != wanted && identity != wanted) add(identity);
 		}
 		return result;
+	}
+	// A carried cable is in the baseline exactly while it is live, whatever
+	// ends it. Always true, so it can sit in an erase condition.
+	bool leftBaseline(const Edge& edge) {
+		if (edge.carried) mIdentityUpdates.push_back({key(edge), {}});
+		return true;
 	}
 	static bool exact(const Edge& a, const Edge& b) {
 		return same(a, b) && a.source.name == b.source.name && a.sink.name == b.sink.name;

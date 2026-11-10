@@ -2183,8 +2183,9 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 
 		mProcessAudio->updatePorts();
 		//only do control connections when loading first set; a patcher reload keeps its baseline
-		//a restore is the whole graph as it was, control cables included
-		mProcessAudio->connect(setInfo.connections, mFirstSetLoad || restore, preset.has_value() || restore);
+		//a restore or a patcher reload is the whole graph as it was, control cables included
+		const bool retain = preset.has_value() || restore;
+		mProcessAudio->connect(setInfo.connections, mFirstSetLoad || retain, retain);
 		if (!restore) {
 			mFirstSetLoad = false;
 		}

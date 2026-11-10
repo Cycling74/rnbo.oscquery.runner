@@ -116,6 +116,7 @@ initiates Bluetooth pairing or reconnection; the bridge must recreate its ports.
   backend (raw or sequencer) and back, where devices change identity.
 - A carried cable becomes the set's when a loaded set asks for it or a save
   stores it.
+- A carried cable that is disconnected on purpose leaves the baseline too.
 - An intentional control disconnect stays disconnected. A control cable made by
   hand or loaded from a set is restored like any other; `ControlAutoConnectMIDI`
   only decides whether the runner creates control cables itself.
@@ -142,6 +143,9 @@ initiates Bluetooth pairing or reconnection; the bridge must recreate its ports.
   hints in its unique key, so identical devices that share an alias address
   each keep their own cable. Changing the key means rebuilding the table; row
   ids are kept. Sets without identities still load.
+- An exported set in which two cables share an address and differ only in their
+  hint cannot be imported by a release runner, whose unique key is the address
+  alone: the import fails as a whole.
 
 ### Known limits
 

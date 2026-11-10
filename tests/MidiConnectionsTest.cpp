@@ -375,7 +375,13 @@ int main() {
 			state.reset({{"connections", SetDirtyState::connections(rows({controlCable}))}});
 			g.removed(1);
 			g.clear(true, false);
-			require(g.pending().size() == 1 && !g.pending()[0].carried, "a reload that keeps its baseline carries nothing");
+			require(g.pending().empty(), "a reload leaves waiting cables to its snapshot");
+			g.defer(controlCable, controlCable, true); // the snapshot row
+			g.defer(controlCable, controlCable, true); // and a second reload's, after another clear
+			require(g.pending().size() == 2, "(two rows are two cables)");
+			g.clear(true, false);
+			g.defer(controlCable, controlCable, true);
+			require(g.pending().size() == 1 && !g.pending()[0].carried, "repeated reloads keep one waiting request, not carried");
 			g.registered(1);
 			g.observe({keyboard, ctl}, {});
 			retry(g);
@@ -639,6 +645,25 @@ int main() {
 			const auto queued = h.takeIdentityUpdates();
 			require(queued.size() == 1 && queued[0].after == MidiConnectionUpdate::Key{} && h.pending().size() == 1,
 				"a queued removal of a carried cable survives an audio restart");
+		}
+		{
+			// A carried cable leaves the baseline however it ends: an intentional
+			// disconnect that outlives the window, or an edit through the runner.
+			for (const bool edit : {false, true}) {
+				MidiConnections g;
+				g.observe({keyboard, ctl}, {{1, 40}}, t);
+				g.clear(true); // set switch: the live control cable is carried
+				if (edit) {
+					g.forgetNames(keyboard.endpoint.name, ctl.endpoint.name);
+				} else {
+					g.disconnected({1, 40}, t);
+					g.observe({keyboard, ctl}, {}, t + window);
+				}
+				const auto updates = g.takeIdentityUpdates();
+				require(updates.size() == 1 && updates[0].before == MidiConnections::key(controlCable) &&
+					updates[0].after == MidiConnectionUpdate::Key{}, "a removed carried cable leaves the baseline");
+				require(g.pending().empty(), "and it is not kept for recovery");
+			}
 		}
 		{
 			// A waiting cable's saved JACK name can be the name of another device's
