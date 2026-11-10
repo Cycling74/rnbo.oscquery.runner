@@ -50,192 +50,114 @@ empty arrangement, and track edits thereafter.
 
 ## MIDI device recovery and explicit saves
 
-MIDI recovery history is separate from the live connection snapshot used for
-saving and dirty comparison. Removing a connected MIDI device removes its live
-cables and dirties a previously clean set. Restoring those cables can return the
-set to clean, provided no other edits remain. The appearance of an unconnected
-hardware port does not itself dirty the set. All MIDI cables are covered,
-including cables between third-party clients that the runner does not own.
-Software ports without device identities are matched by their JACK names.
+When a MIDI device's ports disappear, the runner remembers its cables and
+restores them when the device returns. This history is separate from the live
+graph used for saving and dirty comparison: losing a connected device dirties a
+clean set, and restoring its cables returns it to clean. All MIDI cables are
+covered, including cables between third-party clients. The runner never
+initiates Bluetooth pairing or reconnection; the bridge must recreate its ports.
 
-Disconnect notifications have a 250 ms hysteresis window. The runner does not
-reconnect an undecided cable. If either port is unregistered before the window
-expires, the cable is retained for recovery. If the ports remain present through
-the deadline, the disconnect is treated as intentional and forgotten. Removal at
-or after the deadline does not restore that cable. Timestamps are captured in
-JACK notification callbacks, so delayed event-loop processing does not collapse
-a long disconnect/removal gap into a short one. Reconnecting manually starts a
-fresh cable lifetime; duplicate notifications do not extend the timer.
+### Device identity
 
-An external `jack_disconnect` followed by unplugging within 250 ms is deliberately
-treated as device loss and may be restored. Explicit edits through the runner's
-global connection utilities cancel remembered cables immediately. Editing a live
-connection list preserves pending cables to absent peers. Hysteresis does not
-delay the live graph or dirty-status updates.
+- Identity is taken, in order of preference, from bridge metadata
+  (`http://cycling74.com/ns/rnbo/midi-device-id`), from USB vendor/product plus
+  serial (or the topology path when there is no serial) for raw ALSA aliases,
+  and from the MIDI alias and direction. Nothing is inferred from a display name.
+- Ports without an identity (software clients) are matched by JACK name. RNBO
+  instance ports never get a device identity; they follow the instance index.
+- A serial-less USB device is looked for in its saved socket first, then by
+  alias (ignoring the ALSA card number), so it can move to another socket or Pi.
+  Serial and bridge identities require an exact match.
+- That fallback never takes a serial-less device that belongs to another cable:
+  a waiting cable, a live cable that came from a saved or recovered request, or,
+  during a load, any endpoint of the set being loaded. When a device is found in
+  another socket, its other waiting cables move there with it.
+- With several candidates, a load prefers the saved JACK name, then a candidate
+  not already used in that load, then `jack_get_ports` order.
+- A USB identity is cached until its port unregisters. When the port of a live
+  cable is identified or refined later (a backend naming it after registration,
+  a bridge publishing its id), the baseline follows the cable. A set saved under
+  the earlier identity is not matched under the new one when loaded later.
 
-A successful explicit save commits the live graph and discards recovery entries
-omitted from that snapshot. Background autosave and failed saves do not discard
-in-memory recovery. A device removed during a save remains recoverable if the
-saved snapshot included its cable. Saving also cancels omitted undecided cables.
+### Device loss versus an intentional disconnect
 
-The exception is control MIDI: an explicit offline save always preserves pending
-`rnbo-control` cables. Control recovery also survives a set switch that does not
-load control connections; that load leaves the preserved cables out of its
-baseline, since the loaded set never contained them. Such a carried cable joins
-the baseline when its device returns and the cable is restored, and leaves it
-again when the device goes away, so it never reads as an edit; the same holds
-for a control cable kept by an offline save. This also covers switching the
-MIDI backend (raw or sequencer) and back: the other backend's devices have other
-identities, and their control cables come and go with it. A live control cable that is kept across a set
-switch is carried in the same way, unless the loaded set asks for it. A save
-that includes a carried cable makes it part of the saved set. An intentional control
-disconnect still stays disconnected; neither saving nor auto-connect recreates a
-forgotten cable. A control cable made by hand or loaded from a set is restored
-like any other, whatever `ControlAutoConnectMIDI` says: the option only controls
-whether the runner creates control cables itself. A restored control cable is
-visible in the live graph and participates in dirty comparison like other live
-connections.
+- A disconnect followed by the port unregistering within 250 ms is device loss:
+  the cable is kept for recovery. If both ports are still there after 250 ms,
+  the disconnect was intentional and is forgotten. Times are taken in the JACK
+  callbacks, so a slow event loop does not blur the two.
+- Edits through the runner's connection utilities cancel remembered cables at
+  once. The window does not delay the live graph or the dirty flag.
+- A lost cable is never moved to an identical device that stayed online: ports
+  already registered when the endpoint disappeared are excluded. A port that
+  registers afterwards is eligible.
+- A waiting cable is tied to the one port with its exact identity while that
+  port is present, so it follows its own device across replugs.
 
-Stopping audio is not a set change. The controller snapshots the live graph,
-including cables still waiting for a device, before the JACK client closes, and
-rebuilds that graph when audio is active again. The set name, the baseline and
-therefore the dirty state stay as they were; a cable whose device is slow to
-return after the restart shows as a difference until it is restored. Carried
-control cables are in no snapshot and keep waiting across the restart. Presets
-are not part of this: instances come back with their last preset, as before.
-Control auto-connect starts over with the new client, so a controller that was
-deliberately disconnected from `rnbo-control` is connected again.
+### Saves, loads and restarts
 
-A patcher reload rebuilds the same graph in the same way and keeps the baseline:
-cables that were waiting for a device are snapshotted with it and keep waiting.
-When the port of a live cable is identified or refined later (a backend naming
-it after registration, a bridge publishing its device id), the baseline follows
-the cable to its new identity. A set saved under the earlier identity is not
-found again under the new one when it is loaded later.
+- A successful explicit save commits the live graph and discards remembered
+  cables that are not in it. Autosave and failed saves discard nothing.
+- A set load replaces the recovery history. Cables to missing devices enter the
+  load baseline and wait: the set is dirty until they are restored. Missing
+  application instances do not create waiting cables. Waiting MIDI cables are
+  never written to a saved set (unlike deferred Link Audio edges).
+- Removing or replacing an instance forgets its remembered cables.
+- An audio restart or a patcher reload is not a set change. The graph, including
+  waiting cables, is snapshotted and rebuilt; the set name and the baseline stay,
+  so the dirty flag returns to what it was once the devices are back. Instances
+  come back with their last preset, and control auto-connect starts over.
 
-Set loads replace per-set recovery history. Removing or replacing an instance
-forgets its recovery entries, including while the old instance is fading out.
-Missing device cables requested by a loaded set enter the load baseline and
-remain pending until the devices appear. They report dirty while unavailable
-and can return to clean after restoration. Missing application instances do not
-create deferred cables during load. Pending MIDI cables are never added to saved
-sets; this differs from deferred Link Audio edges.
+### Control cables
 
-RNBO instance ports never receive device identities from their `rnbomidi` aliases.
-Their addresses continue to follow the instance index when a patcher is renamed.
-The loader also ignores erroneous instance identities from earlier exports.
-External device identities prefer bridge metadata
-`http://cycling74.com/ns/rnbo/midi-device-id`, then USB vendor/product and serial
-(or topology path without a serial) for raw ALSA aliases, then a MIDI alias and
-direction. No Bluetooth address or USB serial is inferred from a pretty name.
+- Cables to and from `rnbo-control` are only loaded with the first set. A
+  control cable kept across a set switch or an offline save, which the current
+  set does not contain, is *carried*: it is in the baseline exactly while it is
+  live, so it never reads as an edit. This also covers switching the MIDI
+  backend (raw or sequencer) and back, where devices change identity.
+- A carried cable becomes the set's when a loaded set asks for it or a save
+  stores it.
+- An intentional control disconnect stays disconnected. A control cable made by
+  hand or loaded from a set is restored like any other; `ControlAutoConnectMIDI`
+  only decides whether the runner creates control cables itself.
 
-A stored USB path identity is tried first. If absent, the stored alias is matched
-by direction, ignoring only the volatile ALSA card number in recognized raw
-aliases. This allows moving a serial-less device to another socket or Pi. Serial
-and bridge identities continue to require an identity match. Legacy aliases and
-USB fallback matches refine one baseline cable at a time, preserving unrelated
-edits and allowing duplicate aliases to resolve to different device identities.
+### Auto-connect
 
-That fallback never takes a serial-less device that belongs to another cable.
-Ports whose own path identity is claimed in that direction are skipped. Claims
-are the current sockets of other pending cables, the current sockets of live
-cables that came from a saved or recovered request or survived an explicit save
-(a cable that was only observed or auto-connected claims nothing), and, during
-one set load, every saved endpoint, including cables not processed yet. Cables
-of the same device never claim against each other. With K1 (socket A) -> synth1
-and K2 (socket B) -> synth2 saved and only K2 present, K1's cable stays pending
-instead of landing on K2, whatever the processing order and also on hotplug; it
-connects when K1 returns, in any socket. When a serial-less device is found in
-another socket, its other waiting cables are moved there with it, so one
-controller with several cables follows to a new socket and back. Legacy aliases
-and endpoints without identity are not excluded.
+- Instance auto-connect applies only to patchers started on their own, and only
+  until the first explicit save; after that the saved cables are the source of
+  truth. Instances loaded in a set never auto-connect.
+- A standalone instance connects each port once per registration, so a replugged
+  device connects again even after a deliberate disconnect.
+- The control client connects each device once and leaves a returning device to
+  recovery, so a deliberate disconnect survives a replug. It counts devices per
+  identity, so identical devices each connect.
+- A port registered before its aliases exist is retried; `system:midi_*` aliases
+  are given 50 ms to settle.
 
-Ambiguity depends only on the ports present now. One candidate is accepted. With
-several candidates, loading prefers the saved JACK name, then a candidate not
-already selected by another cable in that load, then the first candidate in
-`jack_get_ports` order. A previously observed collision does not block matching.
-Old `ambiguous:` markers are accepted; new saves write plain identities.
+### Saved format
 
-Recovery of a cable that was live has an additional restriction: for each lost
-endpoint, ports already registered when it disappeared are excluded. This prevents
-moving A's cable to an identical B that stayed online, even when A and B use
-different synth inputs or different serial-less USB sockets. A new registration
-(including reuse of a JACK port ID) becomes eligible. Each disappearing endpoint
-records its own exclusions. New connections and snapshots apply those exclusions
-as well as the retry loop. Set-load requests retain the ordinary matching rules.
+- Physical MIDI ports keep the release runner's alias address in the name
+  fields, so older runners read the same fields. `*_midi_identity` and
+  `*_midi_port` (a JACK-name hint used only to break ties) are optional.
+- Migration 24 adds those four columns to `sets_connections` and puts the two
+  hints in its unique key, so identical devices that share an alias address
+  each keep their own cable. Changing the key means rebuilding the table; row
+  ids are kept. Sets without identities, old `ambiguous:` markers and earlier
+  working-tree JSON with `*_midi_alias` still load.
 
-A cable that is still waiting (for example on an absent peer) follows its device
-across replugs. While exactly one port with the cable's exact identity is
-present, the cable is tied to that port, and when the port leaves, every port
-then registered is excluded. An alias stand-in is never tied this way; if a
-stand-in was the only candidate when it left, only ports seen in the last
-snapshot are excluded, so the real device registering at the same moment is not
-locked out.
+### Known limits
 
-Known limits, all involving devices the runner cannot tell apart:
-
-- Identical devices sharing one identity (the same `name:` identity, or a
-  same-model serial-less unit plugged into the saved socket): the first one seen
-  after the cable started waiting is treated as its device. If that was the other
-  unit, the real device is excluded when the other unit leaves, until it is
-  replugged.
-- A serial-less controller in a different socket than saved, whose only cable is
-  waiting on an absent peer, with a same-model unit also present when it is
-  unplugged: the cable may go to the other unit.
-- Two identical devices that are both away and return one at a time: the first
-  one back can take both sets of cables.
-Recovery also excludes pairs already carrying the cable, retaining an extra
-request for a returning twin rather than consuming it on an existing connection.
-
-Physical MIDI ports keep the release runner's saved alias address in
-`source_name`/`source_port_name` and `sink_name`/`sink_port_name`, preferring a
-non-`alsa_pcm` alias. Older runners can therefore keep reading those same fields.
-Optional `source_midi_port`/`sink_midi_port` fields hold actual JACK names only as
-tie-break hints. Nonphysical application port addresses retain their JACK names.
-All added JSON fields remain optional.
-
-Migration 24 stores MIDI identities. Migration 26 replaces the intermediate
-migration-25 alias fields with JACK-name hints, converts earlier working-tree
-rows to the compatible alias address form, and keeps same-alias twin cables
-distinct in the database's unique key. Earlier working-tree JSON with a JACK
-address and `*_midi_alias` also loads; new exports no longer emit that alias
-field. Dirty comparison counts distinct cables using their hints, without making
-renumbering an edit. Saving and comparing one device or twins remains clean.
-Old sets without identities or hints still load through name/alias matching.
-
-Auto-connect options keep their existing scope. Instance auto-connect is enabled
-only for patchers started on their own (export/run, an instance load without an
-index, or built-in startup). Instances loaded in a set or at a specific index do
-not auto-connect, including on hotplug: only saved or previously connected cables
-are recovered. Until its first explicit save, an eligible standalone instance
-applies the hardware and port-group options on hotplug as well as startup. A
-successful explicit save ends that for every running instance: it then behaves
-like a set-loaded one, the saved cables are the source of truth, and a new device
-is not auto-connected.
-
-Broad auto-connect connects each port incarnation once. Disabled options do not
-consume that opportunity. Registration before aliases are available is retried;
-`system:midi_*` aliases settle for 50 ms first. Alias updates after success
-retain suppression within the incarnation, so a cable the user removes stays off
-while the port stays registered. For standalone instances nothing outlives the
-incarnation: after unplug and replug the device connects again, even after a
-deliberate disconnect, and identical devices each connect. The control client
-instead leaves a returning device to recovery, so an intentional disconnect
-survives replug. It counts units (the most devices of one identity present at
-once), so identical devices each connect and a twin replugged while the other
-stays is a returning unit. The counts last for the client lifetime; expiring them
-merely because time passed would undo edits.
-
-Established USB identities are cached until unregistration, so a stale port cannot
-adopt another device's reused ALSA card number. Indexed endpoint lookup makes
-retries of absent devices cheap without expiring their pending cables.
-Notification queue producers are serialized for JACK's in-process clients as
-well as external clients. A notification-thread stall between disconnect and
-unregister can still exceed the hysteresis window and prevent recovery.
-
-No Bluetooth pairing or radio reconnection is initiated: the bridge must recreate
-its ports. Real Bluetooth/USB behavior, polling cost with many instances on a Pi,
-and PipeWire-JACK port-ID compatibility still require target verification.
+- Devices the runner cannot tell apart (one shared identity, or a same-model
+  serial-less unit in the saved socket): the first one seen is taken to be the
+  device. If that was the other unit, the real one is excluded until replugged.
+- A serial-less controller in a different socket than saved, whose only cable
+  waits on an absent peer, can lose that cable to a same-model unit that is
+  present when it is unplugged.
+- Two identical devices both away, returning one at a time: the first one back
+  can take both sets of cables.
+- A notification-thread stall longer than 250 ms between disconnect and
+  unregister prevents recovery of that cable.
+- Real Bluetooth and USB behaviour, polling cost with many instances on a Pi,
+  and PipeWire-JACK compatibility still need verification on target hardware.
 
 ## Checks
 
@@ -283,8 +205,9 @@ different sockets loaded through the production claims, control recovery after a
 offline save and of a hand-made control cable, standalone versus set instance
 auto-connect, release-compatible
 alias addresses, loading earlier working-tree JSON, and third-party software
-port restart. The migration test runs the actual SQL against legacy rows and
-checks twin uniqueness and foreign keys; it is enabled when Python is available.
+port restart. The migration test runs the actual SQL against a release row and
+checks row ids, twin cables, the unique key and the foreign keys; it is
+enabled when Python is available.
 Real USB and Bluetooth hardware still need target-device verification.
 
 For live JACK/OSCQuery verification:
