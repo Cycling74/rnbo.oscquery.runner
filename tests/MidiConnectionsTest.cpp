@@ -361,6 +361,40 @@ int main() {
 			require(!state.dirty(), "a baseline cable restored after a patcher reload is counted once");
 		}
 		{
+			// Audio restart: the caller snapshots and reloads the graph it had; only
+			// a carried cable, which is in no snapshot, keeps waiting here.
+			const Port away{5, {"system:midi_capture_5", "usb:other:source"}, true};
+			MidiConnections g;
+			SetDirtyState state;
+			g.observe({keyboard, away, ctl, synth}, {{1, 40}, {1, 2}, {5, 40}});
+			g.removed(5);
+			g.clear(true); // set switch: the absent device's control cable is carried
+			g.observe({keyboard, ctl, synth}, {{1, 40}, {1, 2}});
+			state.reset({{"connections", live}});
+			g.restart();
+			require(g.pending().size() == 1 && g.pending()[0].carried && g.pending()[0].source == away.endpoint,
+				"an audio restart keeps only carried cables waiting");
+			require(g.ports().empty() && g.occupied().empty(), "an audio restart forgets every port and live cable");
+			// New client, new port ids; the snapshot is loaded with its control cables.
+			const Port keys2{11, keyboard.endpoint, true}, ctl2{12, ctl.endpoint, false}, synth2{13, synth.endpoint, false};
+			g.observe({keys2, ctl2, synth2}, {});
+			g.clear(false, false);
+			require(g.pending().size() == 1 && g.pending()[0].carried, "restoring the snapshot keeps the carried cable");
+			g.connected({11, 12}, false);
+			g.connected({11, 13}, false);
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", live);
+			require(!state.dirty(), "the restored graph compares clean against the kept baseline");
+			const Port away2{14, away.endpoint, true};
+			g.registered(14);
+			g.observe({keys2, away2, ctl2, synth2}, {{11, 12}, {11, 13}});
+			retry(g);
+			require(g.pending().empty(), "the carried cable is restored when its device returns after the restart");
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", SetDirtyState::connections(rows({cable, controlCable, {away.endpoint, ctl.endpoint}})));
+			require(!state.dirty(), "and it joins the baseline as before the restart");
+		}
+		{
 			// A control cable the save stored stays part of the saved set.
 			MidiConnections g;
 			g.observe({keyboard, ctl}, {{1, 40}});

@@ -139,8 +139,11 @@ inline MidiJackEndpoint midiJackResolveEndpoint(jack_client_t* client, const Mid
 	return {endpoint.name, live != nullptr, live != nullptr, false};
 }
 
+// `retained`: the caller rebuilds a graph it already had and keeps its baseline
+// (audio restart, patcher reload). A cable that was waiting keeps waiting, even
+// for an application port, and a device found elsewhere is reported.
 inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, MidiConnections::Edge edge,
-		MidiConnections::Selection* selection = nullptr) {
+		MidiConnections::Selection* selection = nullptr, bool retained = false) {
 	MidiConnections::Selection local;
 	auto& taken = selection ? *selection : local;
 	// Resolution overwrites the endpoints with live ports; keep what was asked for.
@@ -152,11 +155,27 @@ inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, Midi
 	if (result == 0 || result == EEXIST) {
 		if (source.port && sink.port) {
 			taken.insert(source.port->id); taken.insert(sink.port->id);
+			if (retained) {
+				const MidiConnections::Pair ids{source.port->id, sink.port->id};
+				graph.resolved({MidiConnections::canonical(requested.source, true), MidiConnections::canonical(requested.sink, false)},
+					{source.port->endpoint, sink.port->endpoint}, ids);
+			}
 			graph.connected({source.port->id, sink.port->id}, false, &requested);
 		}
-	} else if ((source.missingDevice || sink.missingDevice) &&
-		(source.missingDevice || (source.present && source.midi)) &&
-		(sink.missingDevice || (sink.present && sink.midi))) {
+		return;
+	}
+	// A row written for a waiting cable names its JACK port as a hint, which
+	// becomes the alias: that is a MIDI port even without a device identity.
+	auto absent = [&](const MidiJackEndpoint& end, const MidiConnections::Endpoint& asked, bool isSource) {
+		return end.missingDevice || (retained && !end.present && !MidiConnections::canonical(asked, isSource).alias.empty());
+	};
+	const bool noSource = absent(source, requested.source, true), noSink = absent(sink, requested.sink, false);
+	if ((noSource || noSink) &&
+		(noSource || (source.present && source.midi)) &&
+		(noSink || (sink.present && sink.midi))) {
+		// One end may already have been found elsewhere; the kept baseline follows it now.
+		if (retained) graph.resolved({MidiConnections::canonical(requested.source, true),
+			MidiConnections::canonical(requested.sink, false)}, edge);
 		graph.defer(edge, requested);
 		if (source.port) taken.insert(source.port->id);
 		if (sink.port) taken.insert(sink.port->id);

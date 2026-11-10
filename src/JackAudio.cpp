@@ -798,20 +798,37 @@ std::vector<MidiConnectionUpdate> ProcessAudioJack::takeMidiIdentityUpdates() {
 std::vector<SetConnectionInfo> ProcessAudioJack::loadConnectionBaseline() {
 	auto result = connections();
 	std::lock_guard<std::mutex> guard(mMidiMutex);
+	// Mark every MIDI end with its JACK name as the hint, so a reload of this
+	// graph knows that an application port which is slow to return is MIDI.
+	{
+		std::set<std::string> midi;
+		for (const auto& entry : mMidiConnections.ports()) midi.insert(entry.second.endpoint.name);
+		auto hint = [&midi](const std::string& name, const std::string& port, std::string& out) {
+			const auto full = name + (port.empty() ? "" : ":" + port);
+			if (out.empty() && midi.count(full)) out = full;
+		};
+		for (auto& c : result) {
+			hint(c.source_name, c.source_port_name, c.source_midi_port);
+			hint(c.sink_name, c.sink_port_name, c.sink_midi_port);
+		}
+	}
 	for (const auto& edge : mMidiConnections.pending()) {
 		// A load without control connections keeps old control cables pending, but the
 		// loaded set never contained them. They join the baseline when restored.
 		if (edge.carried) continue;
-		auto source = cleanupPortNameInfo(edge.source.name), sink = cleanupPortNameInfo(edge.sink.name);
+		// Like a saved row: a device is addressed by its alias, its JACK name is a hint.
+		auto address = [](const MidiConnections::Endpoint& e) {
+			return cleanupPortNameInfo(e.identity.empty() || e.alias.empty() ? e.name : e.alias);
+		};
+		auto source = address(edge.source), sink = address(edge.sink);
 		SetConnectionInfo c(source[0], source[1], sink[0], sink[1]);
 		c.source_midi_identity = edge.source.identity;
 		c.sink_midi_identity = edge.sink.identity;
-		c.source_midi_port = edge.source.identity.empty() ? "" : edge.source.name;
-		c.sink_midi_port = edge.sink.identity.empty() ? "" : edge.sink.name;
+		// The hint also marks an identity-less end as a MIDI port that was waiting.
+		c.source_midi_port = edge.source.name;
+		c.sink_midi_port = edge.sink.name;
 		result.push_back(std::move(c));
 	}
-	// Everything resolved so far is already in this result.
-	mMidiConnections.takeIdentityUpdates();
 	return result;
 }
 
@@ -864,7 +881,7 @@ bool ProcessAudioJack::connect(const std::vector<SetConnectionInfo>& connections
 			}
 			{
 				std::lock_guard<std::mutex> guard(mMidiMutex);
-				midiJackLoadEdge(mJackClient, mMidiConnections, midiEdge(info), &midiSelection);
+				midiJackLoadEdge(mJackClient, mMidiConnections, midiEdge(info), &midiSelection, retainBaseline);
 			}
 
 			//Every edge involving jack_transport_link gets reasserted for a while, whether or not
@@ -1225,7 +1242,7 @@ bool ProcessAudioJack::setActive(bool active, bool withServer) {
 			jack_client_close(mJackClient);
 			mJackClient = nullptr;
 			std::lock_guard<std::mutex> midiGuard(mMidiMutex);
-			mMidiConnections = MidiConnections();
+			mMidiConnections.restart();
 			MidiJackEvent event;
 			while (mMidiQueue->try_dequeue(event)) {}
 			mMidiAutoConnect = MidiAutoConnect();

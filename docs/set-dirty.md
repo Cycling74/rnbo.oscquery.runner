@@ -92,6 +92,16 @@ whether the runner creates control cables itself. A restored control cable is
 visible in the live graph and participates in dirty comparison like other live
 connections.
 
+Stopping audio is not a set change. The controller snapshots the live graph,
+including cables still waiting for a device, before the JACK client closes, and
+rebuilds that graph when audio is active again. The set name, the baseline and
+therefore the dirty state stay as they were; a cable whose device is slow to
+return after the restart shows as a difference until it is restored. Carried
+control cables are in no snapshot and keep waiting across the restart. Presets
+are not part of this: instances come back with their last preset, as before.
+Control auto-connect starts over with the new client, so a controller that was
+deliberately disconnected from `rnbo-control` is connected again.
+
 Set loads replace per-set recovery history. Removing or replacing an instance
 forgets its recovery entries, including while the old instance is fading out.
 Missing device cables requested by a loaded set enter the load baseline and

@@ -370,13 +370,29 @@ public:
 		});
 	}
 	// `carry`: the caller replaces the baseline, so kept cables are not part of it.
+	// A caller that keeps its baseline reloads the graph it had; carried cables
+	// were never in that graph and always stay.
 	void clear(bool preserveControl = false, bool carry = true) {
-		auto discard = [&](const Edge& edge) { return !preserveControl || !control(edge); };
+		auto discard = [&](const Edge& edge) {
+			return !(preserveControl && control(edge)) && !(!carry && edge.carried);
+		};
 		std::erase_if(mPending, discard);
 		if (carry) for (auto& edge : mPending) edge.carried = true;
 		std::erase_if(mLive, [&](const auto& p) { return discard(p.second); });
 		std::erase_if(mDisconnectDeadlines, [&](const auto& p) { return !mLive.count(p.first); });
 		if (carry) mIdentityUpdates.clear(); // a retained baseline still needs them
+	}
+	// The JACK client is going away and every port with it. The caller restores
+	// the graph it knows from its own snapshot; carried cables are in no snapshot
+	// and keep waiting here.
+	void restart() {
+		auto ids = mRegistered;
+		for (const auto& entry : mPorts) ids.insert(entry.first);
+		for (const auto id : ids) removed(id);
+		std::erase_if(mPending, [](const Edge& edge) { return !edge.carried; });
+		mIdentityUpdates.clear();
+		mDisconnectDeadlines.clear();
+		releaseClaims();
 	}
 	static MidiConnectionUpdate::Key key(const Edge& edge) {
 		MidiConnectionUpdate::Key result;
