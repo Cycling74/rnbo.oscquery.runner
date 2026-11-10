@@ -120,6 +120,9 @@ class Controller {
 		bool mSetConnectionsChanged = false;
 		bool mSetLinkChanged = false;
 		bool mSetDirtyPublished = false;
+#ifdef RNBO_LOG_SET_DIRTY
+		std::string mSetDirtyLogged;
+#endif
 		bool mSetLinkBaselineKnown = false;
 		std::set<unsigned int> mSetDeviceChecks;
 		std::set<unsigned int> mSetTrackedDevices;

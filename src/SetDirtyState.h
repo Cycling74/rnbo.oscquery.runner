@@ -17,6 +17,7 @@ class SetDirtyState {
 		mChanged.clear();
 	}
 	void update(const std::string &key, const Json &value) {
+		mLast[key] = value;
 		auto it = mBaseline.find(key);
 		if (it != mBaseline.end() && it->second == value) {
 			mChanged.erase(key);
@@ -72,6 +73,25 @@ class SetDirtyState {
 		return edges;
 	}
 	bool dirty() const { return !mChanged.empty(); }
+	// For the log: which components differ and, for connections, which cables.
+	std::string describe() const {
+		std::string result;
+		for (const auto& key : mChanged) {
+			result += (result.empty() ? "" : ", ") + key;
+			auto base = mBaseline.find(key);
+			auto last = mLast.find(key);
+			if (key != "connections" || base == mBaseline.end() || last == mLast.end()) continue;
+			for (const auto* side : {&base->second, &last->second}) {
+				const auto& other = side == &base->second ? last->second : base->second;
+				for (auto it = side->begin(); it != side->end(); ++it) {
+					if (other.contains(it.key()) && (side != &base->second || other[it.key()] == it.value())) continue;
+					result += " [" + it.key() + " saved " + std::to_string(base->second.value(it.key(), 0u)) +
+						" live " + std::to_string(last->second.value(it.key(), 0u)) + "]";
+				}
+			}
+		}
+		return result;
+	}
 	static Json metadata(const std::string &text) {
 		if (text.empty()) {
 			return Json::object();
@@ -97,5 +117,6 @@ class SetDirtyState {
 
   private:
 	Components mBaseline;
+	Components mLast; // last compared values, for describe()
 	std::set<std::string> mChanged;
 };

@@ -2429,6 +2429,19 @@ void Controller::updateSetDirty() {
 		mSetLinkChanged = false;
 	}
 	const bool dirty = mSetDirtyState.dirty();
+#ifdef RNBO_LOG_SET_DIRTY
+	//debugging aid, off by default: say what differs, once per change, so a surprising dirty flag
+	//can be explained from the log. Build with -DCMAKE_CXX_FLAGS=-DRNBO_LOG_SET_DIRTY
+	if (dirty) {
+		auto what = mSetDirtyState.describe();
+		if (what != mSetDirtyLogged) {
+			std::cerr << "set differs from saved: " << what << std::endl;
+			mSetDirtyLogged = std::move(what);
+		}
+	} else {
+		mSetDirtyLogged.clear();
+	}
+#endif
 	if (dirty != mSetDirtyPublished) {
 		mSetDirtyPublished = dirty;
 		mSetDirtyParam->push_value(dirty);
