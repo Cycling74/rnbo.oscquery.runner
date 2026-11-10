@@ -20,6 +20,9 @@
     * improved set `dirty` detection
     * fixed MIDI port aliases missing 2nd alias
     * sets now save and restore each device's preset program-change MIDI channel
+    * MIDI connections are restored when a device is unplugged and replugged, and sets wait for MIDI devices that are missing when they load
+        * devices are identified by USB serial or socket rather than by port number; identical devices are most reliably told apart in raw MIDI mode
+    * applying audio settings keeps the current set, its name, its `dirty` state and its connections
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content
