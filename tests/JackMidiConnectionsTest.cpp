@@ -248,17 +248,13 @@ static void reviewedRecovery() {
 
 	SetConnectionInfo renamed("review-device", "first", "renamed-0", "midiin1");
 	renamed.source_midi_identity = midiJackPort(first).endpoint.identity;
-	renamed.sink_midi_identity = "name:old-name-0:rnbomidiin1:sink";
 	renamed.sink_instance_index = 0;
 	midiJackLoadEdge(h.client, h.graph, midiJackSavedEdge(renamed));
-	require(jack_port_connected_to(first, jack_port_name(sink)), "renamed indexed instance ignores previously saved erroneous identity");
+	require(jack_port_connected_to(first, jack_port_name(sink)), "an indexed instance is addressed by its name");
 	disconnect(first, sink);
 	renamed.sink_name = "failed-instance-0";
 	midiJackLoadEdge(h.client, h.graph, midiJackSavedEdge(renamed));
 	require(h.graph.pending().empty(), "failed indexed instance does not become a missing device");
-	renamed.sink_instance_index = -1;
-	midiJackLoadEdge(h.client, h.graph, midiJackSavedEdge(renamed));
-	require(h.graph.pending().empty(), "old erroneous RNBO identity is ignored even without an instance index");
 
 	auto second = add("second"); h.settle();
 	MidiConnections::Selection selection;
@@ -282,10 +278,9 @@ static void reviewedRecovery() {
 		"two saved alias-only cables choose different twins where possible");
 	disconnect(first, sink); disconnect(second, sink);
 	auto marked = midiJackPort(first).endpoint;
-	marked.identity = "ambiguous:" + marked.identity + ":" + marked.name;
-	marked.name = "Twin:Keys (out)";
+	marked.alias = "Twin:Keys (out)";
 	midiJackLoadEdge(h.client, h.graph, {marked, target});
-	require(jack_port_connected_to(first, jack_port_name(sink)), "old ambiguity marker retains its saved JACK name preference");
+	require(jack_port_connected_to(first, jack_port_name(sink)), "a saved JACK name hint picks its twin");
 	disconnect(first, sink);
 	jack_port_unregister(device, first); h.settle();
 	midiJackLoadEdge(h.client, h.graph, {marked, target});
@@ -498,13 +493,6 @@ static void savedFormatCompatibility() {
 	require(!dirty.dirty(), "saving and comparing one physical MIDI cable remains clean");
 	h.graph.forgetNames(jack_port_name(source), jack_port_name(sink));
 	jack_disconnect(device, jack_port_name(source), jack_port_name(sink)); h.settle();
-	// A set produced by the previous working tree used the JACK name as the
-	// address and stored its fallback alias in source_midi_alias.
-	auto old = info.toJson();
-	old["source_name"] = "compat-device"; old["source_port_name"] = "original";
-	old.erase("source_midi_port"); old["source_midi_alias"] = "in-hw-2-0-0-Keys";
-	midiJackLoadEdge(h.client, h.graph, midiJackSavedEdge(SetConnectionInfo::fromJson(old))); h.settle();
-	require(jack_port_connected_to(source, jack_port_name(sink)), "earlier working-tree exports still load after JACK renumbering");
 	jack_client_close(device); jack_client_close(instrument);
 }
 

@@ -58,22 +58,6 @@ public:
 	using Selection = std::set<uint32_t>;
 	static constexpr auto disconnectWindow = std::chrono::milliseconds(250);
 
-	static Endpoint canonical(Endpoint endpoint, bool source) {
-		if (endpoint.identity.starts_with("ambiguous:")) {
-			endpoint.identity.erase(0, 10);
-			// Old saved markers appended the actual JACK name after the direction.
-			const std::string suffix = source ? ":source:" : ":sink:";
-			auto pos = endpoint.identity.rfind(suffix);
-			if (pos != std::string::npos) {
-				if (endpoint.alias.empty()) endpoint.alias = endpoint.name;
-				endpoint.name = endpoint.identity.substr(pos + suffix.size());
-				endpoint.identity.resize(pos + suffix.size() - 1);
-			}
-		}
-		// Accept sets written by the earlier implementation, too.
-		if (midi_identity::instanceAlias(endpoint.identity)) { endpoint.identity.clear(); endpoint.alias.clear(); }
-		return endpoint;
-	}
 	static bool same(const Endpoint& a, const Endpoint& b) {
 		return a.identity.empty() && b.identity.empty() ? a.name == b.name
 			: !a.identity.empty() && a.identity == b.identity;
@@ -89,14 +73,14 @@ public:
 	// present endpoint to the live port, which must not become the claim.
 	static std::string requestedIdentity(const Edge& edge, bool source) {
 		const auto& requested = source ? edge.sourceRequested : edge.sinkRequested;
-		return !requested.empty() ? requested : canonical(source ? edge.source : edge.sink, source).identity;
+		return !requested.empty() ? requested : (source ? edge.source : edge.sink).identity;
 	}
 	// A load request that could not be connected yet: keep what was asked for.
 	// `retained`: the caller rebuilds a graph it had and keeps its baseline, so a
 	// carried cable it asks for again stays carried.
 	void defer(Edge edge, const Edge& requested, bool retained = false) {
-		edge.sourceRequested = canonical(requested.source, true).identity;
-		edge.sinkRequested = canonical(requested.sink, false).identity;
+		edge.sourceRequested = requested.source.identity;
+		edge.sinkRequested = requested.sink.identity;
 		if (supersede(edge) && retained) edge.carried = true;
 		remember(edge, true);
 	}
@@ -205,7 +189,7 @@ public:
 			// The exact device: nothing registered now may replace it. An alias
 			// stand-in: a port that registered after the last snapshot was not
 			// part of this judgement and may be the device itself.
-			const bool exact = present.front()->endpoint.identity == canonical(endpoint, source).identity;
+			const bool exact = present.front()->endpoint.identity == endpoint.identity;
 			for (const auto seen : mRegistered) if (seen != id && (exact || mPorts.count(seen))) existing.insert(seen);
 		}
 		for (auto& edge : mPending) lost(edge);
@@ -286,14 +270,14 @@ public:
 			if (port) continue;
 			const auto& endpoint = source ? edge.source : edge.sink;
 			const auto& existing = source ? edge.sourceExisting : edge.sinkExisting;
-			const auto identity = canonical(endpoint, source).identity;
+			const auto identity = endpoint.identity;
 			auto present = candidates(endpoint, source);
 			std::erase_if(present, [&](const Port* p) { return existing.count(p->id) || p->endpoint.identity != identity; });
 			if (!port && present.size() == 1) { port = present.front()->id; adopted = true; }
 		}
 	}
 	std::vector<const Port*> candidates(const Endpoint& stored, bool source) const {
-		const auto endpoint = canonical(stored, source);
+		const auto& endpoint = stored;
 		auto lookup = [&](const auto& index, const std::string& key) {
 			std::vector<const Port*> result;
 			auto it = index.find(key);
@@ -326,15 +310,15 @@ public:
 	// including edges not processed yet. Must not outlive the load.
 	void claim(const std::vector<Edge>& edges) {
 		for (const auto& edge : edges) {
-			mClaims[1].insert(canonical(edge.source, true).identity);
-			mClaims[0].insert(canonical(edge.sink, false).identity);
+			mClaims[1].insert(edge.source.identity);
+			mClaims[0].insert(edge.sink.identity);
 		}
 	}
 	void releaseClaims() { mClaims[0].clear(); mClaims[1].clear(); }
 	const Port* resolve(const Endpoint& endpoint, bool source, const Selection& taken = {}) const {
 		auto ports = candidates(endpoint, source);
 		if (ports.empty()) return nullptr;
-		const auto wanted = canonical(endpoint, source).name;
+		const auto wanted = endpoint.name;
 		for (const auto* port : ports) if (port->endpoint.name == wanted) return port;
 		for (const auto* port : ports) if (!taken.count(port->id)) return port;
 		return ports.front();
@@ -343,7 +327,7 @@ public:
 		const auto sources = candidates(edge.source, true), sinks = candidates(edge.sink, false);
 		std::pair<const Port*, const Port*> best{};
 		std::tuple<bool, bool, bool, bool> bestRank;
-		const auto sourceName = canonical(edge.source, true).name, sinkName = canonical(edge.sink, false).name;
+		const auto sourceName = edge.source.name, sinkName = edge.sink.name;
 		for (const auto* source : sources) for (const auto* sink : sinks) {
 			// Hotplug recovery must not move a lost cable to a twin that stayed
 			// online. Set-load requests retain the ordinary matching rules.
@@ -482,12 +466,12 @@ public:
 		// A serial-less device found in another socket takes all of its cables
 		// along: the ones still waiting now look for it where it is.
 		for (const bool source : {true, false}) {
-			const auto was = canonical(source ? old.source : old.sink, source).identity;
+			const auto was = (source ? old.source : old.sink).identity;
 			const auto& now = source ? current.source : current.sink;
 			if (was == now.identity || !midi_identity::pathIdentity(was) || !midi_identity::pathIdentity(now.identity)) continue;
 			for (auto& edge : mPending) {
 				auto& endpoint = source ? edge.source : edge.sink;
-				if (canonical(endpoint, source).identity != was) continue;
+				if (endpoint.identity != was) continue;
 				// Never move onto a port this cable already excludes.
 				if (ports && (source ? edge.sourceExisting : edge.sinkExisting).count(source ? ports->first : ports->second)) continue;
 				const auto previous = key(edge);
@@ -527,7 +511,7 @@ private:
 		auto add = [&](const std::string& identity) { if (midi_identity::pathIdentity(identity)) result.insert(identity); };
 		for (const auto& identity : mClaims[source]) add(identity);
 		for (const auto& edge : mPending) {
-			const auto identity = canonical(source ? edge.source : edge.sink, source).identity;
+			const auto identity = (source ? edge.source : edge.sink).identity;
 			if (identity != wanted && (source ? edge.sourceRequested : edge.sinkRequested) != wanted) add(identity);
 		}
 		for (const auto& [ids, edge] : mLive) {

@@ -99,17 +99,17 @@ template<class Connection> void midiJackStoreEndpoint(Connection& info, const Mi
 		port.physical || !port.endpoint.identity.empty() ? port.endpoint.name : "";
 }
 
-// Shared with tests so indexed/renamed RNBO instances ignore erroneous device
-// identities and stale hints written by earlier versions of the branch.
+// Shared with tests. RNBO instances are addressed by name (their index follows
+// a rename); devices by identity, with the saved JACK name as a hint.
 template<class Connection> MidiConnections::Edge midiJackSavedEdge(const Connection& info) {
 	auto endpoint = [](const std::string& name, const std::string& port, const std::string& identity,
-			const std::string& hint, int instance, bool source) {
+			const std::string& hint, int instance) {
 		const auto address = name + (port.empty() ? "" : ":" + port);
-		if (instance >= 0 || midi_identity::instanceAlias(identity)) return MidiConnections::Endpoint{address, {}};
-		return MidiConnections::canonical({hint.empty() ? address : hint, identity, hint.empty() ? "" : address}, source);
+		if (instance >= 0) return MidiConnections::Endpoint{address, {}};
+		return MidiConnections::Endpoint{hint.empty() ? address : hint, identity, hint.empty() ? "" : address};
 	};
-	return {endpoint(info.source_name, info.source_port_name, info.source_midi_identity, info.source_midi_port, info.source_instance_index, true),
-		endpoint(info.sink_name, info.sink_port_name, info.sink_midi_identity, info.sink_midi_port, info.sink_instance_index, false)};
+	return {endpoint(info.source_name, info.source_port_name, info.source_midi_identity, info.source_midi_port, info.source_instance_index),
+		endpoint(info.sink_name, info.sink_port_name, info.sink_midi_identity, info.sink_midi_port, info.sink_instance_index)};
 }
 
 struct MidiJackEndpoint {
@@ -122,7 +122,6 @@ struct MidiJackEndpoint {
 
 inline MidiJackEndpoint midiJackResolveEndpoint(jack_client_t* client, const MidiConnections& graph,
 		MidiConnections::Endpoint& endpoint, bool source, const MidiConnections::Selection& taken = {}) {
-	endpoint = MidiConnections::canonical(endpoint, source);
 	const auto address = endpoint.alias.empty() ? endpoint.name : endpoint.alias;
 	auto live = jack_port_by_name(client, address.c_str());
 	if (endpoint.identity.empty() && live && std::string(jack_port_type(live)) != JACK_DEFAULT_MIDI_TYPE)
@@ -157,7 +156,7 @@ inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, Midi
 			taken.insert(source.port->id); taken.insert(sink.port->id);
 			if (retained) {
 				const MidiConnections::Pair ids{source.port->id, sink.port->id};
-				graph.resolved({MidiConnections::canonical(requested.source, true), MidiConnections::canonical(requested.sink, false)},
+				graph.resolved({requested.source, requested.sink},
 					{source.port->endpoint, sink.port->endpoint}, ids);
 			}
 			const MidiConnections::Pair pair{source.port->id, sink.port->id};
@@ -180,15 +179,15 @@ inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, Midi
 	// A row written for a waiting cable names its JACK port as a hint, which
 	// becomes the alias: that is a MIDI port even without a device identity.
 	auto absent = [&](const MidiJackEndpoint& end, const MidiConnections::Endpoint& asked, bool isSource) {
-		return end.missingDevice || (retained && !end.present && !MidiConnections::canonical(asked, isSource).alias.empty());
+		return end.missingDevice || (retained && !end.present && !asked.alias.empty());
 	};
 	const bool noSource = absent(source, requested.source, true), noSink = absent(sink, requested.sink, false);
 	if ((noSource || noSink) &&
 		(noSource || (source.present && source.midi)) &&
 		(noSink || (sink.present && sink.midi))) {
 		// One end may already have been found elsewhere; the kept baseline follows it now.
-		if (retained) graph.resolved({MidiConnections::canonical(requested.source, true),
-			MidiConnections::canonical(requested.sink, false)}, edge);
+		if (retained) graph.resolved({requested.source,
+			requested.sink}, edge);
 		graph.defer(edge, requested, retained);
 		if (source.port) taken.insert(source.port->id);
 		if (sink.port) taken.insert(sink.port->id);

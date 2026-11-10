@@ -40,20 +40,6 @@ struct SetConnectionInfo {
 		info.sink_midi_identity = json.value("sink_midi_identity", std::string());
 		info.source_midi_port = json.value("source_midi_port", std::string());
 		info.sink_midi_port = json.value("sink_midi_port", std::string());
-		// Accept exports from the earlier branch: actual names in the address
-		// fields, and a separate alias. Do not emit those redundant alias fields.
-		auto upgrade = [](std::string& name, std::string& port, std::string& hint,
-				const std::string& identity, int instance, const std::string& alias) {
-			if (alias.empty() || identity.empty() || !hint.empty() || instance >= 0 || identity.find(":rnbomidi") != std::string::npos) return;
-			hint = name + (port.empty() ? "" : ":" + port);
-			auto colon = alias.find(':');
-			name = alias.substr(0, colon);
-			port = colon == std::string::npos ? "" : alias.substr(colon + 1);
-		};
-		upgrade(info.source_name, info.source_port_name, info.source_midi_port, info.source_midi_identity,
-			info.source_instance_index, json.value("source_midi_alias", std::string()));
-		upgrade(info.sink_name, info.sink_port_name, info.sink_midi_port, info.sink_midi_identity,
-			info.sink_instance_index, json.value("sink_midi_alias", std::string()));
 		return info;
 	}
 };

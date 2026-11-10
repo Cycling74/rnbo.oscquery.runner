@@ -161,8 +161,6 @@ int main() {
 	duplicates.observe({second, twinReturn, synth}, {{second.id, synth.id}});
 	require(duplicates.resolveRecovery({first.endpoint, synth.endpoint}).first->id == twinReturn.id,
 		"restore to the returning twin rather than an already connected one");
-	require(duplicates.resolve({"old-alias", "ambiguous:" + first.endpoint.identity + ":" + second.endpoint.name}, true)->id == second.id,
-		"old ambiguity markers load and retain their saved JACK name hint");
 	duplicates.observe({second, first, synth}, {});
 	require(duplicates.resolve(unnamed, true)->id == second.id, "fallback order is snapshot order, not sorted port ID");
 
@@ -701,7 +699,6 @@ int main() {
 		legacy.observe({aliased, synth}, {});
 		const MidiConnections::Endpoint old{"in-hw-2-0-1-Keys", "legacy:in-hw-*-0-1-Keys"};
 		require(legacy.resolve(old, true), "legacy raw alias resolves across card renumbering");
-		require(legacy.resolve({old.name, "ambiguous:" + old.identity}, true), "old ambiguous legacy markers remain loadable");
 		legacy.resolved({old, synth.endpoint}, {aliased.endpoint, synth.endpoint});
 		saved.source_midi_identity = old.identity;
 		dirty.reset({{"connections", SetDirtyState::connections(std::vector{saved})}, {"meta", "old"}});
@@ -846,14 +843,10 @@ int main() {
 	}
 
 	{
-		SetConnectionInfo legacy("system", "midi_capture_1", "synth-0", "midiin1");
-		legacy.source_midi_identity = "usb:model:path:A:midi:0:0:source";
-		auto oldJson = legacy.toJson();
-		oldJson["source_midi_alias"] = "in-hw-7-0-0-Keys";
-		auto converted = SetConnectionInfo::fromJson(oldJson);
-		require(converted.source_name == "in-hw-7-0-0-Keys" && converted.source_port_name.empty() &&
-			converted.source_midi_port == "system:midi_capture_1", "working-tree export converts to alias address plus JACK hint");
-		require(!converted.toJson().contains("source_midi_alias"), "new exports do not duplicate aliases in extra fields");
+		SetConnectionInfo converted("in-hw-7-0-0-Keys", "", "synth-0", "midiin1");
+		converted.source_midi_identity = "usb:model:path:A:midi:0:0:source";
+		converted.source_midi_port = "system:midi_capture_1";
+		auto oldJson = converted.toJson();
 		require(SetConnectionInfo::fromJson(converted.toJson()).toJson() == converted.toJson(), "new JSON format round-trips");
 		auto twin = converted; twin.source_midi_port = "system:midi_capture_2";
 		dirty.reset({{"connections", SetDirtyState::connections(std::vector{converted, twin})}});
@@ -862,7 +855,6 @@ int main() {
 		dirty.update("connections", SetDirtyState::connections(std::vector{converted}));
 		require(dirty.dirty(), "one absent alias-address twin still dirties the graph");
 		for (auto key : {"source_midi_identity", "source_midi_port", "sink_midi_identity", "sink_midi_port"}) oldJson.erase(key);
-		oldJson.erase("source_midi_alias");
 		require(SetConnectionInfo::fromJson(oldJson).source_midi_port.empty(), "all new JSON fields remain optional");
 	}
 

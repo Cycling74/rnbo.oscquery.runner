@@ -141,8 +141,7 @@ initiates Bluetooth pairing or reconnection; the bridge must recreate its ports.
 - Migration 24 adds those four columns to `sets_connections` and puts the two
   hints in its unique key, so identical devices that share an alias address
   each keep their own cable. Changing the key means rebuilding the table; row
-  ids are kept. Sets without identities, old `ambiguous:` markers and earlier
-  working-tree JSON with `*_midi_alias` still load.
+  ids are kept. Sets without identities still load.
 
 ### Known limits
 
@@ -204,7 +203,7 @@ selection/replug on the same and different sinks, serial-less controllers in
 different sockets loaded through the production claims, control recovery after an
 offline save and of a hand-made control cable, standalone versus set instance
 auto-connect, release-compatible
-alias addresses, loading earlier working-tree JSON, and third-party software
+alias addresses, and third-party software
 port restart. The migration test runs the actual SQL against a release row and
 checks row ids, twin cables, the unique key and the foreign keys; it is
 enabled when Python is available.
