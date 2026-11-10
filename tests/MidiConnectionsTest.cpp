@@ -480,21 +480,28 @@ int main() {
 			g.observe({anonymous, ctl}, {});
 			g.connected({7, 40}); // auto-connect before the port is identified
 			g.observe({back, ctl}, {{7, 40}});
-			require(g.pending().size() == 1 && g.takeIdentityUpdates().size() == 1, "the returning twin takes one request");
+			// An identity change of a live cable only refines the baseline; what must
+			// never happen again is a second addition.
+			auto additions = [](MidiConnections& graph) {
+				const auto updates = graph.takeIdentityUpdates();
+				return std::count_if(updates.begin(), updates.end(),
+					[](const MidiConnectionUpdate& u) { return u.before == MidiConnectionUpdate::Key{}; });
+			};
+			require(g.pending().size() == 1 && additions(g) == 1, "the returning twin takes one request");
 			g.observe({anonymous, ctl}, {{7, 40}});
 			g.observe({back, ctl}, {{7, 40}});
-			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
+			require(g.pending().size() == 1 && additions(g) == 0,
 				"a cable that satisfied a request never takes the absent twin's");
 			// Nor when it is briefly disconnected and reconnected.
 			g.disconnected({7, 40});
 			g.connected({7, 40});
-			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
+			require(g.pending().size() == 1 && additions(g) == 0,
 				"a reconnected cable that satisfied a request never takes the absent twin's");
 			// Nor after a save taken while the port is anonymous again.
 			g.observe({anonymous, ctl}, {{7, 40}});
 			g.saved({{anonymous.endpoint, ctl.endpoint}});
 			g.observe({back, ctl}, {{7, 40}});
-			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
+			require(g.pending().size() == 1 && additions(g) == 0,
 				"a saved cable never takes the absent twin's request");
 		}
 		{
@@ -610,6 +617,30 @@ int main() {
 			h.connected({1, 40}, false, &controlCable);
 			h.adopt({1, 40});
 			require(h.carriedCables().empty(), "a live control cable the loaded set asks for is the set's");
+		}
+		{
+			// A live cable the baseline has, whose port is identified later (a
+			// bridge publishing its device id): the baseline follows it.
+			MidiConnections g;
+			SetDirtyState state;
+			Port named = keyboard;
+			named.endpoint.identity = "name:Keys:source";
+			g.observe({named, synth}, {{1, 2}});
+			g.saved({{named.endpoint, synth.endpoint}});
+			state.reset({{"connections", SetDirtyState::connections(rows({{named.endpoint, synth.endpoint}}))}});
+			g.observe({keyboard, synth}, {{1, 2}});
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			state.update("connections", SetDirtyState::connections(rows({cable})));
+			require(!state.dirty(), "the baseline follows a live cable to its refined identity");
+			// A removal still queued when audio restarts is not lost.
+			MidiConnections h;
+			h.observe({keyboard, ctl}, {{1, 40}});
+			h.clear(true);
+			h.removed(1);
+			h.restart();
+			const auto queued = h.takeIdentityUpdates();
+			require(queued.size() == 1 && queued[0].after == MidiConnectionUpdate::Key{} && h.pending().size() == 1,
+				"a queued removal of a carried cable survives an audio restart");
 		}
 		{
 			// A waiting cable's saved JACK name can be the name of another device's

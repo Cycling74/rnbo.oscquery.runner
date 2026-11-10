@@ -106,6 +106,13 @@ are not part of this: instances come back with their last preset, as before.
 Control auto-connect starts over with the new client, so a controller that was
 deliberately disconnected from `rnbo-control` is connected again.
 
+A patcher reload rebuilds the same graph in the same way and keeps the baseline:
+cables that were waiting for a device are snapshotted with it and keep waiting.
+When the port of a live cable is identified or refined later (a backend naming
+it after registration, a bridge publishing its device id), the baseline follows
+the cable to its new identity. A set saved under the earlier identity is not
+found again under the new one when it is loaded later.
+
 Set loads replace per-set recovery history. Removing or replacing an instance
 forgets its recovery entries, including while the old instance is fading out.
 Missing device cables requested by a loaded set enter the load baseline and

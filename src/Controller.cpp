@@ -3739,7 +3739,8 @@ void Controller::registerCommands() {
 					//we want to get the preset data
 					mSetLoadPendingPreset = std::unordered_map<unsigned int, RNBO::Json>();
 
-					auto info = setInfo();
+					//with the MIDI cables that are waiting for a device: unloading forgets them
+					auto info = setInfo(true);
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						if (names.size() > 0) {

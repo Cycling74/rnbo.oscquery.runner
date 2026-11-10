@@ -132,6 +132,9 @@ public:
 		// Observation re-runs for every live cable; it must keep what it was requested under.
 		const auto live = mLive.find(ids);
 		if (live != mLive.end()) edge.carried = live->second.carried;
+		// A port of a live cable can be identified, or refined, later on.
+		std::optional<MidiConnectionUpdate> refined;
+		if (live != mLive.end() && key(live->second) != key(edge)) refined = MidiConnectionUpdate{key(live->second), key(edge)};
 		if (request) {
 			edge.sourceRequested = requestedIdentity(*request, true);
 			edge.sinkRequested = requestedIdentity(*request, false);
@@ -160,10 +163,13 @@ public:
 					mLive[ids].owned = true;
 					mLive[ids].carried = request.carried;
 					resolved(request, edge, ids);
-					break;
+					return;
 				}
 			}
 		}
+		// The baseline follows a cable it already has to its new identity. (A
+		// cable that just satisfied a request is accounted for by that request.)
+		if (refined) mIdentityUpdates.push_back(*refined);
 	}
 	void disconnected(Pair ports, Time when = Clock::now()) {
 		mActual.erase(ports);
@@ -446,7 +452,8 @@ public:
 	// the graph it knows from its own snapshot; carried cables are in no snapshot
 	// and keep waiting here.
 	void restart() {
-		mIdentityUpdates.clear();
+		// Updates still queued describe changes the caller's kept baseline has
+		// not seen yet; they stay.
 		auto ids = mRegistered;
 		for (const auto& entry : mPorts) ids.insert(entry.first);
 		for (const auto id : ids) removed(id); // live carried cables leave the baseline
