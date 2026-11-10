@@ -93,10 +93,19 @@ public:
 	void defer(Edge edge, const Edge& requested) {
 		edge.sourceRequested = canonical(requested.source, true).identity;
 		edge.sinkRequested = canonical(requested.sink, false).identity;
-		// The set asks for this cable itself: a carried copy of it is superseded.
-		auto copy = std::find_if(mPending.begin(), mPending.end(), [&](const Edge& e) { return e.carried && exact(e, edge); });
-		if (copy != mPending.end()) mPending.erase(copy);
+		supersede(edge);
 		remember(edge, true);
+	}
+	// A set load asks for this cable itself: a carried copy of it is superseded,
+	// or one cable would be restored, and counted, twice. JACK names are only
+	// hints (a saved one can be stale), so the copy is found by identity.
+	void supersede(const Edge& edge) {
+		for (const bool named : {true, false}) {
+			auto copy = std::find_if(mPending.begin(), mPending.end(), [&](const Edge& e) {
+				return e.carried && (named ? exact(e, edge) : same(e, edge));
+			});
+			if (copy != mPending.end()) { mPending.erase(copy); return; }
+		}
 	}
 	void remember(const Edge& edge, bool distinct = false) {
 		// Different JACK names with the same identity are different cables.

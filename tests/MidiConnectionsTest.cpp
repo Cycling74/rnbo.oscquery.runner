@@ -340,8 +340,22 @@ int main() {
 			g.observe({out, keysIn}, {{41, 3}});
 			g.removed(3);
 			g.clear(true);
-			g.defer({out.endpoint, keysIn.endpoint}, {out.endpoint, keysIn.endpoint});
+			// The saved row's JACK name hint is from an earlier session.
+			auto stale = keysIn.endpoint;
+			stale.name = "system:midi_playback_6";
+			g.defer({out.endpoint, stale}, {out.endpoint, stale});
 			require(g.pending().size() == 1 && !g.pending()[0].carried, "a requested control cable replaces its carried copy");
+			// Likewise when the set's cable connects at once.
+			MidiConnections h;
+			h.observe({out, keysIn}, {{41, 3}});
+			h.removed(3);
+			h.clear(true);
+			h.registered(3);
+			h.observe({out, keysIn}, {});
+			const Edge asked{out.endpoint, stale};
+			h.supersede({out.endpoint, keysIn.endpoint}); // as the loader does
+			h.connected({41, 3}, false, &asked);
+			require(h.pending().empty() && h.takeIdentityUpdates().empty(), "a connected set cable replaces its carried copy");
 		}
 		{
 			// A patcher reload keeps its baseline: a waiting control cable that is in

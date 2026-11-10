@@ -160,6 +160,7 @@ inline void midiJackLoadEdge(jack_client_t* client, MidiConnections& graph, Midi
 				graph.resolved({MidiConnections::canonical(requested.source, true), MidiConnections::canonical(requested.sink, false)},
 					{source.port->endpoint, sink.port->endpoint}, ids);
 			}
+			graph.supersede({source.port->endpoint, sink.port->endpoint});
 			graph.connected({source.port->id, sink.port->id}, false, &requested);
 		}
 		return;
