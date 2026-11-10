@@ -44,6 +44,10 @@ public:
 		// Runtime-only: a waiting control cable kept across a set switch or a save
 		// that the current set does not contain. Restoring it is not an edit.
 		bool carried = false;
+		// Runtime-only: a live cable that came from a request (load, recovery, a
+		// satisfied waiting cable) or was committed by a save, as opposed to one
+		// that was merely observed. It never takes another request.
+		bool owned = false;
 		bool operator==(const Edge&) const = default;
 	};
 	using Pair = std::pair<uint32_t, uint32_t>;
@@ -107,13 +111,16 @@ public:
 		if (request) {
 			edge.sourceRequested = requestedIdentity(*request, true);
 			edge.sinkRequested = requestedIdentity(*request, false);
+			edge.owned = true;
 		} else if (auto live = mLive.find(ids); live != mLive.end()) {
 			edge.sourceRequested = live->second.sourceRequested;
 			edge.sinkRequested = live->second.sinkRequested;
+			edge.owned = live->second.owned;
 		}
 		mLive[ids] = edge;
 		mDisconnectDeadlines.erase(ids);
-		if (mActual.insert(ids).second && satisfyPending) {
+		// An owned cable that flaps inside the disconnect window is still itself.
+		if (mActual.insert(ids).second && satisfyPending && !edge.owned) {
 			// A newly connected cable can satisfy one pending request. An already
 			// connected twin must never consume the missing twin's request.
 			for (auto it = mPending.begin(); it != mPending.end(); ++it) {
@@ -125,6 +132,7 @@ public:
 					mPending.erase(it);
 					mLive[ids].sourceRequested = requestedIdentity(request, true);
 					mLive[ids].sinkRequested = requestedIdentity(request, false);
+					mLive[ids].owned = true;
 					resolved(request, edge, ids);
 					break;
 				}
@@ -176,6 +184,7 @@ public:
 					lost(it->second);
 					it->second.sourceRequested.clear();
 					it->second.sinkRequested.clear();
+					it->second.owned = false;
 					remember(it->second);
 				}
 				mDisconnectDeadlines.erase(it->first);
@@ -193,10 +202,15 @@ public:
 		mPorts.clear();
 		for (auto& index : mByIdentity) index.clear();
 		for (auto& index : mByName) index.clear();
+		std::set<uint32_t> identified;
 		for (auto port : ports) {
 			auto previous = previousPorts.find(port.id);
 			if (previous != previousPorts.end() && previous->second.endpoint.name == port.endpoint.name &&
 				previous->second.endpoint.identity.starts_with("usb:")) port.endpoint.identity = previous->second.endpoint.identity;
+			// A backend can name a device after its port is registered, and after
+			// auto-connect has already cabled it.
+			if (previous != previousPorts.end() && (previous->second.endpoint.identity != port.endpoint.identity ||
+				previous->second.aliases != port.aliases)) identified.insert(port.id);
 			if (port.endpoint.alias.empty() && !port.aliases.empty())
 				port.endpoint.alias = midi_identity::alias(port.endpoint.name, port.aliases);
 			mPorts.emplace(port.id, port);
@@ -209,6 +223,14 @@ public:
 		// Index vectors preserve jack_get_ports order, independent of port IDs.
 		std::set<Pair> actual(connections.begin(), connections.end());
 		std::erase_if(mActual, [&](Pair pair) { return !actual.count(pair); });
+		// Cables of a port that has only now been identified count as new, so they
+		// can satisfy the request that was waiting for that device. A cable that
+		// already came from a request never takes a second one.
+		std::erase_if(mActual, [&](Pair pair) {
+			if (!identified.count(pair.first) && !identified.count(pair.second)) return false;
+			auto live = mLive.find(pair);
+			return live == mLive.end() || !live->second.owned;
+		});
 		for (const auto& ids : connections) connected(ids);
 		std::erase_if(mDisconnectDeadlines, [&](const auto& entry) {
 			const auto ids = entry.first;
@@ -360,6 +382,7 @@ public:
 			// The save stored the current identities; older requests are obsolete.
 			p.second.sourceRequested = p.second.source.identity;
 			p.second.sinkRequested = p.second.sink.identity;
+			p.second.owned = true;
 			return false;
 		});
 		std::erase_if(mPending, [&](Edge& edge) {

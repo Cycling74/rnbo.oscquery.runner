@@ -395,6 +395,82 @@ int main() {
 			require(!state.dirty(), "and it joins the baseline as before the restart");
 		}
 		{
+			// Sequencer backends name a device after its port registers. Auto-connect
+			// cables the still anonymous port; once it is identified, those cables
+			// satisfy the requests that were waiting for the device.
+			const Port out{41, {"rnbo-control:graphreset", {}}, true};
+			const Port keysIn{3, {"system:midi_playback_1", "usb:keys:sink"}, false};
+			const Edge resetCable{out.endpoint, keysIn.endpoint};
+			MidiConnections g;
+			SetDirtyState state;
+			g.observe({keyboard, keysIn, ctl, out, synth}, {{1, 40}, {1, 2}, {41, 3}});
+			g.removed(1);
+			g.removed(3);
+			g.observe({ctl, out, synth}, {});
+			g.clear(true); // set switch
+			g.defer(cable, cable);
+			g.defer(resetCable, resetCable);
+			state.reset({{"connections", baseline(g)}});
+			Port anonymous = keyboard, anonymousIn = keysIn;
+			anonymous.endpoint.identity.clear(); anonymousIn.endpoint.identity.clear();
+			g.registered(1);
+			g.registered(3);
+			g.observe({anonymous, anonymousIn, ctl, out, synth}, {});
+			retry(g);
+			require(g.pending().size() == 3, "nothing is restored onto a port that is not identified yet");
+			g.connected({1, 40}); // auto-connect
+			g.connected({41, 3});
+			g.observe({anonymous, anonymousIn, ctl, out, synth}, {{1, 40}, {41, 3}});
+			require(g.pending().size() == 3, "cables of an anonymous port satisfy no request");
+			g.observe({keyboard, keysIn, ctl, out, synth}, {{1, 40}, {41, 3}});
+			require(g.pending().size() == 1 && g.pending()[0].sink == synth.endpoint,
+				"cables made before the device was identified satisfy its waiting requests");
+			retry(g);
+			require(g.pending().empty(), "the remaining cable is restored once the device is identified");
+			state.remapConnectionIdentities(g.takeIdentityUpdates());
+			const auto all = SetDirtyState::connections(rows({cable, controlCable, resetCable}));
+			state.update("connections", all);
+			require(!state.dirty(), "a late-identified device returns the set to clean");
+			// Saving and restarting audio afterwards must find nothing left waiting.
+			g.saved({cable, controlCable, resetCable});
+			g.restart();
+			require(g.pending().empty(), "no request lingers to be restored a second time");
+		}
+		{
+			// Two identical controllers are away and one returns. Its cable takes one
+			// request; a later change of its identity must not take the twin's too.
+			const Port twinA{1, {"system:midi_capture_1", "name:twin:source"}, true};
+			const Port twinB{6, {"system:midi_capture_6", "name:twin:source"}, true};
+			MidiConnections g;
+			g.observe({twinA, twinB, ctl}, {{1, 40}, {6, 40}});
+			g.removed(1);
+			g.removed(6);
+			g.clear(true);
+			require(g.pending().size() == 2, "both twins' control cables wait");
+			Port back{7, twinA.endpoint, true}, anonymous = back;
+			anonymous.endpoint.identity.clear();
+			g.registered(7);
+			g.observe({anonymous, ctl}, {});
+			g.connected({7, 40}); // auto-connect before the port is identified
+			g.observe({back, ctl}, {{7, 40}});
+			require(g.pending().size() == 1 && g.takeIdentityUpdates().size() == 1, "the returning twin takes one request");
+			g.observe({anonymous, ctl}, {{7, 40}});
+			g.observe({back, ctl}, {{7, 40}});
+			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
+				"a cable that satisfied a request never takes the absent twin's");
+			// Nor when it is briefly disconnected and reconnected.
+			g.disconnected({7, 40});
+			g.connected({7, 40});
+			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
+				"a reconnected cable that satisfied a request never takes the absent twin's");
+			// Nor after a save taken while the port is anonymous again.
+			g.observe({anonymous, ctl}, {{7, 40}});
+			g.saved({{anonymous.endpoint, ctl.endpoint}});
+			g.observe({back, ctl}, {{7, 40}});
+			require(g.pending().size() == 1 && g.takeIdentityUpdates().empty(),
+				"a saved cable never takes the absent twin's request");
+		}
+		{
 			// A control cable the save stored stays part of the saved set.
 			MidiConnections g;
 			g.observe({keyboard, ctl}, {{1, 40}});
