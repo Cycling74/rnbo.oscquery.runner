@@ -109,7 +109,7 @@ class Controller {
 		std::unordered_map<std::string, std::function<void(const std::string& method, const std::string& id, const RNBO::Json& params)>> mCommandHandlers;
 
 		SetInfo setInfo();
-		void resetSetDirtyBaseline(const SetInfo* saved = nullptr);
+		void resetSetDirtyBaseline(const SetInfo* saved = nullptr, bool loading = false);
 		void updateSetDirty();
 		void watchSetInstance(const std::shared_ptr<Instance>& instance);
 		RNBO::Json setDeviceState(const std::shared_ptr<Instance>& instance, const boost::filesystem::path& library);

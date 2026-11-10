@@ -1,9 +1,11 @@
 #pragma once
 
 #include "RNBO.h"
+#include "MidiConnectionUpdate.h"
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 // Event-thread owned. Notifications invalidate components; only state differences are edits.
 class SetDirtyState {
@@ -33,11 +35,36 @@ class SetDirtyState {
 		mBaseline[key] = std::move(value);
 		mChanged.erase(key);
 	}
+	// Resolving an old alias refines the identity of an existing baseline cable;
+	// it must not adopt unrelated live edits or clear other dirty components.
+	void remapConnectionIdentities(const std::vector<MidiConnectionUpdate>& updates) {
+		auto it = mBaseline.find("connections");
+		if (it == mBaseline.end()) return;
+		for (const auto& update : updates) {
+			const auto before = Json(update.before).dump(), after = Json(update.after).dump();
+			auto count = it->second.find(before);
+			if (before == after || count == it->second.end()) continue;
+			const auto remaining = count->get<unsigned>() - 1;
+			if (remaining) *count = remaining; else it->second.erase(count);
+			it->second[after] = it->second.value(after, 0u) + 1;
+		}
+	}
 	template <typename Connections> static Json connections(const Connections &connections) {
 		Json edges = Json::object();
+		std::set<std::string> seen;
 		for (const auto &edge : connections) {
 			Json key = {edge.source_name, edge.source_port_name, edge.sink_name, edge.sink_port_name};
-			edges[key.dump()] = true;
+			auto address = key;
+			if constexpr (requires { edge.source_midi_port; edge.sink_midi_port; }) {
+				if (!edge.source_midi_port.empty()) { address[0] = edge.source_midi_port; address[1] = ""; }
+				if (!edge.sink_midi_port.empty()) { address[2] = edge.sink_midi_port; address[3] = ""; }
+			}
+			if (!seen.insert(address.dump()).second) continue;
+			if constexpr (requires { edge.source_midi_identity; edge.sink_midi_identity; }) {
+				if (!edge.source_midi_identity.empty()) { key[0] = edge.source_midi_identity; key[1] = ""; }
+				if (!edge.sink_midi_identity.empty()) { key[2] = edge.sink_midi_identity; key[3] = ""; }
+			}
+			edges[key.dump()] = edges.value(key.dump(), 0u) + 1;
 		}
 		return edges;
 	}

@@ -2197,7 +2197,7 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 		}
 
 		if (!preset) {
-			resetSetDirtyBaseline();
+			resetSetDirtyBaseline(nullptr, true);
 		} else {
 			// Reloading a patcher is not saving the set: retain any pre-existing edits.
 			mSetInstancesChanged = mSetConnectionsChanged = mSetLinkChanged = true;
@@ -2302,13 +2302,13 @@ RNBO::Json Controller::setDeviceState(const std::shared_ptr<Instance>& instance,
 	return {{"patcher", instance->name()}, {"library", library.string()}, {"config", SetDirtyState::device(instance->currentConfig(false))}};
 }
 
-void Controller::resetSetDirtyBaseline(const SetInfo* saved) {
+void Controller::resetSetDirtyBaseline(const SetInfo* saved, bool loading) {
 	// Called on the event thread after applying a load or successfully saving. Instance
 	// defaults and metadata overrides have already been applied synchronously here.
 	mSetMetaChanged.exchange(false);
 	SetDirtyState::Components baseline;
 	baseline["meta"] = SetDirtyState::metadata(saved ? saved->meta : mSetMetaParam->value().get<std::string>());
-	baseline["connections"] = SetDirtyState::connections(saved ? saved->connections : mProcessAudio->connections());
+	baseline["connections"] = SetDirtyState::connections(saved ? saved->connections : loading ? mProcessAudio->loadConnectionBaseline() : mProcessAudio->connections());
 	auto link = saved ? saved->link_audio : mProcessAudio->linkAudioSetup();
 	baseline["link"] = link ? link->toJson() : RNBO::Json();
 	mSetLinkBaselineKnown = !baseline["link"].is_null();
@@ -2329,7 +2329,8 @@ void Controller::resetSetDirtyBaseline(const SetInfo* saved) {
 	}
 	mSetDirtyState.reset(std::move(baseline));
 	mSetDeviceChecks.clear();
-	mSetInstancesChanged = mSetConnectionsChanged = mSetLinkChanged = false;
+	mSetInstancesChanged = mSetLinkChanged = false;
+	mSetConnectionsChanged = loading;
 	if (mSetDirtyPublished) {
 		mSetDirtyPublished = false;
 		mSetDirtyParam->push_value(false);
@@ -2372,6 +2373,11 @@ void Controller::updateSetDirty() {
 			mSetConnectionsChanged = true;
 		}
 		mSetInstancesChanged = false;
+	}
+	const auto midiIdentities = mProcessAudio->takeMidiIdentityUpdates();
+	if (!midiIdentities.empty()) {
+		mSetDirtyState.remapConnectionIdentities(midiIdentities);
+		mSetConnectionsChanged = true;
 	}
 	if (mSetConnectionsChanged) {
 		mSetDirtyState.update("connections", SetDirtyState::connections(mProcessAudio->connections()));
@@ -3508,6 +3514,9 @@ void Controller::registerCommands() {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
+					mProcessAudio->connectionsSaved(info.connections);
+					//from here the saved connections are the source of truth, like a loaded set
+					for (auto& entry : mInstances) std::get<0>(entry)->stopAutoConnect();
 					mSetMetaParam->push_value_quiet(meta);
 					resetSetDirtyBaseline(&info);
 

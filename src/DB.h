@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RNBO.h"
+#include "SetConnectionInfo.h"
 #include <SQLiteCpp/SQLiteCpp.h>
 #include <boost/filesystem.hpp>
 #include <boost/optional.hpp>
@@ -17,28 +18,6 @@
 //
 
 //saving a set with a new name should copy over ParamViews
-
-struct SetConnectionInfo {
-	std::string source_name;
-	int source_instance_index = -1;
-	std::string source_port_name;
-
-	std::string sink_name;
-	int sink_instance_index = -1;
-	std::string sink_port_name;
-
-	SetConnectionInfo(
-			std::string src_name, std::string src_port_name,
-			std::string snk_name, std::string snk_port_name
-	) : source_name(src_name), source_port_name(src_port_name),
-			sink_name(snk_name), sink_port_name(snk_port_name)
-	{}
-
-	SetConnectionInfo() {}
-
-	RNBO::Json toJson();
-	static SetConnectionInfo fromJson(const RNBO::Json& json);
-};
 
 struct SetInstanceInfo {
 	std::string patcher_name;
