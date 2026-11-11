@@ -55,6 +55,7 @@ class Instance {
 
 		void activate();
 		void connect();
+		void stopAutoConnect();
 		void start(float fadems = 10.0);
 		void stop(float fadems = 10.0);
 

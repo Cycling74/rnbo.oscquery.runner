@@ -1959,6 +1959,8 @@ bool Controller::replaceDB(fs::path& path) {
 std::shared_ptr<Instance> Controller::loadLibrary(const std::string& path, std::string cmdId, RNBO::Json conf, bool saveConfig, unsigned int instanceIndex, const fs::path& config_path, bool refreshPorts) {
 	//clear out our last instance presets, loadSet should already have it if there is one
 	mInstanceLastPreset.clear();
+	//the graph is being built anew; a snapshot from before audio stopped is obsolete
+	mAudioRestartSet = boost::none;
 
 	auto fname = fs::path(path).filename().string();
 	try {
@@ -2062,6 +2064,8 @@ void Controller::loadSet(std::string name) {
 	}
 	mSetLoadPending = mDB->setGet(name);
 	mSetLoadPendingPreset = boost::none;
+	mSetLoadPendingRestore = false;
+	mAudioRestartSet = boost::none;
 
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
@@ -2069,7 +2073,25 @@ void Controller::loadSet(std::string name) {
 	}
 }
 
-void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset) {
+//Audio came back: rebuild the graph that was live when it stopped. Not a set load -- the
+//current set, its name and its dirty baseline all stay as they are.
+void Controller::restoreSet(SetInfo info) {
+	std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
+	if (!tryActivateAudio(true)) {
+		std::cerr << "cannot activate audio, cannot restore set" << std::endl;
+		return;
+	}
+	mSetLoadPending = std::move(info);
+	mSetLoadPendingPreset = boost::none;
+	mSetLoadPendingRestore = true;
+
+	{
+		std::lock_guard<std::mutex> guard(mBuildMutex);
+		clearInstances(guard, mInstFadeOutMs);
+	}
+}
+
+void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset, bool restore) {
 	try {
 		std::unordered_map<unsigned int, RNBO::UniquePresetPtr> presets;
 		{
@@ -2160,10 +2182,21 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 		}
 
 		mProcessAudio->updatePorts();
-		mProcessAudio->connect(setInfo.connections, mFirstSetLoad); //only do control connections when loading first set
-		mFirstSetLoad = false;
+		//only do control connections when loading first set; a patcher reload keeps its baseline
+		//a restore or a patcher reload is the whole graph as it was, control cables included
+		//
+		//That graph goes back through connect() rather than being reconnected by JACK port name:
+		//after an audio restart physical MIDI ports can be renumbered (or renamed entirely if the
+		//MIDI backend changed), so they have to be found by device identity, and a cable whose
+		//device is away has to be left waiting for it instead of being dropped.
+		const bool retain = preset.has_value() || restore;
+		mProcessAudio->connect(setInfo.connections, mFirstSetLoad || retain, retain);
+		if (!restore) {
+			mFirstSetLoad = false;
+		}
 
-		const bool loadInitial = setInfo.name.size() && setInfo.name != UNTITLED_SET_NAME;
+		//a restore leaves presets as an audio restart always has: instances come back with their last preset
+		const bool loadInitial = !restore && setInfo.name.size() && setInfo.name != UNTITLED_SET_NAME;
 
 		//load presets and start instances
 		{
@@ -2196,15 +2229,18 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 			mSetMetaParam->push_value_quiet(setInfo.meta);
 		}
 
-		if (!preset) {
-			resetSetDirtyBaseline();
+		if (!preset && !restore) {
+			resetSetDirtyBaseline(nullptr, true);
 		} else {
-			// Reloading a patcher is not saving the set: retain any pre-existing edits.
+			// Reloading a patcher, or restoring the graph after an audio restart, is not
+			// saving the set: retain any pre-existing edits.
 			mSetInstancesChanged = mSetConnectionsChanged = mSetLinkChanged = true;
 			mSetMetaChanged.store(true);
 		}
-		mSetCurrentNameParam->push_value(setInfo.name);
-		config::set(setInfo.name, config::key::SetLastName);
+		if (!restore) {
+			mSetCurrentNameParam->push_value(setInfo.name);
+			config::set(setInfo.name, config::key::SetLastName);
+		}
 		updateSetPresetNames();
 	} catch (const std::exception& e) {
 		cerr << "exception " << e.what() << " trying to load last setup" << endl;
@@ -2213,7 +2249,7 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 	}
 	{
 		std::lock_guard<std::mutex> guard(mBuildMutex);
-		updateSetViews(setInfo.name);
+		updateSetViews(restore ? getCurrentSetName() : setInfo.name);
 	}
 }
 
@@ -2302,13 +2338,16 @@ RNBO::Json Controller::setDeviceState(const std::shared_ptr<Instance>& instance,
 	return {{"patcher", instance->name()}, {"library", library.string()}, {"config", SetDirtyState::device(instance->currentConfig(false))}};
 }
 
-void Controller::resetSetDirtyBaseline(const SetInfo* saved) {
+void Controller::resetSetDirtyBaseline(const SetInfo* saved, bool loading) {
 	// Called on the event thread after applying a load or successfully saving. Instance
 	// defaults and metadata overrides have already been applied synchronously here.
 	mSetMetaChanged.exchange(false);
 	SetDirtyState::Components baseline;
 	baseline["meta"] = SetDirtyState::metadata(saved ? saved->meta : mSetMetaParam->value().get<std::string>());
-	baseline["connections"] = SetDirtyState::connections(saved ? saved->connections : mProcessAudio->connections());
+	baseline["connections"] = SetDirtyState::connections(saved ? saved->connections : loading ? mProcessAudio->loadConnectionBaseline() : mProcessAudio->connections());
+	// A live snapshot already reflects every restoration reported so far. A save
+	// drops them itself, when it takes its snapshot.
+	if (!saved) mProcessAudio->takeMidiIdentityUpdates();
 	auto link = saved ? saved->link_audio : mProcessAudio->linkAudioSetup();
 	baseline["link"] = link ? link->toJson() : RNBO::Json();
 	mSetLinkBaselineKnown = !baseline["link"].is_null();
@@ -2329,7 +2368,8 @@ void Controller::resetSetDirtyBaseline(const SetInfo* saved) {
 	}
 	mSetDirtyState.reset(std::move(baseline));
 	mSetDeviceChecks.clear();
-	mSetInstancesChanged = mSetConnectionsChanged = mSetLinkChanged = false;
+	mSetInstancesChanged = mSetLinkChanged = false;
+	mSetConnectionsChanged = loading;
 	if (mSetDirtyPublished) {
 		mSetDirtyPublished = false;
 		mSetDirtyParam->push_value(false);
@@ -2373,6 +2413,11 @@ void Controller::updateSetDirty() {
 		}
 		mSetInstancesChanged = false;
 	}
+	const auto midiIdentities = mProcessAudio->takeMidiIdentityUpdates();
+	if (!midiIdentities.empty()) {
+		mSetDirtyState.remapConnectionIdentities(midiIdentities);
+		mSetConnectionsChanged = true;
+	}
 	if (mSetConnectionsChanged) {
 		mSetDirtyState.update("connections", SetDirtyState::connections(mProcessAudio->connections()));
 		mSetConnectionsChanged = false;
@@ -2390,13 +2435,26 @@ void Controller::updateSetDirty() {
 		mSetLinkChanged = false;
 	}
 	const bool dirty = mSetDirtyState.dirty();
+#ifdef RNBO_LOG_SET_DIRTY
+	//debugging aid, off by default: say what differs, once per change, so a surprising dirty flag
+	//can be explained from the log. Build with -DCMAKE_CXX_FLAGS=-DRNBO_LOG_SET_DIRTY
+	if (dirty) {
+		auto what = mSetDirtyState.describe();
+		if (what != mSetDirtyLogged) {
+			std::cerr << "set differs from saved: " << what << std::endl;
+			mSetDirtyLogged = std::move(what);
+		}
+	} else {
+		mSetDirtyLogged.clear();
+	}
+#endif
 	if (dirty != mSetDirtyPublished) {
 		mSetDirtyPublished = dirty;
 		mSetDirtyParam->push_value(dirty);
 	}
 }
 
-SetInfo Controller::setInfo() {
+SetInfo Controller::setInfo(bool withPending) {
 	SetInfo info;
 	info.name = getCurrentSetName();
 
@@ -2409,7 +2467,8 @@ SetInfo Controller::setInfo() {
 
 	std::lock_guard<std::mutex> iguard(mInstanceMutex);
 
-	info.connections = mProcessAudio->connections();
+	//withPending: also the MIDI cables that are waiting for a device to return
+	info.connections = withPending ? mProcessAudio->loadConnectionBaseline(true) : mProcessAudio->connections();
 	info.link_audio = mProcessAudio->linkAudioSetup();
 
 	for (auto& i: mInstances) {
@@ -3060,13 +3119,15 @@ bool Controller::processEvents() {
 			}
 			boost::optional<SetInfo> pending;
 			boost::optional<PendingPresetMap> preset;
+			bool restore = false;
 			{
 				std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
 				mSetLoadPending.swap(pending);
 				mSetLoadPendingPreset.swap(preset);
+				std::swap(restore, mSetLoadPendingRestore);
 			}
 			if (pending) {
-				doLoadSet(pending.get(), preset);
+				doLoadSet(pending.get(), preset, restore);
 			}
 		}
 
@@ -3187,6 +3248,22 @@ bool Controller::processEvents() {
 void Controller::handleActive(bool active) {
 	//clear out instances if we're deactivating
 	if (!active) {
+		//Remember the graph as it is, so that reactivating brings back this set -- its name, its
+		//unsaved edits and its connections -- rather than the last autosave under "(untitled)".
+		bool loading = false;
+		{
+			std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
+			loading = mSetLoadPending.has_value();
+		}
+		//not while a set load is in flight: the live graph is then neither set
+		//nor over a snapshot that is still owed its restore: the graph is not back yet
+		if (mProcessAudio->isActive() && !loading && !mAudioRestartSet) {
+			updateSetDirty(); //settle the comparison while the graph is still there
+			mAudioRestartSet = setInfo(true);
+			//taking the snapshot can itself observe a restored cable
+			mSetDirtyState.remapConnectionIdentities(mProcessAudio->takeMidiIdentityUpdates());
+		}
+
 		std::lock_guard<std::mutex> guard(mBuildMutex);
 		//save preset to reload on activation
 		//might cause a glitch?
@@ -3206,8 +3283,19 @@ void Controller::handleActive(bool active) {
 		//XXX defer to setting not active
 	} else if (!wasActive && mProcessAudio->isActive()) {
 		//if the process audio became active and there are no instances loaded, try to load_last
-		std::lock_guard<std::mutex> guard(mBuildMutex);
-		if (!mInstances.size()) {
+		bool empty = false;
+		{
+			std::lock_guard<std::mutex> guard(mBuildMutex);
+			empty = !mInstances.size();
+		}
+		//taken either way: a snapshot never outlives the activation it was made for
+		boost::optional<SetInfo> restore;
+		mAudioRestartSet.swap(restore);
+		if (restore && empty) {
+			//bring back the graph that was live when audio stopped, right away: nothing queued
+			//behind this command may see the empty graph in between
+			restoreSet(std::move(*restore));
+		} else if (empty) {
 			//load last if we're activating from inactive
 			mCommandQueue.push("load_last");
 		}
@@ -3508,6 +3596,11 @@ void Controller::registerCommands() {
 					std::string loaded = getCurrentSetName();
 
 					mDB->setSave(name, info);
+					//the saved snapshot becomes the baseline and already reflects these
+					mProcessAudio->takeMidiIdentityUpdates();
+					mProcessAudio->connectionsSaved(info.connections);
+					//from here the saved connections are the source of truth, like a loaded set
+					for (auto& entry : mInstances) std::get<0>(entry)->stopAutoConnect();
 					mSetMetaParam->push_value_quiet(meta);
 					resetSetDirtyBaseline(&info);
 
@@ -3652,7 +3745,8 @@ void Controller::registerCommands() {
 					//we want to get the preset data
 					mSetLoadPendingPreset = std::unordered_map<unsigned int, RNBO::Json>();
 
-					auto info = setInfo();
+					//with the MIDI cables that are waiting for a device: unloading forgets them
+					auto info = setInfo(true);
 					{
 						std::lock_guard<std::mutex> guard(mBuildMutex);
 						if (names.size() > 0) {
@@ -4870,7 +4964,19 @@ void Controller::processCommands() {
 				//terminate existing compile
 				compileProcess.reset();
 
-				loadSet(UNTITLED_SET_NAME);
+				bool loaded = false;
+				{
+					std::lock_guard<std::mutex> guard(mSetLoadPendingMutex);
+					loaded = mSetLoadPending.has_value();
+				}
+				{
+					std::lock_guard<std::mutex> guard(mBuildMutex);
+					loaded = loaded || mInstances.size();
+				}
+				//a graph that is already there, or on its way in, is what should stay
+				if (!loaded) {
+					loadSet(UNTITLED_SET_NAME);
+				}
 				continue;
 			}
 

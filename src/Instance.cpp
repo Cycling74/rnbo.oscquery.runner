@@ -1098,6 +1098,10 @@ void Instance::connect() {
 	mAudio->connect();
 }
 
+void Instance::stopAutoConnect() {
+	mAudio->stopAutoConnect();
+}
+
 void Instance::start(float fadems) {
 	mAudio->start(fadems);
 }

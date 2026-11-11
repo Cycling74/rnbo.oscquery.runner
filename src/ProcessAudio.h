@@ -1,6 +1,7 @@
 #pragma once
 #include "RNBO.h"
 #include "DB.h"
+#include "MidiConnectionUpdate.h"
 
 namespace ossia {
 	class value;
@@ -30,10 +31,19 @@ class ProcessAudio {
 		virtual void processEvents(std::function<void(ConnectionChange)> connectionChangeCallback = nullptr) = 0;
 
 		//try to connect with a previous config, return true if successful
-		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) { return false; }
+		//retainBaseline: the caller keeps its dirty baseline (a reload, not a set switch)
+		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections, bool retainBaseline = false) { return false; }
 
 		//get the current connection config
 		virtual std::vector<SetConnectionInfo> connections() { return {}; }
+
+		// During load only, include requested MIDI cables whose devices are still absent.
+		virtual std::vector<MidiConnectionUpdate> takeMidiIdentityUpdates() { return {}; }
+		// restart: the graph to rebuild after an audio restart, without carried cables
+		virtual std::vector<SetConnectionInfo> loadConnectionBaseline(bool restart = false) { return connections(); }
+
+		// Called only after a successful explicit save, with the exact saved snapshot.
+		virtual void connectionsSaved(const std::vector<SetConnectionInfo>& connections) { }
 
 		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) { }
 

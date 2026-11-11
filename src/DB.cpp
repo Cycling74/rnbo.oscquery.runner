@@ -831,6 +831,47 @@ CREATE TABLE sets_link_audio_slots
             "DEFAULT 0");
   });
 
+  do_migration(24, [](SQLite::Database &db) {
+    // MIDI device identities, and the JACK port names the cables were saved with as hints.
+    // The name columns keep the release runner's alias addresses, so older runners still read
+    // these rows.
+    //
+    // The hints join the unique key: identical devices can share an alias address (and, without
+    // a serial or socket to tell them apart, an identity), and each still keeps its own cable.
+    // A table constraint cannot be altered, so the table is rebuilt; row ids are kept.
+    db.exec(R"(
+CREATE TABLE sets_connections_midi
+(
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	set_id INTEGER NOT NULL,
+
+	source_name TEXT NOT NULL,
+	source_instance_index INTEGER,
+	source_port_name TEXT NOT NULL,
+
+	sink_name TEXT NOT NULL,
+	sink_instance_index INTEGER,
+	sink_port_name TEXT NOT NULL,
+
+	source_midi_identity TEXT NOT NULL DEFAULT '',
+	sink_midi_identity TEXT NOT NULL DEFAULT '',
+	source_midi_port TEXT NOT NULL DEFAULT '',
+	sink_midi_port TEXT NOT NULL DEFAULT '',
+
+	FOREIGN KEY (set_id) REFERENCES sets(id) ON DELETE CASCADE,
+	UNIQUE (set_id, source_name, source_port_name, sink_name, sink_port_name, source_midi_port, sink_midi_port)
+)
+			)");
+    db.exec(R"(
+INSERT INTO sets_connections_midi
+	(id, set_id, source_name, source_instance_index, source_port_name, sink_name, sink_instance_index, sink_port_name)
+SELECT id, set_id, source_name, source_instance_index, source_port_name, sink_name, sink_instance_index, sink_port_name
+FROM sets_connections
+			)");
+    db.exec("DROP TABLE sets_connections");
+    db.exec("ALTER TABLE sets_connections_midi RENAME TO sets_connections");
+  });
+
   // turn on foreign_keys support
   mDB.exec("PRAGMA foreign_keys=on");
   // clean up a bit
@@ -1884,9 +1925,9 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
     // Prepared Statement
     SQLite::Statement query(mDB, R"(
 			INSERT INTO sets_connections
-			(set_id, source_name, source_instance_index, source_port_name, sink_name, sink_instance_index, sink_port_name)
+			(set_id, source_name, source_instance_index, source_port_name, sink_name, sink_instance_index, sink_port_name, source_midi_identity, sink_midi_identity, source_midi_port, sink_midi_port)
 			VALUES
-			(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+			(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
 			)");
     for (auto &c : info.connections) {
       query.bind(1, id);
@@ -1896,6 +1937,10 @@ void DB::setSave(const std::string &name, const SetInfo &info) {
       query.bind(5, c.sink_name);
       query.bind(6, c.sink_instance_index);
       query.bind(7, c.sink_port_name);
+      query.bind(8, c.source_midi_identity);
+      query.bind(9, c.sink_midi_identity);
+      query.bind(10, c.source_midi_port);
+      query.bind(11, c.sink_midi_port);
 
       query.exec();
       query.reset();
@@ -2022,7 +2067,7 @@ boost::optional<SetInfo> DB::setGet(const std::string &name,
   {
     SQLite::Statement query(mDB, R"(
 			SELECT
-			source_name, source_instance_index, source_port_name, sink_name, sink_instance_index, sink_port_name
+			source_name, source_instance_index, source_port_name, sink_name, sink_instance_index, sink_port_name, source_midi_identity, sink_midi_identity, source_midi_port, sink_midi_port
 			FROM sets_connections
 			WHERE set_id = ?1
 		)");
@@ -2036,6 +2081,10 @@ boost::optional<SetInfo> DB::setGet(const std::string &name,
       c.sink_name = getStringColumn(query, 3);
       c.sink_instance_index = query.getColumn(4);
       c.sink_port_name = getStringColumn(query, 5);
+      c.source_midi_identity = getStringColumn(query, 6);
+      c.sink_midi_identity = getStringColumn(query, 7);
+      c.source_midi_port = getStringColumn(query, 8);
+      c.sink_midi_port = getStringColumn(query, 9);
 
       // update names in case the patcher names have changed
       if (c.source_instance_index >= 0) {
@@ -2567,28 +2616,6 @@ void DB::listeners(
 
     func(ip, static_cast<uint16_t>(port));
   }
-}
-
-RNBO::Json SetConnectionInfo::toJson() {
-  return {{"source_name", source_name},
-          {"source_instance_index", source_instance_index},
-          {"source_port_name", source_port_name},
-          {"sink_name", sink_name},
-          {"sink_instance_index", sink_instance_index},
-          {"sink_port_name", sink_port_name}};
-}
-
-SetConnectionInfo SetConnectionInfo::fromJson(const RNBO::Json &json) {
-  // XXX assumes fully valid data
-  SetConnectionInfo info(json["source_name"].get<std::string>(),
-                         json["source_port_name"].get<std::string>(),
-                         json["sink_name"].get<std::string>(),
-                         json["sink_port_name"].get<std::string>());
-
-  info.source_instance_index = json["source_instance_index"].get<int>();
-  info.sink_instance_index = json["sink_instance_index"].get<int>();
-
-  return info;
 }
 
 RNBO::Json SetInstanceInfo::toJson() {

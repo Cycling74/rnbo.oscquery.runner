@@ -18,6 +18,8 @@
 #include "RNBO.h"
 #include "InstanceAudio.h"
 #include "ProcessAudio.h"
+#include "MidiConnections.h"
+#include "MidiAutoConnect.h"
 #include "Defines.h"
 
 namespace moodycamel {
@@ -30,6 +32,13 @@ enum class JackPortChange {
 	Unregister,
 	Rename,
 	Connection
+};
+
+struct MidiJackEvent {
+	jack_port_id_t source = 0, sink = 0;
+	JackPortChange type = JackPortChange::Register;
+	bool connected = false;
+	MidiConnections::Time when = MidiConnections::Clock::now();
 };
 
 class JackAudioRecord;
@@ -48,8 +57,11 @@ class ProcessAudioJack : public ProcessAudio {
 		virtual void processEvents(std::function<void(ConnectionChange)> connectionChangeCallback = nullptr) override;
 		void process(jack_nframes_t frames);
 
-		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections) override;
+		virtual bool connect(const std::vector<SetConnectionInfo>& connections, bool withControlConnections, bool retainBaseline = false) override;
 		virtual std::vector<SetConnectionInfo> connections() override;
+		std::vector<MidiConnectionUpdate> takeMidiIdentityUpdates() override;
+		std::vector<SetConnectionInfo> loadConnectionBaseline(bool restart = false) override;
+		void connectionsSaved(const std::vector<SetConnectionInfo>& connections) override;
 
 		// disconnect non rnbo
 		virtual void disconnect(const std::vector<SetConnectionInfo>& connections) override;
@@ -78,6 +90,21 @@ class ProcessAudioJack : public ProcessAudio {
 	protected:
 		void jackPropertyChangeCallback(jack_uuid_t subject, const char *key, jack_property_change_t change);
 	private:
+		// Snapshot/recovery state is protected from OSC utility callbacks. JACK
+		// notification callbacks only enqueue small events; no filesystem work there.
+		void refreshMidiConnections();
+		void retryMidiConnections();
+		void forgetMidiConnection(const std::string& source, const std::string& sink);
+		void editMidiConnections(const std::string& port, bool source, const std::set<std::string>& peers);
+		std::mutex mMidiMutex;
+		MidiConnections mMidiConnections;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<MidiJackEvent, 32>> mMidiQueue;
+		std::atomic<bool> mMidiEventsPending = false;
+		std::chrono::steady_clock::time_point mMidiPollNext{};
+		MidiAutoConnect mMidiAutoConnect;
+		// JACK in-process notification callbacks may run on different threads.
+		// Serialize producers only; the event-thread consumer remains independent.
+		std::mutex mPortNotificationMutex;
 		bool updateCards();
 		void updateCardNodes();
 
@@ -375,8 +402,6 @@ class ProcessAudioJack : public ProcessAudio {
 		std::atomic<bool> mSendReset = false;
 		ossia::net::parameter_base * mSendResetParam = nullptr;
 
-		//working buffer for port getting port aliases
-		char * mJackPortAliases[2];
 
 		//from libossia
 		bool mMidiPortConnectionsChanged = false;
@@ -419,6 +444,7 @@ class InstanceAudioJack : public InstanceAudio {
 
 		virtual void activate() override;
 		virtual void connect() override;
+		virtual void stopAutoConnect() override;
 		virtual void start(float fadems=0.0f) override;
 		virtual void stop(float fadems=0.0f) override;
 
@@ -437,6 +463,10 @@ class InstanceAudioJack : public InstanceAudio {
 		virtual void registerConfigChangeCallback(std::function<void()> cb) override { mConfigChangeCallback = cb; }
 	private:
 		size_t mBufferSize = 0;
+		MidiAutoConnect mMidiAutoConnect{false}; // no suppression beyond one port incarnation
+		// JACK in-process notification callbacks may run on different threads.
+		// Serialize producers only; the event-thread consumer remains independent.
+		std::mutex mPortNotificationMutex;
 		bool mConnect = false; // should we do any automatic connections?
 		std::atomic<float> mFade = 1.0;
 		std::atomic<float> mFadeIncr = 0.1;
@@ -468,12 +498,11 @@ class InstanceAudioJack : public InstanceAudio {
 		bool mActivated = false;
 		bool mRunning = false;
 
-		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortQueue;
+		std::unique_ptr<moodycamel::ReaderWriterQueue<std::pair<jack_port_id_t, bool>, 32>> mPortQueue;
+		MidiConnections::Time mMidiAutoPollNext{};
 		std::unique_ptr<moodycamel::ReaderWriterQueue<jack_port_id_t, 32>> mPortConnectedQueue;
 		std::unique_ptr<moodycamel::ReaderWriterQueue<ProgramChange, 32>> mProgramChangeQueue;
 
-		//working buffer for port getting port aliases
-		char * mJackPortAliases[2];
 		std::mutex mPortMutex;
 
 		//transport sync info

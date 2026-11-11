@@ -20,6 +20,8 @@ class InstanceAudio {
 
 		virtual void activate() {}
 		virtual void connect() {}
+		//stop any automatic connections, e.g. once the set is saved explicitly
+		virtual void stopAutoConnect() {}
 		virtual void start(float fadems = 0.0f) = 0;
 		virtual void stop(float fadems = 0.0f) = 0;
 		virtual AudioState state() const {

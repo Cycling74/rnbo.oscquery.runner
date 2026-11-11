@@ -87,7 +87,8 @@ class Controller {
 		//for messages that call back from parameter updates into other parameter updates
 		Queue<std::pair<std::string, ossia::value>> mOSCMappedUpdateQueue;
 
-		void doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset);
+		void doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& preset, bool restore = false);
+		void restoreSet(SetInfo info);
 
 		void reportActive();
 		void clearInstances(std::lock_guard<std::mutex>&, float fadeTime);
@@ -108,8 +109,8 @@ class Controller {
 
 		std::unordered_map<std::string, std::function<void(const std::string& method, const std::string& id, const RNBO::Json& params)>> mCommandHandlers;
 
-		SetInfo setInfo();
-		void resetSetDirtyBaseline(const SetInfo* saved = nullptr);
+		SetInfo setInfo(bool withPending = false);
+		void resetSetDirtyBaseline(const SetInfo* saved = nullptr, bool loading = false);
 		void updateSetDirty();
 		void watchSetInstance(const std::shared_ptr<Instance>& instance);
 		RNBO::Json setDeviceState(const std::shared_ptr<Instance>& instance, const boost::filesystem::path& library);
@@ -119,6 +120,9 @@ class Controller {
 		bool mSetConnectionsChanged = false;
 		bool mSetLinkChanged = false;
 		bool mSetDirtyPublished = false;
+#ifdef RNBO_LOG_SET_DIRTY
+		std::string mSetDirtyLogged;
+#endif
 		bool mSetLinkBaselineKnown = false;
 		std::set<unsigned int> mSetDeviceChecks;
 		std::set<unsigned int> mSetTrackedDevices;
@@ -213,6 +217,8 @@ class Controller {
 		std::mutex mSetLoadPendingMutex;
 		boost::optional<SetInfo> mSetLoadPending;
 		boost::optional<PendingPresetMap> mSetLoadPendingPreset; //json to load after loading set, used for set reload
+		bool mSetLoadPendingRestore = false; //the pending set is the graph as it was before audio stopped
+		boost::optional<SetInfo> mAudioRestartSet; //the graph when audio was last stopped
 
 		ossia::net::parameter_base * mSetDirtyParam = nullptr;
 

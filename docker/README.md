@@ -66,6 +66,38 @@ cmake \
     ..  && make -j8 && cpack
 ```
 
+#### Using RNBO from the public Conan remote
+
+If you don't have a local rnbo c++ library directory, you can get a released RNBO version from the
+public Conan remote instead. Drop the `/rnbo` mount from the `docker run` command:
+
+```shell
+docker run -it \
+    --platform linux/amd64 \
+    -v $(pwd):/build \
+    -v $(pwd)/docker/conan:/home/build/.conan \
+    xnor/rnbo-runner-xpile:0.2 bash
+```
+
+Then replace `-DRNBO_DIR=/rnbo/` in any of the builds above with `RNBO_CONAN_VERSION` (the RNBO release you want)
+and `RNBO_CONAN_TAG=c74/stable`. For example, 64-bit rpi:
+
+```shell
+mkdir -p /build/build-rpi64
+cd /build/build-rpi64/
+cmake \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DRNBO_CONAN_VERSION=1.4.6 \
+    -DRNBO_CONAN_TAG=c74/stable \
+    -DSUPPORT_COMPILE=Off \
+    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
+    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
+    ..  && make -j8 && cpack
+```
+
+`RNBO_CONAN_TAG` defaults to `c74/testing`, which is not on the public remote, so it has to be set explicitly.
+This is what the GitHub `build-rpi64` and `build-rpi32` jobs do.
+
 Move
 
 ```shell
