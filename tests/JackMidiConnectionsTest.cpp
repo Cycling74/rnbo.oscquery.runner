@@ -24,6 +24,8 @@ struct Harness {
 	};
 	std::mutex mutex;
 	std::vector<Event> events;
+	// As in the runner: a policy forgets a port when it registers or unregisters.
+	std::vector<MidiAutoConnect*> policies;
 
 	Harness() {
 		client = jack_client_open("midi-recovery-test", JackNoStartServer, nullptr);
@@ -48,6 +50,7 @@ struct Harness {
 		std::vector<Event> batch;
 		{ std::lock_guard<std::mutex> lock(mutex); batch.swap(events); }
 		for (auto e : batch) {
+			if (e.registration || e.removal) for (auto* policy : policies) policy->portChanged(e.a);
 			if (e.registration) graph.registered(e.a);
 			else if (e.removal) graph.removed(e.a, e.when);
 			else if (e.connected) graph.connected({e.a, e.b});
@@ -237,6 +240,7 @@ static void reviewedRecovery() {
 	require(midiJackPort(sink).endpoint.identity.empty() && midiJackPort(output).endpoint.identity.empty(),
 		"actual RNBO port aliases do not produce saved device identities");
 	MidiAutoConnect instancePolicy(false); // standalone instances suppress per port incarnation only
+	h.policies.push_back(&instancePolicy);
 	midiJackAutoConnect(instrument, sink, output, first, instancePolicy, {false, false, true, false, false});
 	h.settle();
 	require(!jack_port_connected_to(first, jack_port_name(sink)) && midiJackSnapshot(h.client).edges.empty(),
@@ -288,6 +292,7 @@ static void reviewedRecovery() {
 	disconnect(second, sink);
 
 	MidiAutoConnect controlPolicy;
+	h.policies.push_back(&controlPolicy);
 	midiJackAutoConnect(control, controlIn, controlOut, second, controlPolicy, {true, true, false, false, true}); h.settle();
 	require(jack_port_connected_to(second, jack_port_name(controlIn)), "control automatically connects initial device");
 	jack_port_unregister(device, second); h.settle();
