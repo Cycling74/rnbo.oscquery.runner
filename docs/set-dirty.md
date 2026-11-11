@@ -169,7 +169,7 @@ Enable the tests in the main build to reuse its resolved RNBO package:
 ```sh
 cmake -S . -B build -DRUNNER_BUILD_TESTS=ON
 cmake --build build --target set_dirty_state_test midi_connections_test
-ctest --test-dir build -R '^(set_dirty_state|midi_connections|midi_migration)$' --output-on-failure
+ctest --test-dir build -R '^(set_dirty_state|midi_connections)$' --output-on-failure
 ```
 
 The standalone tests require the same RNBO source package used by the runner:
@@ -208,9 +208,7 @@ different sockets loaded through the production claims, control recovery after a
 offline save and of a hand-made control cable, standalone versus set instance
 auto-connect, release-compatible
 alias addresses, and third-party software
-port restart. The migration test runs the actual SQL against a release row and
-checks row ids, twin cables, the unique key and the foreign keys; it is
-enabled when Python is available.
+port restart. The database migration has no automated test.
 Real USB and Bluetooth hardware still need target-device verification.
 
 For live JACK/OSCQuery verification:

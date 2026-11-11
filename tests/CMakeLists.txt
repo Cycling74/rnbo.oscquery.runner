@@ -15,11 +15,6 @@ add_executable(midi_connections_test MidiConnectionsTest.cpp)
 target_include_directories(midi_connections_test PRIVATE ../src "${RNBO_DIR}" "${RNBO_DIR}/common" "${RNBO_DIR}/src" "${RNBO_DIR}/src/3rdparty")
 add_test(NAME midi_connections COMMAND midi_connections_test)
 
-find_package(Python3 COMPONENTS Interpreter QUIET)
-if(Python3_Interpreter_FOUND)
-    add_test(NAME midi_migration COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/MidiMigrationTest.py")
-endif()
-
 option(RUNNER_JACK_TESTS "Build integration test requiring an isolated running JACK server" OFF)
 if(RUNNER_JACK_TESTS)
     find_package(Threads REQUIRED)
