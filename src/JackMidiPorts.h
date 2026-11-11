@@ -8,6 +8,9 @@
 #include <jack/metadata.h>
 #include <jack/midiport.h>
 #include <jack/uuid.h>
+#include <type_traits>
+
+static_assert(std::is_same_v<MidiConnections::PortId, jack_port_id_t>, "MidiConnections::PortId must be jack_port_id_t");
 
 // Shared by the runner and the live JACK regression harness. These are graph
 // queries, never called from the audio process callback.

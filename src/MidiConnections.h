@@ -18,6 +18,10 @@ inline const std::string CONTROL_CLIENT_NAME("rnbo-control");
 // live save graph. JACK notification timestamps distinguish removal from edits.
 class MidiConnections {
 public:
+	// A JACK port id (jack_port_id_t), as passed to JACK's port callbacks. Spelled
+	// out here so that this header and its unit tests do not need JACK. An id is
+	// only valid for one registration of a port and is never saved.
+	using PortId = uint32_t;
 	struct Endpoint {
 		std::string name;
 		std::string identity;
@@ -25,7 +29,7 @@ public:
 		bool operator==(const Endpoint&) const = default;
 	};
 	struct Port {
-		uint32_t id;
+		PortId id;
 		Endpoint endpoint;
 		bool source;
 		std::vector<std::string> aliases;
@@ -33,9 +37,12 @@ public:
 	};
 	struct Edge {
 		Endpoint source, sink;
-		// Runtime-only removal provenance; load requests have no exclusions.
-		std::optional<uint32_t> sourcePort, sinkPort;
-		std::set<uint32_t> sourceExisting, sinkExisting;
+		// Runtime-only, for a waiting cable. The port each end is tied to, if any.
+		std::optional<PortId> sourcePort, sinkPort;
+		// The ports that were already registered when that end's device went away.
+		// They are never candidates for it, so a lost cable does not move to an
+		// identical device that stayed online. Empty for a cable loaded from a set.
+		std::set<PortId> sourceExisting, sinkExisting;
 		// Runtime-only: identities a live cable was requested under (set load or
 		// recovery). Empty for cables that were merely observed.
 		std::string sourceRequested, sinkRequested;
@@ -52,10 +59,10 @@ public:
 		bool owned = false;
 		bool operator==(const Edge&) const = default;
 	};
-	using Pair = std::pair<uint32_t, uint32_t>;
+	using Pair = std::pair<PortId, PortId>;
 	using Clock = std::chrono::steady_clock;
 	using Time = Clock::time_point;
-	using Selection = std::set<uint32_t>;
+	using Selection = std::set<PortId>;
 	static constexpr auto disconnectWindow = std::chrono::milliseconds(250);
 
 	static bool same(const Endpoint& a, const Endpoint& b) {
@@ -159,7 +166,7 @@ public:
 		mActual.erase(ports);
 		if (mLive.count(ports)) mDisconnectDeadlines.try_emplace(ports, when + disconnectWindow);
 	}
-	void registered(uint32_t id) {
+	void registered(PortId id) {
 		mRegistered.insert(id);
 		// Registration, including reuse of a JACK port ID, starts a new lifetime.
 		for (auto& edge : mPending) {
@@ -167,7 +174,7 @@ public:
 			edge.sinkExisting.erase(id);
 		}
 	}
-	void removed(uint32_t id, Time when = Clock::now()) {
+	void removed(PortId id, Time when = Clock::now()) {
 		auto lost = [&](Edge& edge) {
 			if (edge.sourcePort == id) { edge.sourceExisting = mRegistered; edge.sourcePort.reset(); edge.sourceAdopted = false; }
 			if (edge.sinkPort == id) { edge.sinkExisting = mRegistered; edge.sinkPort.reset(); edge.sinkAdopted = false; }
@@ -220,7 +227,7 @@ public:
 		mPorts.clear();
 		for (auto& index : mByIdentity) index.clear();
 		for (auto& index : mByName) index.clear();
-		std::set<uint32_t> identified;
+		std::set<PortId> identified;
 		for (auto port : ports) {
 			auto previous = previousPorts.find(port.id);
 			if (previous != previousPorts.end() && previous->second.endpoint.name == port.endpoint.name &&
@@ -505,7 +512,7 @@ public:
 			result.emplace(entry.second.source.name, entry.second.sink.name);
 		return result;
 	}
-	const std::map<uint32_t, Port>& ports() const { return mPorts; }
+	const std::map<PortId, Port>& ports() const { return mPorts; }
 	std::string savedIdentity(const Port& port) const { return port.endpoint.identity; }
 private:
 	// Path identities (sockets) that belong to a cable of another device. Pending
@@ -542,15 +549,15 @@ private:
 		const auto* port = resolve(endpoint, source);
 		return port && (port->endpoint.name == name || std::find(port->aliases.begin(), port->aliases.end(), name) != port->aliases.end());
 	}
-	using Index = std::map<std::string, std::vector<uint32_t>>;
+	using Index = std::map<std::string, std::vector<PortId>>;
 	Index mByIdentity[2], mByName[2];
-	std::map<uint32_t, Port> mPorts;
+	std::map<PortId, Port> mPorts;
 	std::map<Pair, Edge> mLive;
 	std::set<Pair> mActual;
 	std::map<Pair, Time> mDisconnectDeadlines;
 	std::vector<Edge> mPending;
 	std::vector<MidiConnectionUpdate> mIdentityUpdates;
-	std::set<uint32_t> mForgotten;
-	std::set<uint32_t> mRegistered;
+	std::set<PortId> mForgotten;
+	std::set<PortId> mRegistered;
 	std::set<std::string> mClaims[2]; // indexed by source
 };
