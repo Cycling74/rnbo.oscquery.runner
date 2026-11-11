@@ -2184,6 +2184,11 @@ void Controller::doLoadSet(SetInfo& setInfo, boost::optional<PendingPresetMap>& 
 		mProcessAudio->updatePorts();
 		//only do control connections when loading first set; a patcher reload keeps its baseline
 		//a restore or a patcher reload is the whole graph as it was, control cables included
+		//
+		//That graph goes back through connect() rather than being reconnected by JACK port name:
+		//after an audio restart physical MIDI ports can be renumbered (or renamed entirely if the
+		//MIDI backend changed), so they have to be found by device identity, and a cable whose
+		//device is away has to be left waiting for it instead of being dropped.
 		const bool retain = preset.has_value() || restore;
 		mProcessAudio->connect(setInfo.connections, mFirstSetLoad || retain, retain);
 		if (!restore) {
