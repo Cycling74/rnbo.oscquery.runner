@@ -10,3 +10,11 @@
 	((RNBO_VERSION_MAJOR > (major)) || \
 	 (RNBO_VERSION_MAJOR == (major) && RNBO_VERSION_MINOR > (minor)) || \
 	 (RNBO_VERSION_MAJOR == (major) && RNBO_VERSION_MINOR == (minor) && RNBO_VERSION_PATCH >= (patch)))
+
+// The logger API changed during the 1.5.0 development cycle, so 1.5.0 prerelease packages exist with
+// either API and the version number can't tell them apart. Test for the old header instead.
+#if __has_include("RNBO_LoggerImpl.h")
+#define RNBO_HAS_LEGACY_LOGGER 1
+#else
+#define RNBO_HAS_LEGACY_LOGGER 0
+#endif

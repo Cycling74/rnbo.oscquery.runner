@@ -16,7 +16,7 @@ RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction() {
 	throw new std::runtime_error("global factory allocation not supported");
 }
 
-#if !RNBO_VERSION_AT_LEAST(1, 5, 0)
+#if RNBO_HAS_LEGACY_LOGGER
 extern "C"
 void SetLogger(RNBO::Logger* logger) {
 	throw new std::runtime_error("global logger setting not supported");
@@ -68,7 +68,7 @@ std::shared_ptr<PatcherFactory> PatcherFactory::CreateFactory(const std::string&
 	if (!factory) {
 		throw new runtime_error("failed to get factory from dynamic library at path: " + dllPath);
 	}
-#if !RNBO_VERSION_AT_LEAST(1, 5, 0)
+#if RNBO_HAS_LEGACY_LOGGER
 	RNBO::SetLoggerFunctionPtr setLoggerFunc = (RNBO::SetLoggerFunctionPtr)dlsym(handle, "SetLogger");
 	if (setLoggerFunc) {
 		setLoggerFunc(&RNBO::Logger::getInstance());

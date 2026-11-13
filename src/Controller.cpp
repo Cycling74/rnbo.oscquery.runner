@@ -19,10 +19,10 @@
 #include "PatcherFactory.h"
 #include "RNBO_Version.h"
 #include "RNBOVersionCheck.h"
-#if RNBO_VERSION_AT_LEAST(1, 5, 0)
-#include "RNBO_Logger.h"
-#else
+#if RNBO_HAS_LEGACY_LOGGER
 #include "RNBO_LoggerImpl.h"
+#else
+#include "RNBO_Logger.h"
 #endif
 
 #include <boost/process.hpp>
@@ -632,12 +632,12 @@ private:
 }
 
 //for some reason RNBO's defaualt logger doesn't get to journalctl, using cout does
-#if RNBO_VERSION_AT_LEAST(1, 5, 0)
-void RunnerLog(RNBO::LogLevel level, RNBO::ErrorCode, const char* message, void*) {
-	const static std::array<const std::string, 4> levelStr = { "[DEBUG]", "[INFO]", "[WARNING]", "[ERROR]" };
-#else
+#if RNBO_HAS_LEGACY_LOGGER
 void RunnerLog(RNBO::LogLevel level, const char* message) {
 	const static std::array<const std::string, 3> levelStr = { "[INFO]", "[WARNING]", "[ERROR]" };
+#else
+void RunnerLog(RNBO::LogLevel level, RNBO::ErrorCode, const char* message, void*) {
+	const static std::array<const std::string, 4> levelStr = { "[DEBUG]", "[INFO]", "[WARNING]", "[ERROR]" };
 #endif
 	const size_t index = std::min((size_t)level, levelStr.size() - 1);
 	std::cout << levelStr[index] << "\t" << message << std::endl;
@@ -645,10 +645,10 @@ void RunnerLog(RNBO::LogLevel level, const char* message) {
 
 Controller::Controller(std::string server_name) {
 
-#if RNBO_VERSION_AT_LEAST(1, 5, 0)
-	RNBO::setFallbackLogCallback(RunnerLog);
-#else
+#if RNBO_HAS_LEGACY_LOGGER
 	RNBO::console->setLoggerOutputCallback(RunnerLog);
+#else
+	RNBO::setFallbackLogCallback(RunnerLog);
 #endif
 
 	mDB = std::make_shared<DB>();
