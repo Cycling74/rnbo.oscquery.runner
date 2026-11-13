@@ -383,6 +383,10 @@ if (CCACHE_PROGRAM)
 endif()
 
 add_definitions(-DRNBO_VERSION="${RNBO_VERSION}")
+# numeric parts for RNBO_VERSION_AT_LEAST in src/RNBOVersionCheck.h
+add_definitions(-DRNBO_VERSION_MAJOR=${RNBO_VERSION_MAJOR})
+add_definitions(-DRNBO_VERSION_MINOR=${RNBO_VERSION_MINOR})
+add_definitions(-DRNBO_VERSION_PATCH=${RNBO_VERSION_PATCH})
 add_definitions(-DRNBO_COMPAT_VERSION="${RNBO_COMPAT_VERSION}")
 add_definitions(-DRUNNER_VERSION="${PROJECT_VERSION}")
 add_definitions(-DRUNNER_GIT_HASH="${GIT_COMMIT_HASH}")

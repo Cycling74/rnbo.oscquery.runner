@@ -1,4 +1,5 @@
 #include "PatcherFactory.h"
+#include "RNBOVersionCheck.h"
 #include <dlfcn.h>
 #include <iostream>
 #include <exception>
@@ -15,10 +16,12 @@ RNBO::PatcherFactoryFunctionPtr GetPatcherFactoryFunction() {
 	throw new std::runtime_error("global factory allocation not supported");
 }
 
+#if !RNBO_VERSION_AT_LEAST(1, 5, 0)
 extern "C"
 void SetLogger(RNBO::Logger* logger) {
 	throw new std::runtime_error("global logger setting not supported");
 }
+#endif
 
 #else
 std::shared_ptr<PatcherFactory> PatcherFactory::CreateBuiltInFactory() {
@@ -65,10 +68,12 @@ std::shared_ptr<PatcherFactory> PatcherFactory::CreateFactory(const std::string&
 	if (!factory) {
 		throw new runtime_error("failed to get factory from dynamic library at path: " + dllPath);
 	}
+#if !RNBO_VERSION_AT_LEAST(1, 5, 0)
 	RNBO::SetLoggerFunctionPtr setLoggerFunc = (RNBO::SetLoggerFunctionPtr)dlsym(handle, "SetLogger");
 	if (setLoggerFunc) {
 		setLoggerFunc(&RNBO::Logger::getInstance());
 	}
+#endif
 
 	return std::shared_ptr<PatcherFactory>(new PatcherFactory(handle, factory));
 }
