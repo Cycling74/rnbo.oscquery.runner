@@ -1,5 +1,6 @@
 #include "RnboUpdateService.h"
 #include "Validation.h"
+#include "RunnerVersionSelect.h"
 #include <iostream>
 #include <stdlib.h>
 #include <functional>
@@ -69,50 +70,23 @@ void RnboUpdateService::computeOutdated() {
 }
 
 void RnboUpdateService::findLatestRunner() {
-	int newest = 0;
-	bool exact = false; //if there is an exact match
-
 	//simply list all the versions of rnbooscquery and find versions that start with mLibVersion
 	setenv("DEBIAN_FRONTEND", "noninteractive", 1);
-	execLineFunc("apt-cache madison rnbooscquery", [&newest, &exact, this](std::string line) {
-			//example line
-			//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
-			//the first part matches the library version and -2 represents that application version
-			std::vector<std::string> entries;
-			boost::algorithm::split(entries, line, boost::is_any_of("|"));
-			if (entries.size() > 1) {
-				std::string prefix = entries[0];
-				std::string version = entries[1];
-				boost::trim(prefix);
-				boost::trim(version);
-
-				if (prefix != RUNNER_PACKAGE_NAME) {
-					return;
-				}
-
-				if (version == mLibVersion) {
-					exact = true;
-					return;
-				}
-
-				std::vector<std::string> versionentries;
-				boost::algorithm::split(versionentries, version, boost::is_any_of("-"));
-				if (versionentries.size() > 1) {
-					try {
-						std::string appversion = versionentries.back();
-						versionentries.pop_back();
-						std::string v = boost::algorithm::join(versionentries, "-");
-						if (v == mLibVersion) {
-							newest = std::max(newest, std::stoi(appversion));
-						}
-					} catch (...) {}
-				}
-			}
+	std::vector<std::string> lines;
+	execLineFunc("apt-cache madison rnbooscquery", [&lines](std::string line) {
+		lines.push_back(line);
 	});
 
+	//example line
+	//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
+	//the first part matches the library version and -2 represents that application version,
+	//which can also be a prerelease, eg: 1.4.0-dev.0-2~beta.1
+	bool exact = false; //if there is an exact match
+	auto newest = runner_version::selectLatest(lines, RUNNER_PACKAGE_NAME, mLibVersion, &exact);
+
 	std::string latest = mLibVersion; //fall back to exact match
-	if (newest != 0) {
-		latest = mLibVersion + "-" + std::to_string(newest);
+	if (newest) {
+		latest = *newest;
 		std::cout << "found rnbooscquery=" << latest << std::endl;
 	} else if (!exact) {
 		std::cerr << "failed to find runner version with version prefix " << mLibVersion << std::endl;

@@ -53,6 +53,12 @@ sdbus-c++-xml2cpp ../config/rnbo-update-service-bindings.xml --adaptor=./src/Upd
 
 ## Testing
 
+The unit tests are their own CMake project and run on any host, including macOS. From the repo root:
+
+```shell
+cmake -S update/test -B build-update-test && cmake --build build-update-test --parallel 6 && ctest --test-dir build-update-test
+```
+
 To get status of the service:
 
 ```shell

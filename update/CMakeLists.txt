@@ -1,16 +1,14 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbo-update-service LANGUAGES CXX)
-set(PROJECT_VERSION "0.4.1")
+set(PROJECT_VERSION "0.4.2")
 set(CPACK_DEBIAN_PACKAGE_RELEASE 1) #set to 1 if we inc PROJECT_VERSION, incr if we need to package new with same PROJECT_VERSION
 
 set(CMAKE_CXX_STANDARD 17)
 set(PROJECT_APP "rnbo-update-service")
 
-if (FALSE) #TODO
-	enable_testing()
-	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/test)
-endif()
+#The tests in test/ are their own project so they can run on any host, including macOS:
+#  cmake -S update/test -B build-update-test && cmake --build build-update-test --parallel 6 && ctest --test-dir build-update-test
 
 if (UNIX AND NOT APPLE)
 	set(LINUX TRUE)
@@ -89,6 +87,7 @@ endif()
 add_executable(${PROJECT_APP}
 	src/main.cpp
 	src/Validation.cpp
+	src/RunnerVersionSelect.cpp
 	src/RnboUpdateService.cpp
 	../common/RunnerUpdateState.cpp
 )
