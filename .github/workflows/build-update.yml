@@ -19,23 +19,14 @@ jobs:
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
           su - build -s /bin/bash -c "
-            set -e
-            cd '$GITHUB_WORKSPACE'
-            mkdir -p build-rpi32-update
-            cd build-rpi32-update
-            cmake \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/armv7-unknown-linux-gnueabihf-gcc12.cmake \
-              -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=armhf \
-              ../update
-            make -j\$(nproc)
-            cpack
+            RUNNER_SRC='$GITHUB_WORKSPACE' RUNNER_ARCH=armhf \\
+              '$GITHUB_WORKSPACE/docker/build-update.sh'
           "
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
           name: rpi32-update-deb
-          path: build-rpi32-update/*.deb
+          path: build-rpi-armhf-update/*.deb
 
   build-rpi64:
     runs-on: ubuntu-latest
@@ -50,23 +41,14 @@ jobs:
         run: |
           chown -R build:build "$GITHUB_WORKSPACE"
           su - build -s /bin/bash -c "
-            set -e
-            cd '$GITHUB_WORKSPACE'
-            mkdir -p build-rpi64-update
-            cd build-rpi64-update
-            cmake \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
-              -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-              ../update
-            make -j\$(nproc)
-            cpack
+            RUNNER_SRC='$GITHUB_WORKSPACE' RUNNER_ARCH=arm64 \\
+              '$GITHUB_WORKSPACE/docker/build-update.sh'
           "
       - name: Store deb
         uses: actions/upload-artifact@v4
         with:
           name: rpi64-update-deb
-          path: build-rpi64-update/*.deb
+          path: build-rpi-arm64-update/*.deb
 
   release:
     runs-on: ubuntu-latest

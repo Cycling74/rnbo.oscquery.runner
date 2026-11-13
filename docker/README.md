@@ -38,6 +38,28 @@ docker run -it \
     xnor/rnbo-runner-xpile:0.2 bash
 ```
 
+#### Build scripts
+
+`docker/build-runner.sh` does the whole rpi package build (cmake, make, cpack) and is what the GitHub
+`build-rpi32` and `build-rpi64` jobs run. Inside the container:
+
+```shell
+RUNNER_ARCH=armhf /build/docker/build-runner.sh   # 32-bit, package in /build/build-rpi-armhf/
+RUNNER_ARCH=arm64 /build/docker/build-runner.sh   # 64-bit, package in /build/build-rpi-arm64/
+```
+
+It builds against the RNBO sources mounted at `/rnbo` (override with `RNBO_DIR`). To get a released RNBO
+from the public Conan remote instead, set `RNBO_CONAN_VERSION` and `RNBO_CONAN_TAG`:
+
+```shell
+RUNNER_ARCH=arm64 RNBO_CONAN_VERSION=1.4.6 RNBO_CONAN_TAG=c74/stable /build/docker/build-runner.sh
+```
+
+`RUNNER_BUILD_JOBS` limits the number of parallel compile jobs. The script header lists the other
+variables. `docker/build-update.sh` is the equivalent for the rnbo-update-service package.
+
+The manual steps below do the same thing by hand.
+
 64-bit rpi
 
 ```shell
@@ -96,7 +118,7 @@ cmake \
 ```
 
 `RNBO_CONAN_TAG` defaults to `c74/testing`, which is not on the public remote, so it has to be set explicitly.
-This is what the GitHub `build-rpi64` and `build-rpi32` jobs do.
+This is what the GitHub `build-rpi64` and `build-rpi32` jobs do, through `docker/build-runner.sh`.
 
 Move
 
