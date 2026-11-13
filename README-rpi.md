@@ -225,60 +225,6 @@ If `jack_transport_link` is running, you should be able to control your tempo an
 
 # Package management
 
-## Aptly
-
-Aptly lets us manage a package repository and push it up to an s3 compatible
-location and then allow our users to get these packages with `apt-get`.
-
-[create gpg key](https://fedoraproject.org/wiki/Creating_GPG_Keys)
-
-A cycling74 pub/priv key are in 1password. The pub key is also in `config/apt-cycling74-pubkey.asc`
-The `aptly.conf` file is there too. At this point that should all be managed by the build machine.
-
-```shell
-brew install aptly
-brew install gnupg
-```
-
-to create a package and upload it, from a mac, in the root of this repo.
-```shell
-./build-rpi.sh
-
-aptly -distribution=bookworm repo create bookworm-rpi
-aptly repo create -distribution=bookworm -component=extra bookworm-rpi-extra
-aptly repo create -distribution=bookworm -component=beta bookworm-rpi-beta
-
-aptly -distribution=trixie repo create trixie-rpi
-aptly repo create -distribution=trixie -component=extra trixie-rpi-extra
-aptly repo create -distribution=trixie -component=beta trixie-rpi-beta
-
-aptly repo add bookworm-rpi-extra ~/Documents/bookworm/jack_transport_link_0.0.8-1_armhf.deb
-aptly repo add bookworm-rpi ./examples/rnbo.oscquery.runner/update/build-rpi/rnbo-update-service_0.2.6-1_armhf.deb
-aptly publish repo -component=,, -passphrase-file=/home/runner/.apt-gpg.txt bookworm-rpi bookworm-rpi-extra bookworm-rpi-beta s3:c74:
-
-aptly repo add trixie-rpi-extra ~/Documents/trixie/jack_transport_link_0.0.13-1_arm64.deb
-aptly repo add trixie-rpi ./examples/rnbo.oscquery.runner/update/build-rpi/rnbo-update-service_0.2.6-1_arm64.deb
-aptly publish repo -component=,, -passphrase-file=/home/runner/.apt-gpg.txt trixie-rpi trixie-rpi-extra trixie-rpi-beta s3:c74:
-```
-
-to update the repo
-```shell
-aptly publish update bookworm s3:c74:
-aptly publish update trixie s3:c74:
-```
-
-to overwrite a package
-```shell
-aptly -force-replace repo add bookworm-rpi examples/rnbo.oscquery.runner/build-rpi/rnbooscquery_0.9.0.deb
-aptly -force-overwrite publish update bookworm s3:c74:
-```
-
-to remove a package from a repo.. (dry-run)
-
-```shell
-aptly repo remove -dry-run buster-rpi 'Name (% rnbooscquery), Version (% 0.17.0-dev.43)'
-```
-
 ## List installed version of package
 
 ```shell
