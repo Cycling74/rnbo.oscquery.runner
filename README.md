@@ -936,6 +936,48 @@ oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "file_read", "id": "foo
 oscsend osc.udp://localhost:1234 /rnbo/cmd s '{"method": "file_read", "id": "foo", "params": {"filetype": "set_preset", "filename": "foo", "name": "x", "size": 50000}}'
 ```
 
+## Versioning and releases
+
+The runner version is `<rnbo version>-<app version>`, for example `1.4.6-11`. The
+app version is a single integer kept in the file `runner-version` at the root
+of this repo, that file is the one place it is set. `develop` always holds the
+number of the *next* release, so the changelog entries under `* *current*`
+belong to it. The version never goes backwards.
+
+| Kind | Git tag | Debian version |
+| --- | --- | --- |
+| Stable | `v1.4.6-11` | `1.4.6-11` |
+| App beta | `v1.4.6-11-beta.1` | `1.4.6-11~beta.1` |
+| Nightly dev build (no tag) | | `1.5.0-dev.150-11` |
+
+Pushing a `v<rnbo version>-<app version>[-beta.<n>]` tag builds the packages in
+GitHub Actions, after checking the version and publishing the changelog section
+as the release notes. Other tags (`rnbo_v1.4.6`, `update_v0.4.1-1`) are ignored.
+A beta is a prerelease of the app version, it sorts before the final release in
+dpkg ordering (`1.4.6-10 < 1.4.6-11~beta.1 < 1.4.6-11`).
+
+`scripts/runner-version.mjs` (node, no dependencies) does the bookkeeping:
+
+```shell
+# what is tagged and what is published to the apt main index, flags tagged but unpublished versions
+node scripts/runner-version.mjs list
+# would this version be allowed? Refuses to go backwards (add --force to see the failures as warnings)
+node scripts/runner-version.mjs check --rnbo 1.4.6 [--prerelease beta.1]
+# stamp the changelog, tag the stamped commit for each RNBO version and bump runner-version, needs a clean tree
+node scripts/runner-version.mjs release 1.4.5 1.4.6
+# tag HEAD as the next beta, no stamping and no bump
+node scripts/runner-version.mjs release 1.4.6 --beta
+# release another RNBO version of an app version that is already tagged
+node scripts/runner-version.mjs release 1.4.7 --at v1.4.6-11
+# the changelog section for a tag, used as the release notes
+node scripts/runner-version.mjs notes --tag v1.4.6-11
+```
+
+`release` never pushes. It makes the commits and tags locally and prints the
+`git push` command to run, once you are happy with them. Run `git fetch --tags`
+before `release`, since the checks only see local tags. The tests are run with
+`node --test scripts/*.test.mjs`.
+
 ## Notes/Links
 
 * [rnbo](https://cycling74.com/products/rnbo)

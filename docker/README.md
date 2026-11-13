@@ -41,11 +41,12 @@ docker run -it \
 #### Build scripts
 
 `docker/build-runner.sh` does the whole rpi package build (cmake, make, cpack) and is what the GitHub
-`build-rpi32` and `build-rpi64` jobs run. Inside the container:
+`build-rpi32`, `build-rpi64` and `build-move` jobs run. Inside the container:
 
 ```shell
 RUNNER_ARCH=armhf /build/docker/build-runner.sh   # 32-bit, package in /build/build-rpi-armhf/
 RUNNER_ARCH=arm64 /build/docker/build-runner.sh   # 64-bit, package in /build/build-rpi-arm64/
+RUNNER_ARCH=move /build/docker/build-runner.sh    # Ableton Move, tarball in /build/build-move/
 ```
 
 It builds against the RNBO sources mounted at `/rnbo` (override with `RNBO_DIR`). To get a released RNBO
@@ -122,21 +123,9 @@ This is what the GitHub `build-rpi64` and `build-rpi32` jobs do, through `docker
 
 Move
 
-```shell
-mkdir -p /build/build-move
-cd /build/build-move/
-cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DRNBO_DIR=/rnbo/ \
-    -DWITH_DBUS=Off \
-    -DSUPPORT_COMPILE=Off \
-    -DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64 \
-    -DCMAKE_TOOLCHAIN_FILE=/home/build/cmake/toolchains/aarch64-unknown-linux-gcc11_4.cmake \
-    -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/ \
-    -DUSE_SNDFILE_CONAN=On \
-    -DWITH_JACKSERVER=Off \
-    ..  && make -j8
-```
+Use `RUNNER_ARCH=move` with `docker/build-runner.sh` (see Build scripts above). It builds `build-move` with
+`-DWITH_DBUS=Off -DWITH_JACKSERVER=Off -DUSE_SNDFILE_CONAN=On -DSUPPORT_COMPILE=Off -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/`
+and writes `rnbooscquery_<version>_move.tar.gz` (holding `bin/rnbooscquery`) instead of a .deb. The version is the same as the rpi .deb.
 
 rnbo-update-service
 

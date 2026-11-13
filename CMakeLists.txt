@@ -1,7 +1,15 @@
 cmake_minimum_required(VERSION 3.17 FATAL_ERROR)
 
 project(rnbooscquery LANGUAGES CXX C)
-set(RUNNER_VERSION 10) #monotonically increasing release version number, unrelated to rnbo version number but combined to create runner version number
+
+#RUNNER_VERSION is the monotonically increasing app version number, unrelated to the rnbo version number but combined with it to create the runner version number.
+#The file runner-version is the one place it is set, see scripts/runner-version.mjs
+file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/runner-version" RUNNER_VERSION LIMIT_COUNT 1)
+string(STRIP "${RUNNER_VERSION}" RUNNER_VERSION)
+if (NOT RUNNER_VERSION MATCHES "^[0-9]+$")
+	message(FATAL_ERROR "runner-version must contain a single integer, found '${RUNNER_VERSION}'")
+endif()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/runner-version")
 
 set(PROJECT_APP "rnbooscquery")
 
@@ -31,6 +39,17 @@ mark_as_advanced(JACK_CONAN_TAG)
 
 set(INCLUDE_RUNNER_VERSION On CACHE BOOL "should the runner version include the numeric suffix")
 mark_as_advanced(INCLUDE_RUNNER_VERSION)
+
+set(RUNNER_PRERELEASE "" CACHE STRING "optional app prerelease identifier, like beta.1, appended to the runner version as ~beta.1")
+mark_as_advanced(RUNNER_PRERELEASE)
+if (RUNNER_PRERELEASE AND NOT RUNNER_PRERELEASE MATCHES "^[A-Za-z0-9.]+$")
+	message(FATAL_ERROR "RUNNER_PRERELEASE must only contain letters, digits and dots, found '${RUNNER_PRERELEASE}'")
+endif()
+#the app part of the runner version: 11 or 11~beta.1, the tilde sorts before the final 11 in dpkg ordering
+set(RUNNER_RELEASE "${RUNNER_VERSION}")
+if (RUNNER_PRERELEASE)
+	set(RUNNER_RELEASE "${RUNNER_VERSION}~${RUNNER_PRERELEASE}")
+endif()
 
 #find RNBO
 if (RNBO_CONAN_VERSION)
@@ -97,7 +116,7 @@ if (NOT RNBO_VERSION)
 endif()
 
 if (INCLUDE_RUNNER_VERSION)
-	set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_VERSION}")
+	set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_RELEASE}")
 else()
 	set(PROJECT_VERSION "${RNBO_VERSION}")
 endif()
@@ -535,7 +554,7 @@ if (LINUX)
 		#rnbo version might have a 'prerelease' or 'channel' version in it
 		SET(CPACK_DEBIAN_PACKAGE_VERSION "${RNBO_VERSION}")
 		if (INCLUDE_RUNNER_VERSION)
-			SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_VERSION})
+			SET(CPACK_DEBIAN_PACKAGE_RELEASE ${RUNNER_RELEASE})
 		endif()
 
 		#https://github.com/Kitware/CMake/blob/70413d2c3501fe229e9b2d46c745aca5c9f2dc4a/Modules/Internal/CPack/CPackDeb.cmake#L451-L463
