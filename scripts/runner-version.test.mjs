@@ -19,6 +19,7 @@ import {
 	hasStampedSection,
 	isLegacyRnbo,
 	nextBetaNumber,
+	nextLegacyN,
 	notesForTag,
 	parseDebianVersion,
 	parsePackagesIndex,
@@ -442,4 +443,17 @@ test('apt index fetch: a network error fails, and no readable arch is an error',
 	await withRepo({}, async (base) => {
 		await assert.rejects(fetchAptVersions(base), /could not read the apt main index/);
 	});
+});
+
+test('nextLegacyN: only moves on when a legacy RNBO version has used the app version', () => {
+	const known = buildKnown({ tags: ['v1.4.6-11-beta.1', 'v1.4.6-12-beta.0', 'v1.4.7-12-beta.1'], published: ['1.4.6-9', '1.4.5-14', '1.4.6'] });
+	assert.equal(nextLegacyN(known, ['1.4.6'], 12), 13); // used by the beta
+	assert.equal(nextLegacyN(known, ['1.4.6'], 11), 13); // above everything 1.4.6 has used
+	assert.equal(nextLegacyN(known, ['1.4.6'], 13), 13); // unused
+	assert.equal(nextLegacyN(known, ['1.4.6'], 10), 10); // unused, going backwards is for the rules to reject
+	assert.equal(nextLegacyN(known, ['1.4.7'], 12), 12); // not legacy, betas share an app version
+	assert.equal(nextLegacyN(known, ['1.4.7', '1.4.6'], 12), 13); // mixed
+	assert.equal(nextLegacyN(known, ['1.4.5', '1.4.6'], 12), 15); // above everything either has used
+	assert.equal(nextLegacyN(known, ['1.4.4'], 12), 12); // nothing known
+	assert.equal(nextLegacyN([], ['1.4.6'], 12), 12);
 });

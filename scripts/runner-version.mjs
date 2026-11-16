@@ -18,6 +18,8 @@
 // those can only handle `<rnbo>-<digits>`, so the only prerelease is beta.0 (`release
 // --beta` makes it), and an app number is never used twice for one RNBO version, not
 // by a beta and a final together either: leaving beta means incrementing runner-version.
+// `release` does that itself, with a `Start runner <n>` commit before it tags, when the
+// app version in runner-version is already used for a legacy RNBO version being released.
 // The tag and Debian version keep the real version (v1.4.6-12-beta.0, 1.4.6-12~beta.0),
 // the runner and the update service report it to the client as 1.4.6-12.
 //
@@ -305,6 +307,15 @@ export function evaluateRules({ candidate, known, fileN, tagN, changelog }) {
 		fail('changelog', c.debian, `CHANGELOG.md has no stamped section for app version ${c.n} (expected a heading like '* *${c.n}* — <date> — RNBO ${c.rnbo}')`);
 	}
 	return failures;
+}
+
+// The app version `release` should use: n, unless one of the legacy rnbo versions being released has
+// already used n (rule 8), then the first app version above everything those have used.
+export function nextLegacyN(known, rnbos, n) {
+	const legacy = rnbos.filter(isLegacyRnbo);
+	const used = known.filter((e) => e.n !== null && legacy.includes(e.lib)).map((e) => e.n);
+	if (!used.includes(n)) return n;
+	return Math.max(n, ...used) + 1;
 }
 
 // next unused beta number for this rnbo version and app version
@@ -705,6 +716,10 @@ async function cmdRelease(argv) {
 		n = readRunnerVersionFile();
 	}
 
+	// a legacy RNBO never uses an app version twice, so move on to an unused one first
+	const fileN = n;
+	if (!values.at) n = nextLegacyN(known, positionals, fileN);
+
 	// plan: everything is checked before anything is changed
 	const plan = positionals.map((rnbo) => ({
 		rnbo,
@@ -762,6 +777,10 @@ async function cmdRelease(argv) {
 		committed++;
 	};
 	try {
+		if (n !== fileN) {
+			console.log(`app version ${fileN} is already used for a legacy RNBO version, starting ${n}`);
+			commit('runner-version', `${n}\n`, `Start runner ${n}`);
+		}
 		if (values.beta) {
 			for (const t of tags) tag(t);
 		} else if (values.at) {
@@ -778,7 +797,7 @@ async function cmdRelease(argv) {
 		console.error('to undo (nothing was pushed):');
 		if (createdTags.length) console.error(`  git tag -d ${createdTags.join(' ')}`);
 		if (committed) console.error(`  git reset --hard ${startHead}`);
-		else if (!values.beta) console.error('  git checkout -- CHANGELOG.md runner-version');
+		else console.error('  git checkout -- CHANGELOG.md runner-version');
 		throw new Error('release incomplete, see above');
 	}
 

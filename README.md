@@ -964,7 +964,8 @@ offered. For those:
 
 * the only allowed prerelease is `beta.0` (`release --beta` makes it),
 * an app number is never used twice for one RNBO version, so `1.4.6-12~beta.0`
-  and `1.4.6-12` never both exist, leaving beta means incrementing `runner-version`,
+  and `1.4.6-12` never both exist, leaving beta means incrementing `runner-version`
+  (`release` does that itself, with a `Start runner <n>` commit, when the number is already used),
 * the tag and the package keep the real version (`v1.4.6-12-beta.0`, `1.4.6-12~beta.0`),
 * clients are shown `1.4.6-12`: the runner reports that as its `runner_version` and the
   update service offers that as `LatestRunnerVersion`, installing `rnbooscquery=1.4.6-12`
@@ -982,7 +983,7 @@ node scripts/runner-version.mjs list
 node scripts/runner-version.mjs check --rnbo 1.4.6 [--prerelease beta.1]
 # stamp the changelog, tag the stamped commit for each RNBO version and bump runner-version, needs a clean tree
 node scripts/runner-version.mjs release 1.4.5 1.4.6
-# tag HEAD as the next beta, no stamping and no bump
+# tag HEAD as the next beta, no stamping
 node scripts/runner-version.mjs release 1.4.6 --beta
 # release another RNBO version of an app version that is already tagged
 node scripts/runner-version.mjs release 1.4.7 --at v1.4.6-11
