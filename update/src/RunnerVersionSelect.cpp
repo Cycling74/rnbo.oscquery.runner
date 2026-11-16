@@ -41,6 +41,45 @@ namespace {
 		return true;
 	}
 
+	//the version of a madison line for packageName, or nullopt for other packages and malformed lines
+	std::optional<std::string> madisonVersion(const std::string& line, const std::string& packageName) {
+		//example line
+		//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
+		auto p1 = line.find('|');
+		if (p1 == std::string::npos) {
+			return std::nullopt;
+		}
+		//Require the second separator: callers may hand us lines read through a fixed size buffer,
+		//and a version cut short by that must not be mistaken for a real one.
+		auto p2 = line.find('|', p1 + 1);
+		if (p2 == std::string::npos) {
+			return std::nullopt;
+		}
+
+		if (trim(line.substr(0, p1)) != packageName) {
+			return std::nullopt;
+		}
+		return trim(line.substr(p1 + 1, p2 - p1 - 1));
+	}
+
+	//strictly `<digits>`, the app number of a final runner version
+	bool allDigits(const std::string& s) {
+		if (s.empty()) {
+			return false;
+		}
+		for (char c: s) {
+			if (!isDigit(c)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	//the only prerelease that is offered to a legacy library's clients
+	bool legacyPre(const std::string& pre) {
+		return pre == "~beta.0";
+	}
+
 	struct Candidate {
 		std::string digits; //app number, without leading zeros, may be empty (zero)
 		bool final;
@@ -109,6 +148,88 @@ namespace runner_version {
 		return 0;
 	}
 
+	bool isLegacyLibrary(const std::string& libVersion) {
+		//leading major.minor.patch, anything after is ignored
+		std::string parts[3];
+		size_t i = 0;
+		for (int k = 0; k < 3; k++) {
+			if (k > 0) {
+				if (i >= libVersion.size() || libVersion[i] != '.') {
+					return false;
+				}
+				i++;
+			}
+			size_t b = i;
+			while (i < libVersion.size() && isDigit(libVersion[i])) {
+				i++;
+			}
+			if (i == b) {
+				return false;
+			}
+			auto nz = libVersion.find_first_not_of('0', b);
+			parts[k] = (nz == std::string::npos || nz >= i) ? "" : libVersion.substr(nz, i - nz);
+		}
+		const std::string limit[3] = {"1", "4", "6"};
+		for (int k = 0; k < 3; k++) {
+			if (int c = cmpNumber(parts[k], limit[k])) {
+				return c < 0;
+			}
+		}
+		return true;
+	}
+
+	std::string reportedVersion(const std::string& aptVersion, const std::string& libVersion) {
+		if (!isLegacyLibrary(libVersion)) {
+			return aptVersion;
+		}
+		const std::string head = libVersion + "-";
+		const size_t preAt = aptVersion.find('~');
+		if (preAt == std::string::npos || preAt <= head.size() || aptVersion.compare(0, head.size(), head) != 0) {
+			return aptVersion;
+		}
+		if (!allDigits(aptVersion.substr(head.size(), preAt - head.size())) || !legacyPre(aptVersion.substr(preAt))) {
+			return aptVersion;
+		}
+		return aptVersion.substr(0, preAt);
+	}
+
+	std::string resolveInstallVersion(
+			const std::vector<std::string>& madisonLines,
+			const std::string& packageName,
+			const std::string& requested
+	) {
+		//only `<lib>-<digits>` with a legacy lib is resolved, split at the LAST '-'
+		auto dash = requested.rfind('-');
+		if (dash == std::string::npos || !allDigits(requested.substr(dash + 1)) || !isLegacyLibrary(requested.substr(0, dash))) {
+			return requested;
+		}
+
+		//the newest listed version of this app number: the final, otherwise the highest prerelease in dpkg order
+		const std::string head = requested + "~";
+		bool final = false;
+		std::string bestPre; //without the '~', empty if none found
+		for (const auto& line: madisonLines) {
+			auto v = madisonVersion(line, packageName);
+			if (!v) {
+				continue;
+			}
+			if (*v == requested) {
+				final = true;
+				break;
+			}
+			if (v->size() > head.size() && v->compare(0, head.size(), head) == 0) {
+				const std::string pre = v->substr(head.size());
+				if (validPre(pre) && (bestPre.empty() || verrevcmp(bestPre, pre) < 0)) {
+					bestPre = pre;
+				}
+			}
+		}
+		if (final || bestPre.empty()) {
+			return requested;
+		}
+		return head + bestPre;
+	}
+
 	std::optional<std::string> selectLatest(
 			const std::vector<std::string>& madisonLines,
 			const std::string& packageName,
@@ -116,28 +237,17 @@ namespace runner_version {
 			bool* exact
 	) {
 		std::optional<Candidate> best;
+		const bool legacy = isLegacyLibrary(libVersion);
 		if (exact) {
 			*exact = false;
 		}
 
 		for (const auto& line: madisonLines) {
-			//example line
-			//rnbooscquery | 1.4.0-dev.0-2 | https://c74-apt.nyc3.digitaloceanspaces.com/raspbian bookworm/beta armhf Packages
-			auto p1 = line.find('|');
-			if (p1 == std::string::npos) {
+			auto v = madisonVersion(line, packageName);
+			if (!v) {
 				continue;
 			}
-			//Require the second separator: callers may hand us lines read through a fixed size buffer,
-			//and a version cut short by that must not be mistaken for a real one.
-			auto p2 = line.find('|', p1 + 1);
-			if (p2 == std::string::npos) {
-				continue;
-			}
-
-			if (trim(line.substr(0, p1)) != packageName) {
-				continue;
-			}
-			const std::string version = trim(line.substr(p1 + 1, p2 - p1 - 1));
+			const std::string& version = *v;
 
 			if (version == libVersion) {
 				if (exact) {
@@ -170,6 +280,10 @@ namespace runner_version {
 					continue;
 				}
 				c.pre = suffix.substr(n);
+			}
+			//a legacy client can only be offered beta.0 (see header)
+			if (legacy && !c.final && !legacyPre(c.pre)) {
+				continue;
 			}
 			auto nz = suffix.find_first_not_of('0');
 			c.digits = (nz == std::string::npos || nz >= n) ? "" : suffix.substr(nz, n - nz);

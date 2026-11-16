@@ -956,6 +956,23 @@ as the release notes. Other tags (`rnbo_v1.4.6`, `update_v0.4.1-1`) are ignored.
 A beta is a prerelease of the app version, it sorts before the final release in
 dpkg ordering (`1.4.6-10 < 1.4.6-11~beta.1 < 1.4.6-11`).
 
+Legacy RNBO versions (base version 1.4.6 and below, `1.4.0-dev.0` included) get
+stricter rules, because the Max clients shipped with them only accept
+`<rnbo version>-<digits>`, compare the number as an integer and consider an
+update finished when the runner reports exactly the version the update service
+offered. For those:
+
+* the only allowed prerelease is `beta.0` (`release --beta` makes it),
+* an app number is never used twice for one RNBO version, so `1.4.6-12~beta.0`
+  and `1.4.6-12` never both exist, leaving beta means incrementing `runner-version`,
+* the tag and the package keep the real version (`v1.4.6-12-beta.0`, `1.4.6-12~beta.0`),
+* clients are shown `1.4.6-12`: the runner reports that as its `runner_version` and the
+  update service offers that as `LatestRunnerVersion`, installing `rnbooscquery=1.4.6-12`
+  installs `1.4.6-12~beta.0` if that is what apt has (see `update/README.md`).
+
+Newer RNBO versions are unchanged. The existing `v1.4.6-11-beta.1` predates these rules
+and simply means app number 11 is used for 1.4.6.
+
 `scripts/runner-version.mjs` (node, no dependencies) does the bookkeeping:
 
 ```shell

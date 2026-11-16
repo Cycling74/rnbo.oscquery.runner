@@ -1,4 +1,4 @@
-//Tests for runner_version::selectLatest and the validation::version regex, std only so they run
+//Tests for runner_version::selectLatest, isLegacyLibrary, reportedVersion, resolveInstallVersion and the validation::version regex, std only so they run
 //on any host. Build and run them with the CMake project in this directory, from the repo root:
 //
 //  cmake -S update/test -B build-update-test && cmake --build build-update-test --parallel 6 && ctest --test-dir build-update-test
@@ -53,6 +53,32 @@ namespace {
 		}
 	}
 
+	void expectLegacy(const std::string& lib, bool want) {
+		checks++;
+		if (runner_version::isLegacyLibrary(lib) != want) {
+			failures++;
+			std::cerr << "FAIL isLegacyLibrary(" << lib << ") want " << want << std::endl;
+		}
+	}
+
+	void expectReported(const std::string& apt, const std::string& lib, const std::string& want) {
+		auto got = runner_version::reportedVersion(apt, lib);
+		checks++;
+		if (got != want) {
+			failures++;
+			std::cerr << "FAIL reportedVersion(" << apt << ", " << lib << ") = " << got << ", want " << want << std::endl;
+		}
+	}
+
+	void expectResolve(const std::string& name, const std::vector<std::string>& in, const std::string& requested, const std::string& want) {
+		auto got = runner_version::resolveInstallVersion(in, PKG, requested);
+		checks++;
+		if (got != want) {
+			failures++;
+			std::cerr << "FAIL resolveInstallVersion " << name << ": got " << got << ", want " << want << std::endl;
+		}
+	}
+
 	void expectValid(const std::string& v, bool want) {
 		checks++;
 		if (validation::version(v) != want) {
@@ -66,14 +92,14 @@ int main() {
 	auto N = std::optional<std::string>();
 	auto S = [](const char *s) { return std::optional<std::string>(s); };
 
-	expect("beta beats older final", lines({"1.4.6-10", "1.4.6-11~beta.1"}), "1.4.6", S("1.4.6-11~beta.1"));
-	expect("beta beats older final (reversed)", lines({"1.4.6-11~beta.1", "1.4.6-10"}), "1.4.6", S("1.4.6-11~beta.1"));
-	expect("final beats its betas", lines({"1.4.6-10", "1.4.6-11~beta.1", "1.4.6-11"}), "1.4.6", S("1.4.6-11"));
-	expect("final beats its betas (final first)", lines({"1.4.6-11", "1.4.6-11~beta.1", "1.4.6-10"}), "1.4.6", S("1.4.6-11"));
-	expect("beta numbers compare numerically", lines({"1.4.6-11~beta.1", "1.4.6-11~beta.2", "1.4.6-11~beta.10"}), "1.4.6", S("1.4.6-11~beta.10"));
-	expect("beta numbers compare numerically (reversed)", lines({"1.4.6-11~beta.10", "1.4.6-11~beta.2", "1.4.6-11~beta.1"}), "1.4.6", S("1.4.6-11~beta.10"));
-	expect("rc beats beta", lines({"1.4.6-11~beta.3", "1.4.6-11~rc.1"}), "1.4.6", S("1.4.6-11~rc.1"));
-	expect("higher beta beats lower final", lines({"1.4.6-12~beta.1", "1.4.6-11"}), "1.4.6", S("1.4.6-12~beta.1"));
+	expect("beta beats older final", lines({"1.4.7-10", "1.4.7-11~beta.1"}), "1.4.7", S("1.4.7-11~beta.1"));
+	expect("beta beats older final (reversed)", lines({"1.4.7-11~beta.1", "1.4.7-10"}), "1.4.7", S("1.4.7-11~beta.1"));
+	expect("final beats its betas", lines({"1.4.7-10", "1.4.7-11~beta.1", "1.4.7-11"}), "1.4.7", S("1.4.7-11"));
+	expect("final beats its betas (final first)", lines({"1.4.7-11", "1.4.7-11~beta.1", "1.4.7-10"}), "1.4.7", S("1.4.7-11"));
+	expect("beta numbers compare numerically", lines({"1.4.7-11~beta.1", "1.4.7-11~beta.2", "1.4.7-11~beta.10"}), "1.4.7", S("1.4.7-11~beta.10"));
+	expect("beta numbers compare numerically (reversed)", lines({"1.4.7-11~beta.10", "1.4.7-11~beta.2", "1.4.7-11~beta.1"}), "1.4.7", S("1.4.7-11~beta.10"));
+	expect("rc beats beta", lines({"1.4.7-11~beta.3", "1.4.7-11~rc.1"}), "1.4.7", S("1.4.7-11~rc.1"));
+	expect("higher beta beats lower final", lines({"1.4.7-12~beta.1", "1.4.7-11"}), "1.4.7", S("1.4.7-12~beta.1"));
 	expect("10 > 9 numerically", lines({"1.4.6-9", "1.4.6-10", "1.4.6-2"}), "1.4.6", S("1.4.6-10"));
 
 	//library version with dashes
@@ -105,16 +131,16 @@ int main() {
 
 	//absurd digit strings: no overflow, no exception
 	const std::string huge(400, '9');
-	expect("huge app number wins", lines({"1.4.6-10", "1.4.6-" + huge}), "1.4.6", S(("1.4.6-" + huge).c_str()));
-	expect("huge beats huge+1 digit loses", lines({"1.4.6-" + huge + "9", "1.4.6-" + huge}), "1.4.6", S(("1.4.6-" + huge + "9").c_str()));
-	expect("huge beta", lines({"1.4.6-" + huge + "~beta.1", "1.4.6-10"}), "1.4.6", S(("1.4.6-" + huge + "~beta.1").c_str()));
-	expect("huge beta number", lines({"1.4.6-11~beta." + huge, "1.4.6-11~beta." + huge + "9", "1.4.6-11~beta.2"}), "1.4.6", S(("1.4.6-11~beta." + huge + "9").c_str()));
+	expect("huge app number wins", lines({"1.4.7-10", "1.4.7-" + huge}), "1.4.7", S(("1.4.7-" + huge).c_str()));
+	expect("huge beats huge+1 digit loses", lines({"1.4.7-" + huge + "9", "1.4.7-" + huge}), "1.4.7", S(("1.4.7-" + huge + "9").c_str()));
+	expect("huge beta", lines({"1.4.7-" + huge + "~beta.1", "1.4.7-10"}), "1.4.7", S(("1.4.7-" + huge + "~beta.1").c_str()));
+	expect("huge beta number", lines({"1.4.7-11~beta." + huge, "1.4.7-11~beta." + huge + "9", "1.4.7-11~beta.2"}), "1.4.7", S(("1.4.7-11~beta." + huge + "9").c_str()));
 	expect("leading zeros compare numerically", lines({"1.4.6-009", "1.4.6-10"}), "1.4.6", S("1.4.6-10"));
 	expect("zero app number", lines({"1.4.6-0"}), "1.4.6", S("1.4.6-0"));
-	expect("zero beta beats nothing", lines({"1.4.6-0~beta.1"}), "1.4.6", S("1.4.6-0~beta.1"));
+	expect("zero beta beats nothing", lines({"1.4.7-0~beta.1"}), "1.4.7", S("1.4.7-0~beta.1"));
 
 	//duplicates (several archs/components)
-	expect("duplicates", lines({"1.4.6-11~beta.1", "1.4.6-11~beta.1", "1.4.6-10", "1.4.6-10", "1.4.6-11~beta.1"}), "1.4.6", S("1.4.6-11~beta.1"));
+	expect("duplicates", lines({"1.4.7-11~beta.1", "1.4.7-11~beta.1", "1.4.7-10", "1.4.7-10", "1.4.7-11~beta.1"}), "1.4.7", S("1.4.7-11~beta.1"));
 
 	//exact pointer is optional
 	checks++;
@@ -138,6 +164,82 @@ int main() {
 	expectCmp("~a", "~a.", -1);
 	expectCmp("~a1", "~a.1", -1); //'.' sorts after end/digit boundary: "a" "1" vs "a" ".1"
 	expectCmp("~beta.1", "~beta1", 1);
+
+	//legacy libraries (<= 1.4.6)
+	expectLegacy("1.4.6", true);
+	expectLegacy("1.4.6-alpha.1", true);
+	expectLegacy("1.4.0-dev.0", true);
+	expectLegacy("1.3.9", true);
+	expectLegacy("0.9.12", true);
+	expectLegacy("1.4.06", true);
+	expectLegacy("1.4.7", false);
+	expectLegacy("1.4.60", false);
+	expectLegacy("1.5.0-dev.150", false);
+	expectLegacy("1.5.0", false);
+	expectLegacy("2.0.0", false);
+	expectLegacy("10.0.0", false);
+	expectLegacy("1.10.0", false);
+	expectLegacy("1.4", false);
+	expectLegacy("1.4.", false);
+	expectLegacy("1..6", false);
+	expectLegacy("garbage", false);
+	expectLegacy("", false);
+	expectLegacy("v1.4.6", false);
+
+	expectReported("1.4.6-12~beta.0", "1.4.6", "1.4.6-12");
+	expectReported("1.4.0-dev.0-3~beta.0", "1.4.0-dev.0", "1.4.0-dev.0-3");
+	expectReported("1.4.6-12", "1.4.6", "1.4.6-12");
+	expectReported("1.4.6-12~beta.1", "1.4.6", "1.4.6-12~beta.1");
+	expectReported("1.4.6-12~beta.10", "1.4.6", "1.4.6-12~beta.10");
+	expectReported("1.4.6-12~beta.", "1.4.6", "1.4.6-12~beta.");
+	expectReported("1.4.6-12~beta.1~x", "1.4.6", "1.4.6-12~beta.1~x");
+	expectReported("1.4.6-12~rc.0", "1.4.6", "1.4.6-12~rc.0");
+	expectReported("1.4.6-12~beta.0", "1.4.7", "1.4.6-12~beta.0"); //lib mismatch
+	expectReported("1.4.7-12~beta.0", "1.4.6", "1.4.7-12~beta.0"); //lib mismatch
+	expectReported("1.4.7-12~beta.0", "1.4.7", "1.4.7-12~beta.0"); //not legacy
+	expectReported("1.5.0-dev.150-12~beta.0", "1.5.0-dev.150", "1.5.0-dev.150-12~beta.0");
+	expectReported("1.4.6-~beta.0", "1.4.6", "1.4.6-~beta.0");
+	expectReported("1.4.6-x~beta.0", "1.4.6", "1.4.6-x~beta.0");
+	expectReported("1.4.6~beta.0", "1.4.6", "1.4.6~beta.0");
+	expectReported("~beta.0", "1.4.6", "~beta.0");
+	expectReported("", "1.4.6", "");
+
+	//selectLatest for legacy libraries
+	expect("legacy beta.0 beats older final", lines({"1.4.6-10", "1.4.6-11~beta.0"}), "1.4.6", S("1.4.6-11~beta.0"));
+	expect("legacy beta.1 ignored", lines({"1.4.6-10", "1.4.6-11~beta.1"}), "1.4.6", S("1.4.6-10"));
+	expect("legacy beta.1 alone ignored", lines({"1.4.6-11~beta.1"}), "1.4.6", N);
+	expect("legacy final beats beta.0 of the same number", lines({"1.4.6-11~beta.0", "1.4.6-11"}), "1.4.6", S("1.4.6-11"));
+	expect("legacy rc.1 ignored", lines({"1.4.6-10", "1.4.6-11~rc.1"}), "1.4.6", S("1.4.6-10"));
+	expect("legacy beta.0 wins over ignored beta.1", lines({"1.4.6-10", "1.4.6-11~beta.1", "1.4.6-11~beta.0"}), "1.4.6", S("1.4.6-11~beta.0"));
+	expect("legacy final beats older beta.0", lines({"1.4.6-11~beta.0", "1.4.6-12"}), "1.4.6", S("1.4.6-12"));
+	expect("legacy final beats older beta.0 (reversed)", lines({"1.4.6-12", "1.4.6-11~beta.0"}), "1.4.6", S("1.4.6-12"));
+	expect("legacy beta.0 beats older beta.0", lines({"1.4.6-11~beta.0", "1.4.6-12~beta.0"}), "1.4.6", S("1.4.6-12~beta.0"));
+	expect("legacy dashed lib", lines({"1.4.0-dev.0-10", "1.4.0-dev.0-11~beta.0", "1.4.0-dev.0-12~rc.1"}), "1.4.0-dev.0", S("1.4.0-dev.0-11~beta.0"));
+	expect("non-legacy still picks beta.1", lines({"1.4.7-10", "1.4.7-11~beta.1"}), "1.4.7", S("1.4.7-11~beta.1"));
+	expect("non-legacy still picks beta.0", lines({"1.4.7-10", "1.4.7-11~beta.0"}), "1.4.7", S("1.4.7-11~beta.0"));
+	expect("non-legacy dashed lib still picks beta.2", lines({"1.5.0-dev.150-10", "1.5.0-dev.150-11~beta.2"}), "1.5.0-dev.150", S("1.5.0-dev.150-11~beta.2"));
+
+	//resolveInstallVersion
+	expectResolve("exact wins", lines({"1.4.6-12", "1.4.6-12~beta.0"}), "1.4.6-12", "1.4.6-12");
+	expectResolve("exact beta is exact", lines({"1.4.6-12~beta.0"}), "1.4.6-12~beta.0", "1.4.6-12~beta.0");
+	expectResolve("falls to beta.0", lines({"1.4.6-11", "1.4.6-12~beta.0"}), "1.4.6-12", "1.4.6-12~beta.0");
+	expectResolve("falls to beta.0, dashed lib", lines({"1.4.0-dev.0-3~beta.0"}), "1.4.0-dev.0-3", "1.4.0-dev.0-3~beta.0");
+	expectResolve("falls to the only prerelease", lines({"1.4.6-12~beta.1"}), "1.4.6-12", "1.4.6-12~beta.1");
+	expectResolve("highest prerelease", lines({"1.4.6-12~beta.0", "1.4.6-12~beta.2", "1.4.6-12~beta.1"}), "1.4.6-12", "1.4.6-12~beta.2");
+	expectResolve("prereleases order numerically", lines({"1.4.6-12~beta.10", "1.4.6-12~beta.9"}), "1.4.6-12", "1.4.6-12~beta.10");
+	expectResolve("final wins over any prerelease", lines({"1.4.6-12~beta.2", "1.4.6-12", "1.4.6-12~beta.0"}), "1.4.6-12", "1.4.6-12");
+	expectResolve("other app numbers ignored", lines({"1.4.6-120~beta.3", "1.4.6-13~beta.5", "1.4.6-12~beta.1"}), "1.4.6-12", "1.4.6-12~beta.1");
+	expectResolve("invalid prerelease ignored", lines({"1.4.6-12~be;ta", "1.4.6-12~"}), "1.4.6-12", "1.4.6-12");
+	expectResolve("non-legacy not rewritten", lines({"1.4.7-12~beta.0"}), "1.4.7-12", "1.4.7-12");
+	expectResolve("non-legacy dashed not rewritten", lines({"1.5.0-dev.150-12~beta.0"}), "1.5.0-dev.150-12", "1.5.0-dev.150-12");
+	expectResolve("nothing listed", {}, "1.4.6-12", "1.4.6-12");
+	expectResolve("other versions listed", lines({"1.4.6-11", "1.4.6-13~beta.0"}), "1.4.6-12", "1.4.6-12");
+	expectResolve("other package ignored", {madison("1.4.6-12~beta.0", "rnbooscquery-dev"), madison("1.4.6-12", "other")}, "1.4.6-12", "1.4.6-12");
+	expectResolve("other package exact does not win", {madison("1.4.6-12", "other"), madison("1.4.6-12~beta.0")}, "1.4.6-12", "1.4.6-12~beta.0");
+	expectResolve("cut line ignored", {"rnbooscquery | 1.4.6-12~beta.0"}, "1.4.6-12", "1.4.6-12");
+	expectResolve("not <lib>-<digits>", lines({"1.4.6~beta.0"}), "1.4.6", "1.4.6");
+	expectResolve("non digit suffix", lines({"1.4.6-x~beta.0"}), "1.4.6-x", "1.4.6-x");
+	expectResolve("garbage request", lines({"1.4.6-12~beta.0"}), "", "");
 
 	//validation accepts our version forms
 	expectValid("1.4.6-11~beta.1", true);

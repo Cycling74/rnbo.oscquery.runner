@@ -23,6 +23,7 @@
     * MIDI connections are restored when a device is unplugged and replugged, and sets wait for MIDI devices that are missing when they load
         * devices are identified by USB serial or socket rather than by port number; identical devices are most reliably told apart in raw MIDI mode
     * applying audio settings keeps the current set, its name, its `dirty` state and its connections
+    * for RNBO 1.4.6 and older the only app beta is `beta.0` and the runner reports its version without the `~beta.0`, so older Max clients can handle it
 * *1.4.5-9*
     * fix bug where [graph save as loses param views](https://github.com/Cycling74/rnbo.oscquery.runner/issues/7)
         * was actually copying the views but not their content

@@ -86,8 +86,13 @@ void RnboUpdateService::findLatestRunner() {
 
 	std::string latest = mLibVersion; //fall back to exact match
 	if (newest) {
-		latest = *newest;
-		std::cout << "found rnbooscquery=" << latest << std::endl;
+		//legacy clients are shown a version without the ~beta.0, see RunnerVersionSelect.h
+		latest = runner_version::reportedVersion(*newest, mLibVersion);
+		std::cout << "found rnbooscquery=" << *newest;
+		if (latest != *newest) {
+			std::cout << " (reported as " << latest << ")";
+		}
+		std::cout << std::endl;
 	} else if (!exact) {
 		std::cerr << "failed to find runner version with version prefix " << mLibVersion << std::endl;
 	}
@@ -176,6 +181,22 @@ void RnboUpdateService::evaluateCommands() {
 		std::string packageVersion = o.get();
 		if (!updatePackages()) {
 			updateStatus("apt-get update failed, attempting to install anyway");
+		}
+
+		//a legacy client asks for <lib>-<N> but apt may only have <lib>-<N>~beta.0, see RunnerVersionSelect.h
+		const std::string runnerHead = RUNNER_PACKAGE_NAME + "=";
+		if (packageVersion.rfind(runnerHead, 0) == 0) {
+			const std::string requested = packageVersion.substr(runnerHead.size());
+			std::vector<std::string> lines;
+			execLineFunc("apt-cache madison " + RUNNER_PACKAGE_NAME, [&lines](std::string line) {
+				lines.push_back(line);
+			});
+			//the resolved version comes from apt output and ends up in a shell command
+			const std::string resolved = runner_version::resolveInstallVersion(lines, RUNNER_PACKAGE_NAME, requested);
+			if (resolved != requested && validation::version(resolved)) {
+				updateStatus("resolved " + requested + " to " + resolved);
+				packageVersion = runnerHead + resolved;
+			}
 		}
 		updateStatus("installing " + packageVersion);
 		auto r = exec("apt-get install -y --install-recommends --install-suggests --allow-change-held-packages --allow-downgrades " + packageVersion);

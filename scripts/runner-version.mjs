@@ -14,6 +14,13 @@
 // Tags:    v1.4.6-11 (stable), v1.4.6-11-beta.1 (app beta)
 // Debian:  1.4.6-11,           1.4.6-11~beta.1
 //
+// Legacy RNBO (base version <= 1.4.6, see isLegacyRnbo): the Max clients shipped with
+// those can only handle `<rnbo>-<digits>`, so the only prerelease is beta.0 (`release
+// --beta` makes it), and an app number is never used twice for one RNBO version, not
+// by a beta and a final together either: leaving beta means incrementing runner-version.
+// The tag and Debian version keep the real version (v1.4.6-12-beta.0, 1.4.6-12~beta.0),
+// the runner and the update service report it to the client as 1.4.6-12.
+//
 // `--published -` reads additional known versions (one Debian version per
 // line) from stdin. The RUNNER_APT_BASE environment variable overrides the base
 // URL of the public apt repository the main index is read from.
@@ -106,6 +113,19 @@ export function parseRnbo(lib) {
 	const pre = m[2] || null;
 	const channel = pre ? ((/^[A-Za-z]+/.exec(pre) || [null])[0]) : null;
 	return { base: m[1], prerelease: pre, channel, stable: pre === null };
+}
+
+// RNBO base version (the leading X.Y.Z, anything after it is ignored) <= 1.4.6. Clients
+// shipped with these cannot handle `~prerelease` runner versions, see the header.
+export function isLegacyRnbo(rnbo) {
+	const m = /^(\d+)\.(\d+)\.(\d+)/.exec(rnbo);
+	if (!m) return false;
+	const limit = [1, 4, 6];
+	for (let i = 0; i < 3; i++) {
+		const v = parseInt(m[i + 1], 10);
+		if (v !== limit[i]) return v < limit[i];
+	}
+	return true;
 }
 
 export function formatVersion({ rnbo, n, prerelease }) {
@@ -214,6 +234,7 @@ const stableN = (known) => {
 const where = (e) => [e.tag ? `tag ${e.tag}` : null, e.published ? 'apt' : null].filter(Boolean).join(' and ');
 
 // candidate: { rnbo, n, prerelease }. Returns a list of failures { rule, version, message }.
+// Rules 7 and 8 only apply to a legacy RNBO version (isLegacyRnbo).
 // Optional: fileN (the runner-version file) and tagN, to evaluate rule 6;
 // changelog (CHANGELOG.md text) to require a stamped section for a stable tag.
 export function evaluateRules({ candidate, known, fileN, tagN, changelog }) {
@@ -264,6 +285,19 @@ export function evaluateRules({ candidate, known, fileN, tagN, changelog }) {
 	// 6. the N in the tag is the N in the runner-version file at the tagged commit
 	if (tagN !== undefined && fileN !== undefined && tagN !== fileN) {
 		fail('rule 6', c.debian, `the tag says app version ${tagN} but runner-version holds ${fileN}`);
+	}
+
+	if (isLegacyRnbo(c.rnbo)) {
+		// 7. the only prerelease a legacy client can be shown is beta.0
+		if (c.prerelease && c.prerelease !== 'beta.0') {
+			fail('rule 7', c.debian, `${c.debian}: RNBO ${c.rnbo} is a legacy version (<= 1.4.6), the only allowed prerelease is beta.0, not ${c.prerelease}`);
+		}
+
+		// 8. N is never used twice for a legacy RNBO version, beta or final, tagged or published
+		for (const e of known) {
+			if (e.lib !== c.rnbo || e.n !== c.n || e.debian === c.debian) continue;
+			fail('rule 8', e.debian, `app version ${c.n} is already used for RNBO ${c.rnbo} by ${e.debian} (${where(e)}), legacy clients tell versions apart by app number alone, so leaving beta or making another beta needs an incremented runner-version`);
+		}
 	}
 
 	// a stable tag needs a stamped changelog section
@@ -675,7 +709,8 @@ async function cmdRelease(argv) {
 	const plan = positionals.map((rnbo) => ({
 		rnbo,
 		n,
-		prerelease: values.beta ? `beta.${nextBetaNumber(known, rnbo, n)}` : null,
+		// a legacy RNBO only has beta.0, rule 8 rejects a reused N
+		prerelease: values.beta ? (isLegacyRnbo(rnbo) ? 'beta.0' : `beta.${nextBetaNumber(known, rnbo, n)}`) : null,
 	}));
 	let bad = 0;
 	for (const c of plan) {

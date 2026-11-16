@@ -9,6 +9,8 @@
 #   RUNNER_BUILD_JOBS       parallel make jobs                        (default: nproc)
 #   INCLUDE_RUNNER_VERSION  On | Off (unset: the CMakeLists.txt default)
 #   RUNNER_PRERELEASE       app prerelease identifier like beta.1, makes the version 1.4.6-11~beta.1 (unset or empty: a final release)
+#                           for RNBO <= 1.4.6 only beta.0 is allowed, the package keeps the version 1.4.6-11~beta.0
+#                           but the runner reports 1.4.6-11, because older Max clients can't handle prereleases
 #
 # RNBO comes from conan if RNBO_CONAN_VERSION is set, otherwise from a source tree:
 #   RNBO_CONAN_VERSION      e.g. 1.4.6
@@ -85,10 +87,11 @@ cmake "${CMAKE_ARGS[@]}" "$RUNNER_SRC"
 make -j"$JOBS"
 
 if [ "$RUNNER_ARCH" = move ]; then
-	# the version the build used, from the RUNNER_VERSION define that is PROJECT_VERSION in CMakeLists.txt
-	VERSION=$(grep -o -- '-DRUNNER_VERSION=[^ ]*' CMakeFiles/rnbooscquery.dir/flags.make | sed 's/^-DRUNNER_VERSION=//; s/[\\"]//g' | sort -u)
+	# the real package version the build used, written by CMakeLists.txt (the runner's reported version
+	# can omit a ~beta.0 for legacy RNBO, so it is not what the file name should carry)
+	VERSION=$(cat package-version.txt 2>/dev/null || true)
 	if [ -z "$VERSION" ] || [ "$(printf '%s\n' "$VERSION" | wc -l)" -ne 1 ]; then
-		echo "could not find the runner version in CMakeFiles/rnbooscquery.dir/flags.make" >&2
+		echo "could not find the runner version in $BUILD_DIR/package-version.txt" >&2
 		exit 1
 	fi
 	rm -rf move-pkg

@@ -17,6 +17,7 @@ import {
 	formatListTable,
 	formatVersion,
 	hasStampedSection,
+	isLegacyRnbo,
 	nextBetaNumber,
 	notesForTag,
 	parseDebianVersion,
@@ -135,7 +136,9 @@ test('known versions merge tags and published', () => {
 
 test('rules pass for the next release', () => {
 	assert.deepEqual(rules({ rnbo: '1.4.6', n: 11, prerelease: null }), []);
-	assert.deepEqual(rules({ rnbo: '1.4.6', n: 11, prerelease: 'beta.1' }), []);
+	// 1.4.6 is legacy, its only beta is beta.0
+	assert.deepEqual(rules({ rnbo: '1.4.6', n: 11, prerelease: 'beta.0' }), []);
+	assert.deepEqual(rules({ rnbo: '1.4.7', n: 11, prerelease: 'beta.1' }), []);
 });
 
 test('rule 1: the exact version must not exist', () => {
@@ -228,8 +231,60 @@ test('stable tag needs a stamped changelog section', () => {
 	const withSection = rules(cand, base(), { tagN: 11, fileN: 11, changelog: '* *current*\n* *11* — 2026-11-20 — RNBO 1.4.6\n    * x\n' });
 	assert.deepEqual(withSection, []);
 	// betas do not need one
-	const beta = rules({ ...cand, prerelease: 'beta.1' }, base(), { tagN: 11, fileN: 11, changelog: '* *current*\n    * x\n' });
+	const beta = rules({ ...cand, prerelease: 'beta.0' }, base(), { tagN: 11, fileN: 11, changelog: '* *current*\n    * x\n' });
 	assert.deepEqual(beta, []);
+});
+
+test('legacy rnbo: base version <= 1.4.6', () => {
+	for (const v of ['1.4.6', '1.4.6-alpha.1', '1.4.0-dev.0', '1.4.5', '1.3.9', '0.9.12', '1.4.06']) assert.equal(isLegacyRnbo(v), true, v);
+	for (const v of ['1.4.7', '1.4.60', '1.5.0', '1.5.0-dev.150', '2.0.0', '10.0.0', '1.10.0', 'nonsense', '', '1.4', 'v1.4.6']) assert.equal(isLegacyRnbo(v), false, v);
+});
+
+test('rule 7: a legacy rnbo only has beta.0', () => {
+	assert.deepEqual(rules({ rnbo: '1.4.6', n: 11, prerelease: 'beta.0' }), []);
+	const f = rules({ rnbo: '1.4.6', n: 11, prerelease: 'beta.1' });
+	assert.deepEqual(ruleNames(f), ['rule 7']);
+	assert.match(f[0].message, /only allowed prerelease is beta\.0/);
+	assert.ok(ruleNames(rules({ rnbo: '1.4.5', n: 11, prerelease: 'beta.2' })).includes('rule 7'));
+	assert.ok(ruleNames(rules({ rnbo: '1.4.0-dev.0', n: 11, prerelease: 'beta.1' })).includes('rule 7'));
+	// stable is fine, and newer libraries are untouched
+	assert.deepEqual(rules({ rnbo: '1.4.6', n: 11, prerelease: null }), []);
+	assert.deepEqual(rules({ rnbo: '1.4.7', n: 11, prerelease: 'beta.0' }), []);
+	assert.deepEqual(rules({ rnbo: '1.4.7', n: 11, prerelease: 'beta.3' }), []);
+	assert.deepEqual(evaluateRules({ candidate: { rnbo: '1.5.0-dev.150', n: 11, prerelease: 'beta.2' }, known: buildKnown({ tags: ['v1.5.0-dev.150-10'] }) }), []);
+});
+
+test('rule 8: a legacy rnbo never uses an N twice', () => {
+	const used = (tags, published, candidate) => evaluateRules({ candidate, known: buildKnown({ tags, published }) });
+	// beta.0 then the final of the same N
+	let f = used(['v1.4.6-12-beta.0'], [], { rnbo: '1.4.6', n: 12, prerelease: null });
+	assert.deepEqual(ruleNames(f), ['rule 8']);
+	assert.equal(f[0].version, '1.4.6-12~beta.0');
+	assert.match(f[0].message, /incremented runner-version/);
+	// a final then a beta.0 of the same N (rule 5 would fire too)
+	f = used(['v1.4.6-12'], [], { rnbo: '1.4.6', n: 12, prerelease: 'beta.0' });
+	assert.ok(ruleNames(f).includes('rule 8'));
+	// published only
+	assert.ok(ruleNames(used([], ['1.4.6-12~beta.0'], { rnbo: '1.4.6', n: 12, prerelease: null })).includes('rule 8'));
+	assert.ok(ruleNames(used([], ['1.4.6-12'], { rnbo: '1.4.6', n: 12, prerelease: 'beta.0' })).includes('rule 8'));
+	// another beta of the same N (also rule 7 for anything but beta.0)
+	assert.ok(ruleNames(used(['v1.4.6-12-beta.0'], [], { rnbo: '1.4.6', n: 12, prerelease: 'beta.1' })).includes('rule 8'));
+	// the next N is fine, as is another RNBO version at the same N
+	assert.deepEqual(used(['v1.4.6-12-beta.0'], [], { rnbo: '1.4.6', n: 13, prerelease: null }), []);
+	assert.deepEqual(used(['v1.4.6-12-beta.0'], [], { rnbo: '1.4.5', n: 12, prerelease: null }), []);
+	// the exact same version is rule 1, not rule 8
+	f = used(['v1.4.6-12-beta.0'], [], { rnbo: '1.4.6', n: 12, prerelease: 'beta.0' });
+	assert.deepEqual(ruleNames(f), ['rule 1']);
+	// not for newer libraries, a beta and its final share an N there
+	assert.deepEqual(used(['v1.4.7-12-beta.1'], [], { rnbo: '1.4.7', n: 12, prerelease: null }), []);
+	assert.deepEqual(used(['v1.4.7-12-beta.1'], [], { rnbo: '1.4.7', n: 12, prerelease: 'beta.2' }), []);
+	// the existing 1.4.6 beta predates the rule and simply uses N 11
+	const real = buildKnown({ tags: ['v1.4.6-9', 'v1.4.6-11-beta.1'] });
+	assert.ok(ruleNames(evaluateRules({ candidate: { rnbo: '1.4.6', n: 11, prerelease: null }, known: real })).includes('rule 8'));
+	assert.deepEqual(evaluateRules({ candidate: { rnbo: '1.4.6', n: 12, prerelease: 'beta.0' }, known: real }), []);
+	// with --tag the tag itself does not count
+	const own = excludeTag(buildKnown({ tags: ['v1.4.6-12-beta.0'] }), 'v1.4.6-12-beta.0');
+	assert.deepEqual(evaluateRules({ candidate: { rnbo: '1.4.6', n: 12, prerelease: 'beta.0' }, known: own }), []);
 });
 
 test('next beta number', () => {

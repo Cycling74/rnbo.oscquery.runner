@@ -40,7 +40,7 @@ mark_as_advanced(JACK_CONAN_TAG)
 set(INCLUDE_RUNNER_VERSION On CACHE BOOL "should the runner version include the numeric suffix")
 mark_as_advanced(INCLUDE_RUNNER_VERSION)
 
-set(RUNNER_PRERELEASE "" CACHE STRING "optional app prerelease identifier, like beta.1, appended to the runner version as ~beta.1")
+set(RUNNER_PRERELEASE "" CACHE STRING "optional app prerelease identifier, like beta.1, appended to the runner version as ~beta.1 (for RNBO <= 1.4.6 only beta.0 is allowed and the runner reports the version without it)")
 mark_as_advanced(RUNNER_PRERELEASE)
 if (RUNNER_PRERELEASE AND NOT RUNNER_PRERELEASE MATCHES "^[A-Za-z0-9.]+$")
 	message(FATAL_ERROR "RUNNER_PRERELEASE must only contain letters, digits and dots, found '${RUNNER_PRERELEASE}'")
@@ -115,11 +115,37 @@ if (NOT RNBO_VERSION)
 	message(FATAL_ERROR "RNBO_VERSION not set, must have not found version.cmake in RNBO_DIR")
 endif()
 
+#Legacy RNBO (<= 1.4.6): the Max clients shipped with those versions only accept `<rnbo version>-<digits>`, compare the
+#number as an integer and consider an update finished when the runner's reported runner_version string equals the string
+#the update service offered. So for these the only allowed prerelease is beta.0, an app number is never used twice
+#for one RNBO version (leaving beta means incrementing runner-version) and everything a client sees, the
+#update service's LatestRunnerVersion and the runner's own runner_version, omits the ~beta.0.
+#The package version, deb file name and move tarball name keep the real version. See update/src/RunnerVersionSelect.h
+#and scripts/runner-version.mjs.
+set(RUNNER_LEGACY_RNBO Off)
+if ("${RNBO_VERSION_MAJOR}.${RNBO_VERSION_MINOR}.${RNBO_VERSION_PATCH}" VERSION_LESS_EQUAL "1.4.6")
+	set(RUNNER_LEGACY_RNBO On)
+	if (RUNNER_PRERELEASE AND NOT RUNNER_PRERELEASE STREQUAL "beta.0")
+		message(FATAL_ERROR "RUNNER_PRERELEASE '${RUNNER_PRERELEASE}' is not allowed for RNBO ${RNBO_VERSION}: "
+			"legacy clients (RNBO <= 1.4.6) cannot handle prereleases, the only allowed one is beta.0. "
+			"An app number is never reused for one RNBO version, leaving beta means incrementing runner-version.")
+	endif()
+endif()
+
+#PROJECT_VERSION is the real package version, RUNNER_REPORTED_VERSION is what the runner reports as runner_version
 if (INCLUDE_RUNNER_VERSION)
 	set(PROJECT_VERSION "${RNBO_VERSION}-${RUNNER_RELEASE}")
+	if (RUNNER_LEGACY_RNBO AND RUNNER_PRERELEASE)
+		set(RUNNER_REPORTED_VERSION "${RNBO_VERSION}-${RUNNER_VERSION}")
+	else()
+		set(RUNNER_REPORTED_VERSION "${PROJECT_VERSION}")
+	endif()
 else()
 	set(PROJECT_VERSION "${RNBO_VERSION}")
+	set(RUNNER_REPORTED_VERSION "${PROJECT_VERSION}")
 endif()
+#the real package version, for scripts that name artifacts after it, see docker/build-runner.sh
+file(WRITE "${CMAKE_BINARY_DIR}/package-version.txt" "${PROJECT_VERSION}\n")
 
 if (RNBO_VERSION VERSION_GREATER_EQUAL "1.5.0")
 	set(RNBO_COMPAT_VERSION "${RNBO_VERSION_MAJOR}.${RNBO_VERSION_MINOR}.0")
@@ -407,7 +433,7 @@ add_definitions(-DRNBO_VERSION_MAJOR=${RNBO_VERSION_MAJOR})
 add_definitions(-DRNBO_VERSION_MINOR=${RNBO_VERSION_MINOR})
 add_definitions(-DRNBO_VERSION_PATCH=${RNBO_VERSION_PATCH})
 add_definitions(-DRNBO_COMPAT_VERSION="${RNBO_COMPAT_VERSION}")
-add_definitions(-DRUNNER_VERSION="${PROJECT_VERSION}")
+add_definitions(-DRUNNER_VERSION="${RUNNER_REPORTED_VERSION}")
 add_definitions(-DRUNNER_GIT_HASH="${GIT_COMMIT_HASH}")
 add_definitions(-DRNBO_SYSTEM_NAME="${CMAKE_SYSTEM_NAME}")
 add_definitions(-DRNBO_SYSTEM_PROCESSOR="${CMAKE_SYSTEM_PROCESSOR}")
@@ -584,8 +610,14 @@ if (LINUX)
 		endif()
 
 		#packages that are also installed by default but don't have to be
-		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= 0.4.0), rnbo-runner-panel (>= 2.1.1)")
-		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (<< 0.4.0)")
+		#a legacy beta reports its version without the ~beta.0, only update service 0.4.3 and later offers and installs
+		#it that way, see RUNNER_LEGACY_RNBO above
+		set(UPDATE_SERVICE_MIN_VERSION "0.4.0")
+		if (RUNNER_LEGACY_RNBO AND RUNNER_PRERELEASE)
+			set(UPDATE_SERVICE_MIN_VERSION "0.4.3")
+		endif()
+		SET(CPACK_DEBIAN_PACKAGE_RECOMMENDS "rnbo-update-service (>= ${UPDATE_SERVICE_MIN_VERSION}), rnbo-runner-panel (>= 2.1.1)")
+		SET(CPACK_DEBIAN_PACKAGE_BREAKS "rnbo-update-service (<< ${UPDATE_SERVICE_MIN_VERSION})")
 
 		#packages that are suggested
 		SET(CPACK_DEBIAN_PACKAGE_SUGGESTS "jack_transport_link")

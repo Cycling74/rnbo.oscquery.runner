@@ -125,7 +125,7 @@ Move
 
 Use `RUNNER_ARCH=move` with `docker/build-runner.sh` (see Build scripts above). It builds `build-move` with
 `-DWITH_DBUS=Off -DWITH_JACKSERVER=Off -DUSE_SNDFILE_CONAN=On -DSUPPORT_COMPILE=Off -DCMAKE_BUILD_RPATH=/data/UserData/rnbo/lib/`
-and writes `rnbooscquery_<version>_move.tar.gz` (holding `bin/rnbooscquery`) instead of a .deb. The version is the same as the rpi .deb.
+and writes `rnbooscquery_<version>_move.tar.gz` (holding `bin/rnbooscquery`) instead of a .deb. The version is the same as the rpi .deb, including a `~beta.0` that a runner for RNBO 1.4.6 or older does not report (it reports `1.4.6-12` for the package `1.4.6-12~beta.0`, because older Max clients can't handle prereleases).
 
 rnbo-update-service
 

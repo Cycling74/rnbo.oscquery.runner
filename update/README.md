@@ -11,6 +11,22 @@ It is currently configured to only allow root to create the service and only
 allow the `pi` user to communicate with it, but altering that wouldn't be too
 hard.
 
+## Runner versions
+
+Runner package versions are `<rnbo lib version>-<N>` or, for an app beta, `<rnbo lib version>-<N>~<pre>`.
+The service offers the newest one for the library the runner is built against as `LatestRunnerVersion`
+(see `src/RunnerVersionSelect.h`).
+
+Clients shipped with RNBO 1.4.6 and earlier only understand `<lib>-<digits>`, so for those "legacy" libraries
+(leading `major.minor.patch` <= 1.4.6):
+
+* the only permitted prerelease is `beta.0`, other prereleases are never offered,
+* an N is never used twice for one library, leaving beta means incrementing N,
+* the apt package keeps the real version (`1.4.6-12~beta.0`) but `LatestRunnerVersion` is reported as `1.4.6-12`,
+* when asked to install `rnbooscquery=1.4.6-12` the service installs the newest package of app number 12: `1.4.6-12` if apt has it, otherwise the highest `1.4.6-12~<prerelease>`.
+
+Newer libraries are unchanged.
+
 ## TODO
 
 * Allow for querying the number of packages that want updates, indicate if any are security updates.

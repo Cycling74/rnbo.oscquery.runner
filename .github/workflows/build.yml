@@ -4,6 +4,7 @@ on:
   push:
     tags:
       # v1.4.6-11 and v1.4.6-11-beta.1, see scripts/runner-version.mjs
+      # for RNBO <= 1.4.6 the only beta is beta.0 (v1.4.6-12-beta.0), which that script checks
       - 'v*-[0-9]*'
 
 jobs:
