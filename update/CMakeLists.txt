@@ -92,6 +92,9 @@ add_executable(${PROJECT_APP}
 	../common/RunnerUpdateState.cpp
 )
 
+#the package version, reported by --version
+target_compile_definitions(${PROJECT_APP} PRIVATE UPDATE_SERVICE_VERSION="${PROJECT_VERSION}-${CPACK_DEBIAN_PACKAGE_RELEASE}")
+
 target_link_libraries(${PROJECT_APP}
 	PRIVATE
 	SDBusCpp::sdbus-c++
